@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "site_name": "Wendy’s #42",
+    "severity": "critical",
+    "message": "HVAC offline",
+    "timestamp": "2025-10-27T15:00:00Z"
+  },
+  {
+    "id": 2,
+    "site_name": "Burger King #87",
+    "severity": "warning",
+    "message": "High energy usage detected",
+    "timestamp": "2025-10-27T15:10:00Z"
+  }
+]
