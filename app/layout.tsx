@@ -1,33 +1,58 @@
-"use client"
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+import Head from "next/head";
+import Sidebar from "@/components/Sidebar";
+import ActivityTracker from "@/components/activitytracker"; // ✅ added
+import { getCurrentUserId } from "@/lib/auth"; // ✅ added
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
 
-const links = [
-  { href: "/", label: "Dashboard" },
-  { href: "/live", label: "Live Alerts" },
-  { href: "/history", label: "Alert History" },
-]
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
 
-export default function Sidebar() {
-  const pathname = usePathname()
+export const metadata: Metadata = {
+  title: "Eagle Eyes Dashboard",
+  description: "Smart Building Monitoring & Remote Facility Management",
+};
+
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // ✅ Get user ID from Supabase session (server-side)
+  const userId = await getCurrentUserId();
 
   return (
-    <aside className="w-64 bg-white shadow-md border-r h-full flex flex-col">
-      <div className="p-4 font-bold text-xl">Eagle Eyes</div>
-      <nav className="flex-1">
-        {links.map(({ href, label }) => (
-          <Link
-            key={href}
-            href={href}
-            className={`block px-4 py-2 text-sm font-medium hover:bg-gray-100 ${
-              pathname === href ? "bg-gray-200 text-black" : "text-gray-700"
-            }`}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
-    </aside>
-  )
+    <html lang="en">
+      <Head>
+        <link
+          rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-sA+BxF1P3ySZg+1zD9KJyZt9BYU1zxtkQfYkxPZtW+E="
+          crossOrigin=""
+        />
+      </Head>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-100 text-gray-900`}
+      >
+        {/* ✅ Global user activity tracker */}
+        {userId && <ActivityTracker userId={userId} />}
+
+        <div className="flex h-screen w-screen overflow-hidden">
+          {/* Sidebar */}
+          <Sidebar />
+
+          {/* Main content */}
+          <main className="flex-1 overflow-y-auto p-4">{children}</main>
+        </div>
+      </body>
+    </html>
+  );
 }
