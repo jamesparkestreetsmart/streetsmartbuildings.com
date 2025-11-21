@@ -154,7 +154,9 @@ export default function EquipmentCheckupTable({ siteId }: Props) {
         </thead>
 
         <tbody>
-          {data.map((row) => (
+          {data
+            .filter((row) => row.equipment_group?.toLowerCase() !== "infrastructure")
+            .map((row) => (
             <tr key={row.equipment_id} className="border-b hover:bg-gray-50">
               <td className="py-3 px-4 underline text-blue-700">
                 <Link href={`/equipment/${row.equipment_id}/individual-equipment`}>
