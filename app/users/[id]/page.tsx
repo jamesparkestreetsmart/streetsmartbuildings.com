@@ -2,14 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
 import { ArrowLeft, User, Mail, Shield, Calendar, Trash2, Save } from "lucide-react";
-
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL! as string,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! as string
-);
+import {supabase } from "@/lib/supabaseClient";
 
 export default function UserDetailsPage() {
   const { id } = useParams<{ id: string }>();
