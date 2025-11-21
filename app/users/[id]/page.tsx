@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, User, Mail, Shield, Calendar, Trash2, Save } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function UserDetailsPage() {
