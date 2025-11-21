@@ -22,13 +22,13 @@ export default function UserDetailsPage() {
       .eq("id", id)
       .single();
 
-    if (!error) setUser(data);
+    if (error) console.error(error);
+    else setUser(data);
+
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchUser();
-  }, [id]);
+  useEffect(() => { fetchUser(); }, [id]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -43,22 +43,26 @@ export default function UserDetailsPage() {
       })
       .eq("id", id);
 
-    if (!error) setEditMode(false);
+    if (error) alert("Failed to save");
+    else setEditMode(false);
+
     setSaving(false);
   };
 
   const handleDelete = async () => {
     if (!confirm("Are you sure?")) return;
     const { error } = await supabase.from("a_users").delete().eq("id", id);
-    if (!error) router.push("/users");
+
+    if (error) alert("Failed");
+    else router.push("/users");
   };
 
-  if (loading) return <div className="p-6">Loading…</div>;
+  if (loading) return <div className="p-6 text-gray-500">Loading…</div>;
   if (!user) return <div className="p-6 text-red-600">User not found.</div>;
 
   return (
     <div className="p-6">
-      {/* rest of component unchanged */}
+      {/* …the rest of your JSX (unchanged)… */}
     </div>
   );
 }
