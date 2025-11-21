@@ -3,7 +3,7 @@ import { createRouteHandlerSupabaseClient } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
-    const supabase = createRouteHandlerSupabaseClient();
+    const supabase = createRouteHandlerSupabaseClient(); // ✔ NOT async
 
     const body = await req.json();
 
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     }
 
     // Store registry data
-    const { error } = await supabase
+    const { error } = await (await supabase)
       .from("a_devices_gateway_registry")
       .upsert({
         site_id,
@@ -37,6 +37,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true });
+
   } catch (err) {
     console.error("Gateway Registry API error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

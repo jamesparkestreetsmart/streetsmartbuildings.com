@@ -7,8 +7,8 @@ import { cookies as nextCookies } from "next/headers";
    FOR API ROUTE HANDLERS (route.ts)
    nextCookies() is SYNC here — DO NOT await it
 ---------------------------------------------------- */
-export function createRouteHandlerSupabaseClient() {
-  const cookieStore = nextCookies(); // ✔ correct
+export async function createRouteHandlerSupabaseClient() {
+  const cookieStore = await nextCookies(); // ✔ sync
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,7 +28,7 @@ export function createRouteHandlerSupabaseClient() {
    nextCookies() is ASYNC here — MUST await
 ---------------------------------------------------- */
 export async function createClient() {
-  const cookieStore = await nextCookies(); // ✔ correct
+  const cookieStore = await nextCookies(); // ✔ async context
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
