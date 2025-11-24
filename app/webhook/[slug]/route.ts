@@ -5,7 +5,7 @@ export async function POST(
   request: NextRequest,
   context: { params: { slug: string } }
 ) {
-  const { slug } = context.params; // ✅ no await, NOT a Promise
+  const { slug } = context.params;  // ← works in Next 13–16
 
   try {
     const body = await request.json();
@@ -13,7 +13,7 @@ export async function POST(
     const { data, error } = await supabase
       .from("webhook_logs")
       .insert({
-        site_slug: slug,   // <— correct DB column name
+        site_slug: slug,   // ← correct column name
         payload: body,
       })
       .select()
