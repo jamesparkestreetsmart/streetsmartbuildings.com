@@ -5,16 +5,16 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ slug: string }> }
 ) {
-  const { slug } = await context.params; // 👈 MUST await now
+  // ✅ Next.js 16 requires awaiting the params promise
+  const { slug } = await context.params;
 
   try {
     const body = await request.json();
 
-    // Save to database
     const { data, error } = await supabase
       .from("webhook_logs")
       .insert({
-        slug,
+        site_slug: slug,     // <- use site_slug if your table uses that
         payload: body,
       })
       .select()
