@@ -1,18 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseClient";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  context: { params: { slug: string } }
 ) {
-  try {
-    const { slug } = params;
+  const { slug } = context.params;
 
-    // Your actual webhook logic here
-    return NextResponse.json({ ok: true, slug });
+  try {
+    const body = await request.json();
+
+    // --- your route logic here ---
+    const { data, error } = await supabase
+      .from("webhook_logs")
+      .insert({
+        slug,
+        payload: body,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true, data });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message || "Webhook error" },
-      { status: 400 }
+      { error: err?.message || "Unknown error" },
+      { status: 500 }
     );
   }
 }
