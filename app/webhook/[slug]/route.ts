@@ -3,14 +3,14 @@ import { supabase } from "@/lib/supabaseClient";
 
 export async function POST(
   request: NextRequest,
-  context: { params: { slug: string } }
+  context: { params: Promise<{ slug: string }> }
 ) {
-  const { slug } = context.params;
+  const { slug } = await context.params; // 👈 MUST await now
 
   try {
     const body = await request.json();
 
-    // --- your route logic here ---
+    // Save to database
     const { data, error } = await supabase
       .from("webhook_logs")
       .insert({
