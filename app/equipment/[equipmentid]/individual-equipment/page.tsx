@@ -17,7 +17,6 @@ export default function IndividualEquipmentPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [editData, setEditData] = useState<any>({});
 
-
   // ===== LOAD EVERYTHING =====
   useEffect(() => {
     const load = async () => {
@@ -239,3 +238,5 @@ export default function IndividualEquipmentPage() {
     </div>
   );
 }
+
+
