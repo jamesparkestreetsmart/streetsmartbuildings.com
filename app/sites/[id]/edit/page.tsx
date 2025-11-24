@@ -1,3 +1,4 @@
+// app/sites/[id]/edit/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,24 +17,19 @@ export default function EditSitePage({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // ---- FORM STATE ----
   const [site, setSite] = useState<any>(null);
-
-  // ---- DEVICE REGISTRY ----
   const [registry, setRegistry] = useState<any>(null);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
 
-      // Load site info
       const { data: siteData } = await supabase
         .from("a_sites")
         .select("*")
         .eq("site_id", id)
         .single();
 
-      // Load device registry
       const { data: regData } = await supabase
         .from("a_devices_gateway_registry")
         .select("*")
@@ -51,7 +47,6 @@ export default function EditSitePage({
 
   async function save() {
     if (!site) return;
-
     setSaving(true);
 
     const { error } = await supabase
@@ -80,9 +75,10 @@ export default function EditSitePage({
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
+
+      {/* HEADER */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Edit Site</h1>
-
         <Link
           href={`/sites/${id}`}
           className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
@@ -91,7 +87,7 @@ export default function EditSitePage({
         </Link>
       </div>
 
-      {/* ---------------- FORM ---------------- */}
+      {/* FORM */}
       <div className="bg-white shadow p-6 rounded-xl space-y-4 mb-10">
         <input
           className="border rounded p-2 w-full"
@@ -99,7 +95,6 @@ export default function EditSitePage({
           value={site.site_name}
           onChange={(e) => setSite({ ...site, site_name: e.target.value })}
         />
-
         <input
           className="border rounded p-2 w-full"
           placeholder="Address Line 1"
@@ -108,7 +103,6 @@ export default function EditSitePage({
             setSite({ ...site, address_line1: e.target.value })
           }
         />
-
         <input
           className="border rounded p-2 w-full"
           placeholder="Address Line 2"
@@ -125,7 +119,6 @@ export default function EditSitePage({
             value={site.city}
             onChange={(e) => setSite({ ...site, city: e.target.value })}
           />
-
           <input
             className="border rounded p-2 w-full"
             placeholder="State"
@@ -161,20 +154,17 @@ export default function EditSitePage({
         {saving ? "Saving..." : "Save Changes"}
       </button>
 
-      {/* ---------------- DEVICE REGISTRY BLOCK ---------------- */}
+      {/* DEVICE REGISTRY */}
       <div className="mt-12 bg-white shadow p-6 rounded-xl">
         <h2 className="text-xl font-bold mb-4">Device Registry</h2>
 
-        {!registry && (
-          <p className="text-gray-600">No registry data received yet.</p>
-        )}
+        {!registry && <p>No registry data received yet.</p>}
 
         {registry && (
           <div>
             <p className="font-semibold mb-3">
               Last Updated: {registry.gr_last_updated}
             </p>
-
             <pre className="bg-gray-100 p-4 rounded text-sm overflow-auto">
               {JSON.stringify(registry.gr_devices, null, 2)}
             </pre>
