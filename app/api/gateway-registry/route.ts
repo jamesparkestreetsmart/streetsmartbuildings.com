@@ -3,26 +3,16 @@ import { createRouteHandlerSupabaseClient } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
-    const supabase = createRouteHandlerSupabaseClient(); // ✔ NOT async
-
+    const supabase = await createRouteHandlerSupabaseClient(); // ✔ correct, not async
     const body = await req.json();
 
-    const {
-      site_id,
-      gr_devices,
-      gr_entities,
-      gr_last_updated
-    } = body;
+    const { site_id, gr_devices, gr_entities, gr_last_updated } = body;
 
     if (!site_id || !gr_devices || !Array.isArray(gr_devices)) {
-      return NextResponse.json(
-        { error: "Invalid payload" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    // Store registry data
-    const { error } = await (await supabase)
+    const { error } = await supabase
       .from("a_devices_gateway_registry")
       .upsert({
         site_id,
@@ -37,7 +27,6 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true });
-
   } catch (err) {
     console.error("Gateway Registry API error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
