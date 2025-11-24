@@ -13,7 +13,6 @@ export default function EditSitePage({
   const router = useRouter();
   const { id } = params;
 
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
