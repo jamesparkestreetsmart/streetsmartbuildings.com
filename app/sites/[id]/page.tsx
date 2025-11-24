@@ -1,4 +1,3 @@
-// app/sites/[id]/page.tsx
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -80,11 +79,12 @@ export default async function SitePage({
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-yellow-400 text-white p-6 shadow-lg">
-        {/* ADDED md:flex-nowrap AND flex-shrink-0 to ensure horizontal space for all elements */}
+        {/* The main flex container for the header. md:flex-nowrap and md:justify-between are key. */}
         <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center md:justify-between gap-6">
 
           {/* LEFT SIDE — SITE INFO */}
-          <div className="flex flex-col gap-2 flex-shrink">
+          {/* Removed 'flex-shrink' here to rely on default shrinking behavior, letting the right side dictate its size. */}
+          <div className="flex flex-col gap-2"> 
             <h1 className="text-2xl font-bold">{site.site_name}</h1>
             <p className="text-sm opacity-90">
               {site.address_line1}
@@ -97,6 +97,7 @@ export default async function SitePage({
           </div>
 
           {/* RIGHT SIDE — WEATHER & ACTIONS */}
+          {/* flex-shrink-0 ensures these two items are never compressed and stay visible. */}
           <div className="flex items-center gap-4 flex-shrink-0">
 
             {/* WEATHER */}
