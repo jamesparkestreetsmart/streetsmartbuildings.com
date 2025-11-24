@@ -1,4 +1,3 @@
-// app/sites/[id]/edit/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
