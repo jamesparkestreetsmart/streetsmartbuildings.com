@@ -27,7 +27,6 @@ export default async function SitePage({
     }
   );
 
-  // ───────────── Fetch Site Info ─────────────
   const { data: site, error: siteError } = await supabase
     .from("a_sites")
     .select("*")
@@ -37,23 +36,15 @@ export default async function SitePage({
   if (siteError || !site)
     return <div className="p-6 text-red-600">Error loading site.</div>;
 
-  // ───────────── Weather Lookup ─────────────
   let weatherSummary = "Weather data unavailable";
 
   try {
-    // STEP 1 — get lat/lon from city
-    let geoResponse = null;
-
-    try {
-      geoResponse = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-          site.city
-        )}&count=1&language=en&format=json`,
-        { cache: "no-store" }
-      );
-    } catch (err) {
-      console.error("Geocoding fetch failed:", err);
-    }
+    let geoResponse = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+        site.city
+      )}&count=1&language=en&format=json`,
+      { cache: "no-store" }
+    );
 
     let lat = null;
     let lon = null;
@@ -64,18 +55,11 @@ export default async function SitePage({
       lon = geoData?.results?.[0]?.longitude ?? null;
     }
 
-    // STEP 2 — fetch weather
     if (lat && lon) {
-      let weatherResponse = null;
-
-      try {
-        weatherResponse = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`,
-          { cache: "no-store" }
-        );
-      } catch (err) {
-        console.error("Weather fetch failed:", err);
-      }
+      let weatherResponse = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`,
+        { cache: "no-store" }
+      );
 
       if (weatherResponse?.ok) {
         const weatherData = await weatherResponse.json();
@@ -90,17 +74,14 @@ export default async function SitePage({
         }
       }
     }
-  } catch (err) {
-    console.error("Weather processing error:", err);
-  }
+  } catch {}
 
-  // ───────────── Render ─────────────
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-yellow-400 text-white p-6 shadow-lg">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-
-          {/* LEFT — SITE INFO + WEATHER */}
+          
+          {/* LEFT */}
           <div className="flex flex-col gap-3">
             <div>
               <h1 className="text-2xl font-bold">{site.site_name}</h1>
@@ -114,14 +95,13 @@ export default async function SitePage({
               </p>
             </div>
 
-            {/* Weather moved closer to site info */}
             <div className="bg-white/20 rounded-xl p-3 shadow-inner w-fit">
               <p className="font-semibold text-sm">Weather</p>
               <p className="text-sm opacity-90">{weatherSummary}</p>
             </div>
           </div>
 
-          {/* RIGHT — EDIT BUTTON */}
+          {/* RIGHT */}
           <div className="flex md:items-end">
             <Link
               href={`/sites/${id}/edit`}
@@ -130,10 +110,8 @@ export default async function SitePage({
               Edit Site
             </Link>
           </div>
-
         </div>
       </header>
-
 
       <main className="p-6">
         <EquipmentTable siteId={id} />
