@@ -1,6 +1,5 @@
-// app/sites/[id]/page.tsx
 "use client";
-
+// app/sites/[id]/page.tsx
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
