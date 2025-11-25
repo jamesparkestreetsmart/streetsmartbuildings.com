@@ -5,6 +5,24 @@ import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+interface Site {
+  site_id: string;
+  site_name: string;
+  address_line1: string;
+  address_line2: string | null;
+  city: string;
+  state: string;
+  postal_code: string;
+  phone_number: string | null;
+}
+
+interface GatewayRegistry {
+  gr_id: string;
+  site_id: string;
+  gr_devices: any;
+  gr_last_updated: string | null;
+}
+
 export default function EditSitePage({
   params,
 }: {
@@ -13,18 +31,20 @@ export default function EditSitePage({
   const router = useRouter();
   const { siteid: id } = params;
 
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [site, setSite] = useState<Record<string, any> | null>(null);
-  const [registry, setRegistry] = useState<Record<string, any> | null>(null);
+  const [site, setSite] = useState<Site | null>(null);
+  const [registry, setRegistry] = useState<GatewayRegistry | null>(null);
 
+  // ============================================================
+  // LOAD PAGE DATA
+  // ============================================================
   useEffect(() => {
     async function load() {
       setLoading(true);
 
-      const { data: siteData } = await supabase
+      const { data: siteData, error: siteErr } = await supabase
         .from("a_sites")
         .select("*")
         .eq("site_id", id)
@@ -36,8 +56,12 @@ export default function EditSitePage({
         .eq("site_id", id)
         .single();
 
-      setSite(siteData);
-      setRegistry(regData);
+      if (siteErr) {
+        console.error("Site fetch error:", siteErr);
+      }
+
+      setSite(siteData as Site | null);
+      setRegistry(regData as GatewayRegistry | null);
 
       setLoading(false);
     }
@@ -45,8 +69,12 @@ export default function EditSitePage({
     load();
   }, [id]);
 
+  // ============================================================
+  // SAVE
+  // ============================================================
   async function save() {
     if (!site) return;
+
     setSaving(true);
 
     const { error } = await supabase
@@ -66,19 +94,26 @@ export default function EditSitePage({
 
     if (error) {
       alert("Save failed: " + error.message);
-    } else {
-      router.push(`/sites/${id}`);
+      return;
     }
+
+    router.push(`/sites/${id}`);
   }
 
-  if (loading) return <div className="p-6">Loading...</div>;
-
+  // ============================================================
+  // LOADING / NOT FOUND
+  // ============================================================
   if (loading) return <div className="p-6">Loading...</div>;
   if (!site) return <div className="p-6 text-red-600">Site not found.</div>;
 
+  // Create a narrowed version so TS stops complaining
+  const s: Site = site;
+
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <div className="p-6 max-w-3xl mx-auto">
-
       {/* HEADER */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Edit Site</h1>
@@ -95,57 +130,52 @@ export default function EditSitePage({
         <input
           className="border rounded p-2 w-full"
           placeholder="Site Name"
-          value={site?.site_name ?? ""}
-          onChange={(e) => setSite({ ...site!, site_name: e.target.value })}
+          value={s.site_name}
+          onChange={(e) => setSite({ ...s, site_name: e.target.value })}
         />
+
         <input
           className="border rounded p-2 w-full"
           placeholder="Address Line 1"
-          value={site?.address_line1 ?? ""}
-          onChange={(e) =>
-            setSite({ ...site!, address_line1: e.target.value })
-          }
+          value={s.address_line1}
+          onChange={(e) => setSite({ ...s, address_line1: e.target.value })}
         />
+
         <input
           className="border rounded p-2 w-full"
           placeholder="Address Line 2"
-          value={site?.address_line2 ?? ""}
-          onChange={(e) =>
-            setSite({ ...site!, address_line2: e.target.value })
-          }
+          value={s.address_line2 ?? ""}
+          onChange={(e) => setSite({ ...s, address_line2: e.target.value })}
         />
 
         <div className="flex gap-3">
           <input
             className="border rounded p-2 w-full"
             placeholder="City"
-            value={site?.city ?? ""}
-            onChange={(e) => setSite({ ...site!, city: e.target.value })}
+            value={s.city}
+            onChange={(e) => setSite({ ...s, city: e.target.value })}
           />
+
           <input
             className="border rounded p-2 w-full"
             placeholder="State"
-            value={site?.state ?? ""}
-            onChange={(e) => setSite({ ...site!, state: e.target.value })}
+            value={s.state}
+            onChange={(e) => setSite({ ...s, state: e.target.value })}
           />
         </div>
 
         <input
           className="border rounded p-2 w-full"
           placeholder="Postal Code"
-          value={site?.postal_code ?? ""}
-          onChange={(e) =>
-            setSite({ ...site!, postal_code: e.target.value })
-          }
+          value={s.postal_code}
+          onChange={(e) => setSite({ ...s, postal_code: e.target.value })}
         />
 
         <input
           className="border rounded p-2 w-full"
           placeholder="Phone Number"
-          value={site?.phone_number ?? ""}
-          onChange={(e) =>
-            setSite({ ...site!, phone_number: e.target.value })
-          }
+          value={s.phone_number ?? ""}
+          onChange={(e) => setSite({ ...s, phone_number: e.target.value })}
         />
       </div>
 
