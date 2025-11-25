@@ -42,7 +42,7 @@ export default async function SitePage({
 
   if (siteError || !site) {
     console.error("SITE ERROR:", siteError);
-    return <div className="p-6 text-red-600">Error loading site!!!.</div>;
+    return <div className="p-6 text-red-600">Error loading siteeee.</div>;
   }
 
   // ----------------------------
