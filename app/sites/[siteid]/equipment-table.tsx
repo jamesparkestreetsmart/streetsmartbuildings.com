@@ -53,7 +53,7 @@ export default async function EquipmentTable({ siteId }: { siteId: string }) {
             <tr key={row.equipment_id} className="border-b hover:bg-gray-50">
               <td className="py-3 px-4 underline text-blue-700">
                 <Link
-                  href={`/equipment/${row.equipment_id}/individual-equipment`}
+                  href={`/sites/${siteId}/${row.equipment_id}`}
                   prefetch={false}
                 >
                   {row.equipment_name}

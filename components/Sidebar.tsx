@@ -8,7 +8,7 @@ const links = [
   { href: "/live", label: "Live Alerts" },
   { href: "/history", label: "Alert History" },
   { href: "/sites", label: "Sites" },
-  { href: "/equipment-benchmarking", label: "Equipment Benchmarking" },
+  { href: "/benchmark", label: "Equipment Benchmarking" },
   { href: "/journey", label: "My Journey" },
   { href: "/settings", label: "Settings", icon: <Users className="w-4 h-4 inline-block mr-2" /> },
 ];

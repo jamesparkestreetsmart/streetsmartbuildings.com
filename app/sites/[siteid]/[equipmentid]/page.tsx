@@ -8,6 +8,7 @@ import { ArrowLeft, Edit, Plus } from "lucide-react";
 export default function IndividualEquipmentPage() {
   const params = useParams();
   const router = useRouter();
+  const siteId = params.siteid as string;
   const equipmentId = params.equipmentid as string;
 
   const [equipment, setEquipment] = useState<any>(null);
@@ -72,7 +73,8 @@ export default function IndividualEquipmentPage() {
     );
 
   // **** Derived routes ****
-  const siteRoute = `/sites/${equipment.site_id}`;
+  const siteRoute = `/sites/${siteId}`;
+
 
   // **** Group sensors by device_id ****
   const sensorsByDevice = devices.map((device) => ({
@@ -238,5 +240,3 @@ export default function IndividualEquipmentPage() {
     </div>
   );
 }
-
-
