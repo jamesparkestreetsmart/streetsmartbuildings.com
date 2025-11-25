@@ -10,9 +10,9 @@ export const dynamic = "force-dynamic";
 export default async function SitePage({
   params,
 }: {
-  params: { id: string };
+  params: { siteid: string };
 }) {
-  const { id } = params;
+  const { siteid: id } = params;
 
   // ----------------------------
   // COOKIES (Next.js 14+ async fix)

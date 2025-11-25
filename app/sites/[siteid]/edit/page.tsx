@@ -8,10 +8,10 @@ import { useRouter } from "next/navigation";
 export default function EditSitePage({
   params,
 }: {
-  params: { id: string };
+  params: { siteid: string };
 }) {
   const router = useRouter();
-  const { id } = params;
+  const { siteid: id } = params;
 
 
   const [loading, setLoading] = useState(true);
