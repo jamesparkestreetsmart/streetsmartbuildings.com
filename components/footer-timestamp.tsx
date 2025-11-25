@@ -2,10 +2,8 @@
 import { useState, useEffect } from "react"
 
 export default function FooterTimestamp() {
-  const [lastUpdated, setLastUpdated] = useState("")
-
-  useEffect(() => {
-    const now = new Date().toLocaleString("en-US", {
+  const formatNow = () =>
+    new Date().toLocaleString("en-US", {
       timeZone: "America/Chicago",
       hour12: true,
       hour: "numeric",
@@ -15,7 +13,20 @@ export default function FooterTimestamp() {
       day: "numeric",
       year: "numeric",
     })
-    setLastUpdated(now)
+
+  // Initialize using a lazy state initializer to avoid calling setState
+  // synchronously inside an effect (eslint: react-hooks/set-state-in-effect)
+  const [lastUpdated, setLastUpdated] = useState<string>(() => formatNow())
+
+  // Auto-refresh the timestamp every 5 minutes. The `setLastUpdated` call
+  // happens inside the interval callback (not synchronously in the effect body)
+  // which satisfies the react-hooks lint rule.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLastUpdated(formatNow())
+    }, 5 * 60 * 1000)
+
+    return () => clearInterval(id)
   }, [])
 
   return (
