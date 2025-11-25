@@ -12,10 +12,10 @@ export default async function SitePage({
 }: {
   params: { siteid: string };
 }) {
-  const { siteid: id } = params;
+  const { siteid: id } = params; // ✅ ONLY use `id` from here on
 
   // ----------------------------
-  // COOKIES (Next.js 14+ async fix)
+  // Supabase Server Client (Next.js 14+ cookie handling)
   // ----------------------------
   const cookieStore = await cookies();
 
@@ -25,7 +25,6 @@ export default async function SitePage({
     {
       cookies: {
         get(name: string) {
-          // cookieStore is resolved, so .get() works now
           return cookieStore.get(name)?.value;
         },
       },
@@ -33,7 +32,7 @@ export default async function SitePage({
   );
 
   // ----------------------------
-  // Fetch site
+  // Fetch Site Record
   // ----------------------------
   const { data: site, error: siteError } = await supabase
     .from("a_sites")
@@ -43,11 +42,11 @@ export default async function SitePage({
 
   if (siteError || !site) {
     console.error("SITE ERROR:", siteError);
-    return <div className="p-6 text-red-600">Error loading site.</div>;
+    return <div className="p-6 text-red-600">Error loading site!!!.</div>;
   }
 
   // ----------------------------
-  // Weather lookup
+  // Weather Lookup
   // ----------------------------
   let weatherSummary = "Weather data unavailable";
 
@@ -91,6 +90,9 @@ export default async function SitePage({
     console.error("Weather fetch failed:", err);
   }
 
+  // ----------------------------
+  // Render
+  // ----------------------------
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-yellow-400 text-white p-6 shadow-lg">
@@ -125,7 +127,8 @@ export default async function SitePage({
       </header>
 
       <main className="p-6">
-        <EquipmentTable siteId={id} />
+        {/* ✅ Correct: pass `id` (string) to EquipmentTable */}
+        <EquipmentTable siteid={id} />
       </main>
     </div>
   );
