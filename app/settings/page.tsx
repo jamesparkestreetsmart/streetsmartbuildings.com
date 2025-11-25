@@ -13,8 +13,8 @@ const supabase = createClient(
 export default function SettingsPage() {
   const router = useRouter();
 
-  const [org, setOrg] = useState<any>(null);
-  const [users, setUsers] = useState<any[]>([]);
+  const [org, setOrg] = useState<Record<string, any> | null>(null);
+  const [users, setUsers] = useState<Record<string, any>[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingOrg, setEditingOrg] = useState(false);
   const [orgDraft, setOrgDraft] = useState<any>({});
@@ -36,10 +36,6 @@ export default function SettingsPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   // =================== FETCH DATA ===================
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   const fetchData = async () => {
     setLoading(true);
 
@@ -64,8 +60,14 @@ export default function SettingsPage() {
     setLoading(false);
   };
 
-  // =================== SAVE ORG ===================
+  useEffect(() => {
+    (async () => {
+      await fetchData();
+    })();
+  }, []);
+
   const saveOrg = async () => {
+    if (!org) return;
     const { error } = await supabase
       .from("a_organizations")
       .update({

@@ -11,12 +11,12 @@ export default function IndividualEquipmentPage() {
   const siteId = params.siteid as string;
   const equipmentId = params.equipmentid as string;
 
-  const [equipment, setEquipment] = useState<any>(null);
-  const [devices, setDevices] = useState<any[]>([]);
-  const [sensors, setSensors] = useState<any[]>([]);
+  const [equipment, setEquipment] = useState<Record<string, any> | null>(null);
+  const [devices, setDevices] = useState<Record<string, any>[]>([]);
+  const [sensors, setSensors] = useState<Record<string, any>[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
-  const [editData, setEditData] = useState<any>({});
+  const [editData, setEditData] = useState<Record<string, any>>({});
 
   // ===== LOAD EVERYTHING =====
   useEffect(() => {

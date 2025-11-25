@@ -85,7 +85,9 @@ const fetchSites = async () => {
 
 // Load once on page mount
 useEffect(() => {
-  fetchSites();
+  (async () => {
+    await fetchSites();
+  })();
 }, []);
 
 

@@ -73,26 +73,7 @@ export default function AddDeviceForm({ siteId, equipmentId }: AddDeviceFormProp
     loadLibrary();
   }, []);
 
-  // ===== AUTOFILL WHEN SELECTING FROM LIBRARY =====
-  useEffect(() => {
-    if (!selectedLibraryId) return;
 
-    const lib = libraryOptions.find(
-      (l) => l.library_device_id === selectedLibraryId
-    );
-    if (!lib) return;
-
-    // 🔥 FIX: Ensure ALL fields default to a string
-    setForm({
-      device_name: lib.device_name ?? "",
-      protocol: lib.protocol ?? "",
-      connection_type: lib.connection_type ?? "wireless",
-      model: lib.model ?? "",
-      serial_number: "",
-      firmware_version: "",
-      ip_address: "",
-    });
-  }, [selectedLibraryId, libraryOptions]);
 
   // ===== SAVE DEVICE =====
   // ===== SAVE DEVICE =====
@@ -195,7 +176,36 @@ const handleSave = async () => {
 
       <select
         value={selectedLibraryId}
-        onChange={(e) => setSelectedLibraryId(e.target.value)}
+        onChange={(e) => {
+          const val = e.target.value
+          setSelectedLibraryId(val)
+
+          if (!val) {
+            setForm({
+              device_name: "",
+              protocol: "",
+              connection_type: "wireless",
+              model: "",
+              serial_number: "",
+              firmware_version: "",
+              ip_address: "",
+            })
+            return
+          }
+
+          const lib = libraryOptions.find((l) => l.library_device_id === val)
+          if (!lib) return
+
+          setForm({
+            device_name: lib.device_name ?? "",
+            protocol: lib.protocol ?? "",
+            connection_type: lib.connection_type ?? "wireless",
+            model: lib.model ?? "",
+            serial_number: "",
+            firmware_version: "",
+            ip_address: "",
+          })
+        }}
         className="w-full border rounded-md p-2"
       >
         <option value="">— Select a device —</option>

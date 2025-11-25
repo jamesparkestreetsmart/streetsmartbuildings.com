@@ -4,11 +4,27 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Save, X } from "lucide-react";
 
+// -------------------------------------------------------------
+// TYPE DEFINITIONS
+// -------------------------------------------------------------
+export interface NewDevice {
+  device_name: string;
+  serial_number: string;
+  protocol: string;
+  connection_type: string;
+  firmware_version: string;
+  ip_address: string;
+  site_id: string;
+  equipment_id: string;
+  status: string;
+  service_notes: string;
+}
+
 interface AddDeviceFormProps {
-  newDevice: any;
-  setNewDevice: (v: any) => void;
+  newDevice: NewDevice;
+  setNewDevice: React.Dispatch<React.SetStateAction<NewDevice>>;
   setShowAdd: (v: boolean) => void;
-  fetchDevices: () => void;
+  fetchDevices: () => Promise<void>;
 }
 
 interface LibraryDevice {
@@ -34,6 +50,9 @@ interface Equipment {
   site_id: string;
 }
 
+// -------------------------------------------------------------
+// COMPONENT
+// -------------------------------------------------------------
 export default function AddDeviceForm({
   newDevice,
   setNewDevice,
@@ -44,9 +63,9 @@ export default function AddDeviceForm({
   const [sites, setSites] = useState<Site[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
 
-  // ============================
-  // LOAD LIBRARY DEVICES, SITES, EQUIPMENT
-  // ============================
+  // -------------------------------------------------------------
+  // LOAD TEMPLATES + SITES + EQUIPMENT
+  // -------------------------------------------------------------
   useEffect(() => {
     const load = async () => {
       const { data: lib } = await supabase
@@ -72,25 +91,25 @@ export default function AddDeviceForm({
     load();
   }, []);
 
-  // ============================
-  // SELECT TEMPLATE → autofill fields
-  // ============================
+  // -------------------------------------------------------------
+  // APPLY TEMPLATE
+  // -------------------------------------------------------------
   const handleTemplateSelect = (id: string) => {
     const template = libraryDevices.find((l) => l.library_device_id === id);
     if (!template) return;
 
-    setNewDevice({
-      ...newDevice,
+    setNewDevice((prev) => ({
+      ...prev,
       device_name: template.device_name,
       protocol: template.protocol || "",
       connection_type: template.connection_type || "",
       firmware_version: template.default_firmware || "",
-    });
+    }));
   };
 
-  // ============================
+  // -------------------------------------------------------------
   // SAVE NEW DEVICE
-  // ============================
+  // -------------------------------------------------------------
   const save = async () => {
     if (!newDevice.device_name || !newDevice.serial_number) {
       alert("Device Name & Serial Number required.");
@@ -122,12 +141,12 @@ export default function AddDeviceForm({
     fetchDevices();
   };
 
-  // ============================
+  // -------------------------------------------------------------
   // RENDER
-  // ============================
+  // -------------------------------------------------------------
   return (
     <div>
-      {/* TEMPLATE */}
+      {/* TEMPLATE DROPDOWN */}
       <div className="mb-3">
         <label className="block text-sm font-semibold mb-1">Device Template</label>
         <select
@@ -149,7 +168,9 @@ export default function AddDeviceForm({
         <input
           className="w-full border rounded-md p-2"
           value={newDevice.device_name}
-          onChange={(e) => setNewDevice({ ...newDevice, device_name: e.target.value })}
+          onChange={(e) =>
+            setNewDevice((prev) => ({ ...prev, device_name: e.target.value }))
+          }
         />
       </div>
 
@@ -159,7 +180,9 @@ export default function AddDeviceForm({
         <input
           className="w-full border rounded-md p-2"
           value={newDevice.serial_number}
-          onChange={(e) => setNewDevice({ ...newDevice, serial_number: e.target.value })}
+          onChange={(e) =>
+            setNewDevice((prev) => ({ ...prev, serial_number: e.target.value }))
+          }
         />
       </div>
 
@@ -169,7 +192,9 @@ export default function AddDeviceForm({
         <input
           className="w-full border rounded-md p-2"
           value={newDevice.protocol}
-          onChange={(e) => setNewDevice({ ...newDevice, protocol: e.target.value })}
+          onChange={(e) =>
+            setNewDevice((prev) => ({ ...prev, protocol: e.target.value }))
+          }
         />
       </div>
 
@@ -179,7 +204,9 @@ export default function AddDeviceForm({
         <input
           className="w-full border rounded-md p-2"
           value={newDevice.connection_type}
-          onChange={(e) => setNewDevice({ ...newDevice, connection_type: e.target.value })}
+          onChange={(e) =>
+            setNewDevice((prev) => ({ ...prev, connection_type: e.target.value }))
+          }
         />
       </div>
 
@@ -190,7 +217,10 @@ export default function AddDeviceForm({
           className="w-full border rounded-md p-2"
           value={newDevice.firmware_version}
           onChange={(e) =>
-            setNewDevice({ ...newDevice, firmware_version: e.target.value })
+            setNewDevice((prev) => ({
+              ...prev,
+              firmware_version: e.target.value,
+            }))
           }
         />
       </div>
@@ -202,7 +232,11 @@ export default function AddDeviceForm({
           className="w-full border rounded-md p-2"
           value={newDevice.site_id}
           onChange={(e) =>
-            setNewDevice({ ...newDevice, site_id: e.target.value, equipment_id: "" })
+            setNewDevice((prev) => ({
+              ...prev,
+              site_id: e.target.value,
+              equipment_id: "",
+            }))
           }
         >
           <option value="">Select Site</option>
@@ -220,7 +254,9 @@ export default function AddDeviceForm({
         <select
           className="w-full border rounded-md p-2"
           value={newDevice.equipment_id}
-          onChange={(e) => setNewDevice({ ...newDevice, equipment_id: e.target.value })}
+          onChange={(e) =>
+            setNewDevice((prev) => ({ ...prev, equipment_id: e.target.value }))
+          }
         >
           <option value="">Select Equipment</option>
           {equipment
@@ -240,7 +276,10 @@ export default function AddDeviceForm({
           className="w-full border rounded-md p-2"
           value={newDevice.service_notes}
           onChange={(e) =>
-            setNewDevice({ ...newDevice, service_notes: e.target.value })
+            setNewDevice((prev) => ({
+              ...prev,
+              service_notes: e.target.value,
+            }))
           }
         />
       </div>

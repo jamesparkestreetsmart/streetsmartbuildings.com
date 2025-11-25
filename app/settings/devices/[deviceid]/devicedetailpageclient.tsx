@@ -3,7 +3,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { ArrowLeft, Cpu, Trash2, Edit3 } from "lucide-react";
 
@@ -56,7 +55,7 @@ export default function DeviceDetailPageClient({
 
   const [showEdit, setShowEdit] = useState(false);
 
-  const [editData, setEditData] = useState<any>({
+  const [editData, setEditData] = useState<Record<string, any>>({
     device_name: "",
     serial_number: "",
     protocol: "",
@@ -108,14 +107,14 @@ export default function DeviceDetailPageClient({
       .select("site_id, site_name")
       .order("site_name");
 
-    setSites((siteRows as any[]) || []);
+    setSites((siteRows as Record<string, any>[]) || []);
 
     const { data: eqRows } = await supabase
       .from("a_equipments")
       .select("equipment_id, equipment_name, site_id")
       .order("equipment_name");
 
-    setEquipment((eqRows as any[]) || []);
+    setEquipment((eqRows as Record<string, any>[]) || []);
 
     setLoading(false);
   };

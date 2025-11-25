@@ -94,8 +94,10 @@ export default function AlertHistoryPage() {
   };
 
   useEffect(() => {
-    fetchLogs();
-  }, [range, customStart, customEnd]);
+    (async () => {
+      await fetchLogs();
+    })();
+  }, [range, customStart, customEnd, fetchLogs]);
 
   // 🧮 Duration formatter
   const formatDuration = (duration: string | null) => {

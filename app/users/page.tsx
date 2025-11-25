@@ -30,11 +30,9 @@ interface UserRow {
 export default function UsersPage() {
   const [org, setOrg] = useState<OrgInfo | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchOrgAndUsers() {
-      setLoading(true);
       const { data: orgData } = await supabase
         .from("a_orgs")
         .select("*")
@@ -48,7 +46,6 @@ export default function UsersPage() {
 
       setOrg(orgData);
       setUsers(userData || []);
-      setLoading(false);
     }
     fetchOrgAndUsers();
   }, []);

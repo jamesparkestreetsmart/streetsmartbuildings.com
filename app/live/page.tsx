@@ -60,7 +60,7 @@ export default function LiveAlertsPage() {
       .order("start_time", { ascending: false });
 
     if (!error) {
-      setRows((data as any[]) || []);
+      setRows((data as LiveAlert[]) || []);
       setLastUpdated(formatCST(new Date()));
     } else {
       console.error("fetch live failed", error);
@@ -68,10 +68,12 @@ export default function LiveAlertsPage() {
   };
 
   useEffect(() => {
-    fetchLive();
+    (async () => {
+      await fetchLive();
+    })();
     const interval = setInterval(fetchLive, 300_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchLive]);
 
   const formatDuration = (duration: any) => {
     if (duration === null || duration === undefined) return "--";

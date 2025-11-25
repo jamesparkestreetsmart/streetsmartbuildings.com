@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { Cpu, Plus, Trash2, ArrowUpDown, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, ArrowUpDown, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
-import AddDeviceForm from "./adddeviceform";
+import AddDeviceForm, { NewDevice } from "./adddeviceform";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,7 +37,10 @@ export default function DevicesPage() {
 
   const [showAdd, setShowAdd] = useState(false);
 
-  const [newDevice, setNewDevice] = useState({
+  // -------------------------------------------------------------
+  // PROPERLY TYPED NEW DEVICE
+  // -------------------------------------------------------------
+  const [newDevice, setNewDevice] = useState<NewDevice>({
     device_name: "",
     serial_number: "",
     protocol: "",
@@ -50,9 +53,9 @@ export default function DevicesPage() {
     service_notes: "",
   });
 
-  // ----------------------------
+  // -------------------------------------------------------------
   // FETCH DEVICES
-  // ----------------------------
+  // -------------------------------------------------------------
   const fetchDevices = async () => {
     setLoading(true);
 
@@ -71,9 +74,9 @@ export default function DevicesPage() {
     fetchDevices();
   }, []);
 
-  // ----------------------------
-  // SORT LOGIC
-  // ----------------------------
+  // -------------------------------------------------------------
+  // SORTING
+  // -------------------------------------------------------------
   const sort = (column: keyof Device) => {
     const newOrder =
       sortColumn === column && sortOrder === "asc" ? "desc" : "asc";
@@ -104,9 +107,9 @@ export default function DevicesPage() {
     </th>
   );
 
-  // ----------------------------
+  // -------------------------------------------------------------
   // DELETE DEVICE
-  // ----------------------------
+  // -------------------------------------------------------------
   const deleteDevice = async (device_id: string) => {
     if (!confirm("Delete this device?")) return;
 
@@ -124,9 +127,9 @@ export default function DevicesPage() {
     fetchDevices();
   };
 
-  // ----------------------------
+  // -------------------------------------------------------------
   // RENDER
-  // ----------------------------
+  // -------------------------------------------------------------
   if (loading)
     return <div className="p-6 text-gray-500">Loading devices...</div>;
 
@@ -149,7 +152,7 @@ export default function DevicesPage() {
         </button>
       </div>
 
-      {/* DEVICE TABLE */}
+      {/* TABLE */}
       <div className="bg-white shadow border rounded-lg overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100 text-gray-700 uppercase">

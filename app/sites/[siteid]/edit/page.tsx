@@ -17,8 +17,8 @@ export default function EditSitePage({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [site, setSite] = useState<any>(null);
-  const [registry, setRegistry] = useState<any>(null);
+  const [site, setSite] = useState<Record<string, any> | null>(null);
+  const [registry, setRegistry] = useState<Record<string, any> | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -73,6 +73,9 @@ export default function EditSitePage({
 
   if (loading) return <div className="p-6">Loading...</div>;
 
+  if (loading) return <div className="p-6">Loading...</div>;
+  if (!site) return <div className="p-6 text-red-600">Site not found.</div>;
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
 
@@ -92,23 +95,23 @@ export default function EditSitePage({
         <input
           className="border rounded p-2 w-full"
           placeholder="Site Name"
-          value={site.site_name}
-          onChange={(e) => setSite({ ...site, site_name: e.target.value })}
+          value={site?.site_name ?? ""}
+          onChange={(e) => setSite({ ...site!, site_name: e.target.value })}
         />
         <input
           className="border rounded p-2 w-full"
           placeholder="Address Line 1"
-          value={site.address_line1}
+          value={site?.address_line1 ?? ""}
           onChange={(e) =>
-            setSite({ ...site, address_line1: e.target.value })
+            setSite({ ...site!, address_line1: e.target.value })
           }
         />
         <input
           className="border rounded p-2 w-full"
           placeholder="Address Line 2"
-          value={site.address_line2 || ""}
+          value={site?.address_line2 ?? ""}
           onChange={(e) =>
-            setSite({ ...site, address_line2: e.target.value })
+            setSite({ ...site!, address_line2: e.target.value })
           }
         />
 
@@ -116,32 +119,32 @@ export default function EditSitePage({
           <input
             className="border rounded p-2 w-full"
             placeholder="City"
-            value={site.city}
-            onChange={(e) => setSite({ ...site, city: e.target.value })}
+            value={site?.city ?? ""}
+            onChange={(e) => setSite({ ...site!, city: e.target.value })}
           />
           <input
             className="border rounded p-2 w-full"
             placeholder="State"
-            value={site.state}
-            onChange={(e) => setSite({ ...site, state: e.target.value })}
+            value={site?.state ?? ""}
+            onChange={(e) => setSite({ ...site!, state: e.target.value })}
           />
         </div>
 
         <input
           className="border rounded p-2 w-full"
           placeholder="Postal Code"
-          value={site.postal_code}
+          value={site?.postal_code ?? ""}
           onChange={(e) =>
-            setSite({ ...site, postal_code: e.target.value })
+            setSite({ ...site!, postal_code: e.target.value })
           }
         />
 
         <input
           className="border rounded p-2 w-full"
           placeholder="Phone Number"
-          value={site.phone_number || ""}
+          value={site?.phone_number ?? ""}
           onChange={(e) =>
-            setSite({ ...site, phone_number: e.target.value })
+            setSite({ ...site!, phone_number: e.target.value })
           }
         />
       </div>
