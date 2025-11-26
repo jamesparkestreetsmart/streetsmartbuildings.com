@@ -1,4 +1,5 @@
 // app/sites/[siteid]/page.tsx
+
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -12,10 +13,9 @@ export default async function SitePage({
 }: {
   params: { siteid: string };
 }) {
-  // TEMP DEBUG: this WILL show in Vercel logs
-  console.error("🔥 SERVER HIT: /sites/[siteid], params =", params);
+  console.error("SERVER HIT: /sites/[siteid], params =", params);
 
-  const id = params.siteid;
+  const { siteid: id } = params;
 
   const cookieStore = await cookies();
 
@@ -31,9 +31,6 @@ export default async function SitePage({
     }
   );
 
-  // ----------------------------
-  // Fetch site
-  // ----------------------------
   const { data: site, error: siteError } = await supabase
     .from("a_sites")
     .select("*")
@@ -42,9 +39,6 @@ export default async function SitePage({
 
   if (siteError || !site) return notFound();
 
-  // ----------------------------
-  // Weather fetch
-  // ----------------------------
   let weatherSummary = "Weather data unavailable";
 
   try {
@@ -58,7 +52,7 @@ export default async function SitePage({
     let lat = null;
     let lon = null;
 
-    if (geoResponse.ok) {
+    if (geoResponse?.ok) {
       const geoData = await geoResponse.json();
       lat = geoData?.results?.[0]?.latitude ?? null;
       lon = geoData?.results?.[0]?.longitude ?? null;
@@ -85,14 +79,11 @@ export default async function SitePage({
     }
   } catch {}
 
-  // ----------------------------
-  // Render
-  // ----------------------------
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-yellow-400 text-white p-6 shadow-lg">
-        <div className="flex flex-col md:flex-row md:justify-between gap-6">
-          <div className="flex flex-col gap-2">
+        <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center md:justify-between gap-6">
+          <div className="flex flex-col gap-2 flex-shrink">
             <h1 className="text-2xl font-bold">{site.site_name}</h1>
             <p className="text-sm opacity-90">
               {site.address_line1}
@@ -104,7 +95,7 @@ export default async function SitePage({
             </p>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-shrink-0">
             <div className="bg-white/20 rounded-xl p-3 shadow-inner text-right">
               <p className="font-semibold text-sm">Weather</p>
               <p className="text-sm opacity-90">{weatherSummary}</p>
@@ -112,10 +103,9 @@ export default async function SitePage({
 
             <Link
               href={`/sites/${id}/edit`}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-green-700 font-medium shadow hover:bg-gray-100 transition"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-green-700 font-medium shadow hover:bg-gray-100 transition duration-150"
             >
-              <span className="text-lg">✏️</span>
-              Edit Site
+              ✏️ Edit Site
             </Link>
           </div>
         </div>
