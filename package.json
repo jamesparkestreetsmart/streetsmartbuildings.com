@@ -9,21 +9,21 @@
     "lint": "eslint"
   },
   "dependencies": {
-  "@radix-ui/react-separator": "^1.1.7",
-  "@radix-ui/react-slot": "^1.2.3",
-  "@radix-ui/react-tabs": "^1.1.13",
-  "@radix-ui/react-tooltip": "^1.2.8",
-  "@supabase/ssr": "^0.7.0",
-  "@supabase/supabase-js": "^2.76.1",
-  "class-variance-authority": "^0.7.1",
-  "clsx": "^2.1.1",
-  "dotenv": "^17.2.3",
-  "lucide-react": "^0.548.0",
-  "next": "16.0.0",
-  "react-dom": "18.3.1",
-  "recharts": "^3.3.0",
-  "tailwind-merge": "^3.3.1"
-},
+    "@radix-ui/react-separator": "^1.1.7",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.76.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
+    "lucide-react": "^0.548.0",
+    "next": "16.0.0",
+    "react-dom": "18.3.1",
+    "recharts": "^3.3.0",
+    "tailwind-merge": "^3.3.1"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -33,5 +33,8 @@
     "tailwindcss": "^4",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5"
+  },
+  "lightningcss": {
+    "forceJs": true
   }
 }
