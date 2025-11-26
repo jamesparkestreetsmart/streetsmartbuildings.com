@@ -99,7 +99,9 @@ export default function AddDeviceForm({
   }, []);
 
   useEffect(() => {
-    void loadInitialData();
+    void (async () => {
+      await loadInitialData();
+    })();
   }, [loadInitialData]);
 
   // =========================
@@ -203,7 +205,7 @@ export default function AddDeviceForm({
     // 4) Build a_sensors rows
     const sensorsToInsert = lib.default_sensors.map((s) => {
       const map = (mappings ?? []).find(
-        (m: any) => m.sensor_type === s.sensor_type
+        (m: Record<string, unknown>) => m.sensor_type === s.sensor_type
       );
 
       return {

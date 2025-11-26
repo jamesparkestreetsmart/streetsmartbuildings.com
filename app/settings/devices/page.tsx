@@ -70,7 +70,9 @@ export default function DevicesPage() {
 
   // RUN ON MOUNT
   useEffect(() => {
-    fetchDevices();
+    void (async () => {
+      await fetchDevices();
+    })();
   }, [fetchDevices]);
 
   // SORT

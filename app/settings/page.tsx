@@ -1,4 +1,30 @@
 "use client";
+interface Organization {
+  org_id: string;
+  org_name: string;
+  industry: string | null;
+  program_lead_email: string | null;
+  billing_address: string | null;
+  created_at: string;
+  updated_at: string | null;
+  org_identifier: string | null;
+  dummy_site_id: string | null;
+  dummy_equipment_id: string | null;
+}
+
+interface UserRecord {
+  user_id: string;
+  org_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string | null;
+  role: string | null;
+  permissions: string;
+  status: string;
+  last_activity_at: string | null;
+  created_at: string;
+}
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -13,11 +39,11 @@ const supabase = createClient(
 export default function SettingsPage() {
   const router = useRouter();
 
-  const [org, setOrg] = useState<Record<string, any> | null>(null);
-  const [users, setUsers] = useState<Record<string, any>[]>([]);
+  const [org, setOrg] = useState<Organization | null>(null);
+  const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingOrg, setEditingOrg] = useState(false);
-  const [orgDraft, setOrgDraft] = useState<any>({});
+  const [orgDraft, setOrgDraft] = useState<Partial<Organization>>({});
   const [showAddUser, setShowAddUser] = useState(false);
   const [shakeForm, setShakeForm] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -76,13 +102,14 @@ export default function SettingsPage() {
         program_lead_email: orgDraft.program_lead_email,
         billing_address: orgDraft.billing_address,
       })
-      .eq("id", org.id);
+      .eq("org_id", org.org_id);
 
     if (error) {
       alert("Failed to update organization info.");
       console.error(error);
     } else {
-      setOrg(orgDraft);
+      // Merge draft into real org safely
+      setOrg({ ...org, ...orgDraft } as Organization); //Fixed
       setEditingOrg(false);
     }
   };
@@ -100,7 +127,7 @@ export default function SettingsPage() {
 
     const { error } = await supabase.from("a_users").insert([
       {
-        org_id: org?.id,
+        org_id: org?.org_id,
         first_name: newUser.first_name,
         last_name: newUser.last_name,
         email: newUser.email,
@@ -141,22 +168,23 @@ export default function SettingsPage() {
   };
 
   const filteredAndSortedUsers = users
-    .filter((u) => {
-      const search = searchTerm.toLowerCase();
-      return (
-        u.first_name?.toLowerCase().includes(search) ||
-        u.last_name?.toLowerCase().includes(search) ||
-        u.email?.toLowerCase().includes(search) ||
-        u.role?.toLowerCase().includes(search)
-      );
-    })
-    .sort((a, b) => {
-      const aVal = a[sortKey] || "";
-      const bVal = b[sortKey] || "";
-      if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
-      if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
-      return 0;
-    });
+  .filter((u) => {
+    const search = searchTerm.toLowerCase();
+    return (
+      u.first_name.toLowerCase().includes(search) ||
+      u.last_name.toLowerCase().includes(search) ||
+      u.email.toLowerCase().includes(search) ||
+      (u.role ?? "").toLowerCase().includes(search)
+    );
+  })
+  .sort((a, b) => {
+    const aVal = (a as Record<string, any>)[sortKey];
+    const bVal = (b as Record<string, any>)[sortKey];
+    if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
+    if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
+    return 0;
+  });
+
 
   // =================== LOADING STATE ===================
   if (loading)
@@ -202,7 +230,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   onClick={() => {
-                    setOrgDraft(org);
+                    if (org) setOrgDraft(org as Organization)
                     setEditingOrg(false);
                   }}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md text-gray-600 border hover:bg-gray-100"
@@ -419,7 +447,7 @@ export default function SettingsPage() {
                     </label>
                     <input
                       type="text"
-                      value={(newUser as any)[f.key]}
+                      value={(newUser as Record<string, string>)[f.key]}
                       onChange={(e) =>
                         setNewUser({ ...newUser, [f.key]: e.target.value })
                       }
