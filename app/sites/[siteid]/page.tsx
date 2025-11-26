@@ -3,8 +3,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
-import EquipmentTable from "./equipment-table";
-import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -31,18 +29,28 @@ export default async function SitePage({
     }
   );
 
-  // Fetch the site
+  // ---------- Fetch the site ----------
   const { data: site, error: siteError } = await supabase
     .from("a_sites")
     .select("*")
     .eq("site_id", siteid)
     .single();
 
-  if (siteError || !site) return notFound();
+  if (siteError || !site) {
+    console.error("SITE FETCH ERROR", siteError);
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-2">Unable to load site</h1>
+          <p className="text-sm text-gray-600">
+            {siteError?.message ?? "No site found with that ID."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  // ---------------------------------------------------
-  // WEATHER API (server-rendered)
-  // ---------------------------------------------------
+  // ---------- Weather ----------
   let weatherSummary = "Weather data unavailable";
 
   try {
@@ -53,8 +61,8 @@ export default async function SitePage({
       { cache: "no-store" }
     );
 
-    let lat = null;
-    let lon = null;
+    let lat: number | null = null;
+    let lon: number | null = null;
 
     if (geoResponse?.ok) {
       const geoData = await geoResponse.json();
@@ -70,7 +78,6 @@ export default async function SitePage({
 
       if (weatherResponse.ok) {
         const weatherData = await weatherResponse.json();
-
         const tempC = weatherData?.current_weather?.temperature;
         const wind = weatherData?.current_weather?.windspeed;
 
@@ -86,22 +93,18 @@ export default async function SitePage({
     console.error("Weather API failed", err);
   }
 
-  // ---------------------------------------------------
-  // RETURN PAGE
-  // ---------------------------------------------------
+  // ---------- Render ONLY header + weather ----------
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-yellow-400 text-white p-6 shadow-lg">
         <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center md:justify-between gap-6">
           <div className="flex flex-col gap-2 flex-shrink">
             <h1 className="text-2xl font-bold">{site.site_name}</h1>
-
             <p className="text-sm opacity-90">
               {site.address_line1}
               {site.address_line2 ? `, ${site.address_line2}` : ""},{" "}
               {site.city}, {site.state} {site.postal_code}
             </p>
-
             <p className="text-sm opacity-90">
               {site.phone_number || "No phone on file"}
             </p>
@@ -124,8 +127,10 @@ export default async function SitePage({
       </header>
 
       <main className="p-6">
-        {/* Server component → delegates to client table */}
-        <EquipmentTable siteid={siteid} />
+        {/* Intentionally no EquipmentTable here */}
+        <p className="text-sm text-gray-600">
+          Equipment table temporarily disabled while we debug.
+        </p>
       </main>
     </div>
   );
