@@ -1,9 +1,9 @@
 // app/sites/[siteid]/page.tsx
-
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import EquipmentTable from "./equipment-table";
+import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -12,11 +12,8 @@ export default async function SitePage({
 }: {
   params: { siteid: string };
 }) {
-  const { siteid: id } = params; // ✅ ONLY use `id` from here on
+  const { siteid: id } = params;
 
-  // ----------------------------
-  // Supabase Server Client (Next.js 14+ cookie handling)
-  // ----------------------------
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -32,7 +29,7 @@ export default async function SitePage({
   );
 
   // ----------------------------
-  // Fetch Site Record
+  // Fetch site
   // ----------------------------
   const { data: site, error: siteError } = await supabase
     .from("a_sites")
@@ -40,13 +37,11 @@ export default async function SitePage({
     .eq("site_id", id)
     .single();
 
-  if (siteError || !site) {
-    console.error("SITE ERROR:", siteError);
-    return <div className="p-6 text-red-600">Error loading siteeee.</div>;
-  }
+  // ❌ Cannot return JSX here in a server function
+  if (siteError || !site) return notFound();
 
   // ----------------------------
-  // Weather Lookup
+  // Weather fetch (still fine server-side)
   // ----------------------------
   let weatherSummary = "Weather data unavailable";
 
@@ -86,12 +81,10 @@ export default async function SitePage({
         }
       }
     }
-  } catch (err) {
-    console.error("Weather fetch failed:", err);
-  }
+  } catch {}
 
   // ----------------------------
-  // Render
+  // Render (safe, only returned once)
   // ----------------------------
   return (
     <div className="min-h-screen bg-gray-50">
@@ -127,7 +120,6 @@ export default async function SitePage({
       </header>
 
       <main className="p-6">
-        {/* ✅ Correct: pass `id` (string) to EquipmentTable */}
         <EquipmentTable siteid={id} />
       </main>
     </div>
