@@ -19,7 +19,7 @@ interface Site {
 interface GatewayRegistry {
   gr_id: string;
   site_id: string;
-  gr_devices: any;
+  gr_devices: Record<string, unknown>;
   gr_last_updated: string | null;
 }
 

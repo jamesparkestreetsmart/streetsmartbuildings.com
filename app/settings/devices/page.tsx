@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Plus, Trash2, ArrowUpDown, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -37,9 +37,6 @@ export default function DevicesPage() {
 
   const [showAdd, setShowAdd] = useState(false);
 
-  // -------------------------------------------------------------
-  // PROPERLY TYPED NEW DEVICE
-  // -------------------------------------------------------------
   const [newDevice, setNewDevice] = useState<NewDevice>({
     device_name: "",
     serial_number: "",
@@ -53,10 +50,8 @@ export default function DevicesPage() {
     service_notes: "",
   });
 
-  // -------------------------------------------------------------
   // FETCH DEVICES
-  // -------------------------------------------------------------
-  const fetchDevices = async () => {
+  const fetchDevices = useCallback(async () => {
     setLoading(true);
 
     const { data, error } = await supabase
@@ -64,19 +59,21 @@ export default function DevicesPage() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (error) console.error(error);
-    else setDevices(data || []);
+    if (error) {
+      console.error(error);
+    } else {
+      setDevices(data || []);
+    }
 
     setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchDevices();
   }, []);
 
-  // -------------------------------------------------------------
-  // SORTING
-  // -------------------------------------------------------------
+  // RUN ON MOUNT
+  useEffect(() => {
+    fetchDevices();
+  }, [fetchDevices]);
+
+  // SORT
   const sort = (column: keyof Device) => {
     const newOrder =
       sortColumn === column && sortOrder === "asc" ? "desc" : "asc";
@@ -107,9 +104,7 @@ export default function DevicesPage() {
     </th>
   );
 
-  // -------------------------------------------------------------
-  // DELETE DEVICE
-  // -------------------------------------------------------------
+  // DELETE
   const deleteDevice = async (device_id: string) => {
     if (!confirm("Delete this device?")) return;
 
@@ -127,11 +122,9 @@ export default function DevicesPage() {
     fetchDevices();
   };
 
-  // -------------------------------------------------------------
-  // RENDER
-  // -------------------------------------------------------------
-  if (loading)
+  if (loading) {
     return <div className="p-6 text-gray-500">Loading devices...</div>;
+  }
 
   return (
     <div className="p-6 space-y-8">
@@ -145,7 +138,22 @@ export default function DevicesPage() {
         </button>
 
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={() => {
+            // reset before opening
+            setNewDevice({
+              device_name: "",
+              serial_number: "",
+              protocol: "",
+              connection_type: "",
+              firmware_version: "",
+              ip_address: "",
+              site_id: "",
+              equipment_id: "",
+              status: "active",
+              service_notes: "",
+            });
+            setShowAdd(true);
+          }}
           className="flex items-center gap-2 px-4 py-2 text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-500"
         >
           <Plus className="w-4 h-4" /> Add Device

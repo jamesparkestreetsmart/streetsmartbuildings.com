@@ -60,7 +60,7 @@ export default function AlertsTable() {
     })()
     const interval = setInterval(fetchAlerts, 5 * 60 * 1000)
     return () => clearInterval(interval)
-  }, [fetchAlerts])
+  }, []);
 
   return (
     <div className="bg-white rounded-lg shadow p-4 overflow-x-auto">

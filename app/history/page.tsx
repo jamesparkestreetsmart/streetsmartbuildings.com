@@ -97,7 +97,7 @@ export default function AlertHistoryPage() {
     (async () => {
       await fetchLogs();
     })();
-  }, [range, customStart, customEnd, fetchLogs]);
+  }, [range, customStart, customEnd]);
 
   // 🧮 Duration formatter
   const formatDuration = (duration: string | null) => {

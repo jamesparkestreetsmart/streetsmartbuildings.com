@@ -34,6 +34,19 @@ interface SensorRow {
   status: string | null;
 }
 
+interface EditDeviceData {
+  device_name: string;
+  serial_number: string;
+  protocol: string;
+  connection_type: string;
+  firmware_version: string;
+  ip_address: string;
+  status: string;
+  service_notes: string;
+  site_id: string;
+  equipment_id: string;
+}
+
 export default function DeviceDetailPageClient({
   deviceid,
 }: {
@@ -55,7 +68,7 @@ export default function DeviceDetailPageClient({
 
   const [showEdit, setShowEdit] = useState(false);
 
-  const [editData, setEditData] = useState<Record<string, any>>({
+  const [editData, setEditData] = useState<EditDeviceData>({
     device_name: "",
     serial_number: "",
     protocol: "",
@@ -107,14 +120,17 @@ export default function DeviceDetailPageClient({
       .select("site_id, site_name")
       .order("site_name");
 
-    setSites((siteRows as Record<string, any>[]) || []);
+    setSites((siteRows as { site_id: string; site_name: string }[]) || []);
 
     const { data: eqRows } = await supabase
       .from("a_equipments")
       .select("equipment_id, equipment_name, site_id")
       .order("equipment_name");
 
-    setEquipment((eqRows as Record<string, any>[]) || []);
+    setEquipment(
+      (eqRows as { equipment_id: string; equipment_name: string; site_id: string }[]) ||
+        []
+    );
 
     setLoading(false);
   };
@@ -354,7 +370,7 @@ export default function DeviceDetailPageClient({
                   </label>
                   <input
                     className="w-full border rounded-md p-2"
-                    value={editData[field] || ""}
+                    value={editData[field as keyof EditDeviceData] || ""}
                     onChange={(e) =>
                       setEditData({ ...editData, [field]: e.target.value })
                     }

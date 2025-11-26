@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
 
-export default async function EquipmentTable({ siteId }: { siteId: string }) {
+export default async function EquipmentTable({ siteid }: { siteid: string }) {
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -20,7 +20,7 @@ export default async function EquipmentTable({ siteId }: { siteId: string }) {
   const { data: rows, error } = await supabase
     .from("view_sites_equipment")
     .select("*")
-    .eq("site_id", siteId)
+    .eq("site_id", siteid)
     .order("equipment_group", { ascending: true })
     .order("equipment_name", { ascending: true });
 

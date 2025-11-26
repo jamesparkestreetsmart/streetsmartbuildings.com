@@ -73,9 +73,11 @@ export default function LiveAlertsPage() {
     })();
     const interval = setInterval(fetchLive, 300_000);
     return () => clearInterval(interval);
-  }, [fetchLive]);
+  }, []);
 
-  const formatDuration = (duration: any) => {
+  const formatDuration = (
+    duration: string | number | null | undefined
+  ) => {
     if (duration === null || duration === undefined) return "--";
     if (typeof duration === "number") {
       const hours = Math.floor(duration);
@@ -90,7 +92,9 @@ export default function LiveAlertsPage() {
         const minutes = match[3].padStart(2, "0");
         return `${days} days ${hours}:${minutes}`;
       }
-      return duration.replace(/(\.\d+)?$/, "").replace(/:(\d{2})$/, "");
+      return duration
+        .replace(/(\.\d+)?$/, "")
+        .replace(/:(\d{2})$/, "");
     }
     return String(duration);
   };
