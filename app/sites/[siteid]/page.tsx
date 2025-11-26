@@ -1,137 +1,14 @@
 // app/sites/[siteid]/page.tsx
 
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
-import Link from "next/link";
-
-export const dynamic = "force-dynamic";
-
-export default async function SitePage({
+export default function SitePage({
   params,
 }: {
   params: { siteid: string };
 }) {
-  console.error("SERVER HIT: /sites/[siteid], params =", params);
-
-  const { siteid } = params;
-
-  const cookieStore = await cookies();
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-      },
-    }
-  );
-
-  // ---------- Fetch the site ----------
-  const { data: site, error: siteError } = await supabase
-    .from("a_sites")
-    .select("*")
-    .eq("site_id", siteid)
-    .single();
-
-  if (siteError || !site) {
-    console.error("SITE FETCH ERROR", siteError);
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Unable to load site</h1>
-          <p className="text-sm text-gray-600">
-            {siteError?.message ?? "No site found with that ID."}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------- Weather ----------
-  let weatherSummary = "Weather data unavailable";
-
-  try {
-    const geoResponse = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-        site.city
-      )}&count=1&language=en&format=json`,
-      { cache: "no-store" }
-    );
-
-    let lat: number | null = null;
-    let lon: number | null = null;
-
-    if (geoResponse?.ok) {
-      const geoData = await geoResponse.json();
-      lat = geoData?.results?.[0]?.latitude ?? null;
-      lon = geoData?.results?.[0]?.longitude ?? null;
-    }
-
-    if (lat && lon) {
-      const weatherResponse = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`,
-        { cache: "no-store" }
-      );
-
-      if (weatherResponse.ok) {
-        const weatherData = await weatherResponse.json();
-        const tempC = weatherData?.current_weather?.temperature;
-        const wind = weatherData?.current_weather?.windspeed;
-
-        if (tempC !== undefined && wind !== undefined) {
-          const tempF = (tempC * 9) / 5 + 32;
-          weatherSummary = `🌤️ ${tempF.toFixed(1)}°F • Wind ${wind.toFixed(
-            1
-          )} mph`;
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Weather API failed", err);
-  }
-
-  // ---------- Render ONLY header + weather ----------
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-yellow-400 text-white p-6 shadow-lg">
-        <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center md:justify-between gap-6">
-          <div className="flex flex-col gap-2 flex-shrink">
-            <h1 className="text-2xl font-bold">{site.site_name}</h1>
-            <p className="text-sm opacity-90">
-              {site.address_line1}
-              {site.address_line2 ? `, ${site.address_line2}` : ""},{" "}
-              {site.city}, {site.state} {site.postal_code}
-            </p>
-            <p className="text-sm opacity-90">
-              {site.phone_number || "No phone on file"}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4 flex-shrink-0">
-            <div className="bg-white/20 rounded-xl p-3 shadow-inner text-right">
-              <p className="font-semibold text-sm">Weather</p>
-              <p className="text-sm opacity-90">{weatherSummary}</p>
-            </div>
-
-            <Link
-              href={`/sites/${siteid}/edit`}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-green-700 font-medium shadow hover:bg-gray-100 transition duration-150"
-            >
-              ✏️ Edit Site
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="p-6">
-        {/* Intentionally no EquipmentTable here */}
-        <p className="text-sm text-gray-600">
-          Equipment table temporarily disabled while we debug.
-        </p>
-      </main>
+    <div style={{ padding: "2rem" }}>
+      <h1>Site detail page</h1>
+      <p>Dynamic site ID: <code>{params.siteid}</code></p>
     </div>
   );
 }
