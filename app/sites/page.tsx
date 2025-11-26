@@ -32,6 +32,11 @@ interface SiteFormData {
   total_area_sqft: string; // keep as string in UI, cast before insert
 }
 
+// Helper type for cleaning form payloads (no `any`)
+type Cleanable = {
+  [key: string]: string | number | null | undefined;
+};
+
 export default function SitesPage() {
   const [sites, setSites] = useState<Site[]>([]);
   const [search, setSearch] = useState("");
@@ -53,9 +58,9 @@ export default function SitesPage() {
     total_area_sqft: "",
   });
 
-  // Helper: trim strings and turn "" -> null
-  const cleanAndTrim = (obj: Record<string, any>) => {
-    const cleaned: Record<string, any> = {};
+  // Helper: trim strings and turn "" -> null, without using `any`
+  const cleanAndTrim = (obj: Cleanable): Cleanable => {
+    const cleaned: Cleanable = {};
     for (const key in obj) {
       const value = obj[key];
       if (typeof value === "string") {
@@ -69,27 +74,26 @@ export default function SitesPage() {
   };
 
   // ===== Fetch Sites (using view_sites_summary) =====
-const fetchSites = async () => {
-  const { data, error } = await supabase
-    .from("view_sites_summary")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const fetchSites = async () => {
+    const { data, error } = await supabase
+      .from("view_sites_summary")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("❌ Error fetching sites:", error);
-  } else {
-    console.log("✅ Sites fetched:", data);
-    setSites(data || []);
-  }
-};
+    if (error) {
+      console.error("❌ Error fetching sites:", error);
+    } else {
+      console.log("✅ Sites fetched:", data);
+      setSites((data as Site[]) || []);
+    }
+  };
 
-// Load once on page mount
-useEffect(() => {
-  (async () => {
-    await fetchSites();
-  })();
-}, []);
-
+  // Load once on page mount
+  useEffect(() => {
+    (async () => {
+      await fetchSites();
+    })();
+  }, []);
 
   // ===== Sorting Logic =====
   const handleSort = (col: keyof Site) => {
@@ -316,7 +320,7 @@ useEffect(() => {
               onSubmit={async (e) => {
                 e.preventDefault();
 
-                const base = {
+                const base: Cleanable = {
                   ...formData,
                   timezone: "America/Chicago",
                   org_id: "75d9a833-0359-4042-b760-4e5d587798e6",
@@ -325,10 +329,8 @@ useEffect(() => {
                 const cleaned = cleanAndTrim(base);
 
                 // cast total_area_sqft to number if present
-                if (cleaned.total_area_sqft !== null) {
-                  cleaned.total_area_sqft = Number(
-                    cleaned.total_area_sqft
-                  );
+                if (cleaned.total_area_sqft != null) {
+                  cleaned.total_area_sqft = Number(cleaned.total_area_sqft);
                 }
 
                 const { error } = await supabase

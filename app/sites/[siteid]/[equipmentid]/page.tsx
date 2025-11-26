@@ -5,18 +5,62 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ArrowLeft, Edit, Plus } from "lucide-react";
 
-export default function IndividualEquipmentPage() {
-  const params = useParams();
-  const router = useRouter();
-  const siteId = params.siteid as string;
-  const equipmentId = params.equipmentid as string;
+// =======================================
+// TYPES
+// =======================================
+interface EquipmentRecord {
+  equipment_id: string;
+  site_id: string;
+  equipment_name: string;
+  description: string | null;
+  equipment_group: string;
+  equipment_type: string;
+  space_name: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  serial_number: string | null;
+  voltage: number | null;
+  amperage: number | null;
+  maintenance_interval_days: number | null;
+  status: string;
+  [key: string]: string | number | null | undefined;
+}
 
-  const [equipment, setEquipment] = useState<Record<string, any> | null>(null);
-  const [devices, setDevices] = useState<Record<string, any>[]>([]);
-  const [sensors, setSensors] = useState<Record<string, any>[]>([]);
+interface DeviceRecord {
+  device_id: string;
+  equipment_id: string;
+  device_name: string;
+  protocol: string;
+  connection_type: string;
+  [key: string]: string | number | null | undefined;
+}
+
+interface SensorRecord {
+  sensor_id: string;
+  device_id: string;
+  sensor_name: string;
+  sensor_type: string;
+  [key: string]: string | number | null | undefined;
+}
+
+type EditData = Partial<EquipmentRecord>;
+
+// =======================================
+// COMPONENT
+// =======================================
+export default function IndividualEquipmentPage() {
+  const params = useParams<{ siteid: string; equipmentid: string }>();
+  const router = useRouter();
+
+  const siteId = params.siteid;
+  const equipmentId = params.equipmentid;
+
+  const [equipment, setEquipment] = useState<EquipmentRecord | null>(null);
+  const [devices, setDevices] = useState<DeviceRecord[]>([]);
+  const [sensors, setSensors] = useState<SensorRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
-  const [editData, setEditData] = useState<Record<string, any>>({});
+  const [editData, setEditData] = useState<EditData>({});
 
   // ===== LOAD EVERYTHING =====
   useEffect(() => {
@@ -59,22 +103,13 @@ export default function IndividualEquipmentPage() {
   }, [equipmentId]);
 
   if (loading)
-    return (
-      <div className="p-6 text-gray-500 text-sm">
-        Loading equipment…
-      </div>
-    );
+    return <div className="p-6 text-gray-500 text-sm">Loading equipment…</div>;
 
   if (!equipment)
-    return (
-      <div className="p-6 text-red-600">
-        Equipment not found.
-      </div>
-    );
+    return <div className="p-6 text-red-600">Equipment not found.</div>;
 
   // **** Derived routes ****
   const siteRoute = `/sites/${siteId}`;
-
 
   // **** Group sensors by device_id ****
   const sensorsByDevice = devices.map((device) => ({
@@ -84,7 +119,6 @@ export default function IndividualEquipmentPage() {
 
   return (
     <div className="p-6 space-y-10">
-
       {/* ===== BACK BUTTON ===== */}
       <button
         onClick={() => router.push(siteRoute)}
@@ -134,7 +168,11 @@ export default function IndividualEquipmentPage() {
 
           <button
             className="px-3 py-1.5 text-sm rounded-md text-white bg-gradient-to-r from-green-600 to-yellow-500 hover:opacity-90 flex items-center gap-2"
-            onClick={() => router.push(`/settings/devices/add?equipment=${equipmentId}&site=${equipment.site_id}`)}
+            onClick={() =>
+              router.push(
+                `/settings/devices/add?equipment=${equipmentId}&site=${equipment.site_id}`
+              )
+            }
           >
             <Plus className="w-4 h-4" />
             Add Device
@@ -142,13 +180,14 @@ export default function IndividualEquipmentPage() {
         </div>
 
         {sensorsByDevice.length === 0 ? (
-          <p className="text-gray-500 text-sm">No devices linked to this equipment.</p>
+          <p className="text-gray-500 text-sm">
+            No devices linked to this equipment.
+          </p>
         ) : (
           <div className="space-y-6">
             {sensorsByDevice.map(({ device, sensors }) => (
               <div key={device.device_id} className="border rounded-lg p-4">
-                <h3 
-                  className="font-semibold text-green-700 text-lg mb-2">
+                <h3 className="font-semibold text-green-700 text-lg mb-2">
                   {device.device_name}
                 </h3>
 
@@ -168,75 +207,76 @@ export default function IndividualEquipmentPage() {
           </div>
         )}
       </div>
-        {/* ===== EDIT EQUIPMENT MODAL ===== */}
-{showEdit && (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-    <div className="bg-white p-6 rounded-xl shadow-xl w-[550px] max-h-[80vh] overflow-y-auto">
-      <h2 className="text-lg font-semibold mb-4">Edit Equipment</h2>
 
-      <div className="grid grid-cols-2 gap-4 text-sm">
+      {/* ===== EDIT EQUIPMENT MODAL ===== */}
+      {showEdit && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-xl shadow-xl w-[550px] max-h-[80vh] overflow-y-auto">
+            <h2 className="text-lg font-semibold mb-4">Edit Equipment</h2>
 
-        {[
-          "equipment_name",
-          "description",
-          "equipment_group",
-          "equipment_type",
-          "space_name",
-          "manufacturer",
-          "model",
-          "serial_number",
-          "voltage",
-          "amperage",
-          "maintenance_interval_days",
-          "status",
-        ].map((field) => (
-          <div key={field} className="col-span-2">
-            <label className="block text-gray-600 mb-1 capitalize">
-              {field.replace(/_/g, " ")}
-            </label>
-            <input
-              type="text"
-              className="w-full border rounded-md p-2"
-              value={editData[field] ?? ""}
-              onChange={(e) =>
-                setEditData({ ...editData, [field]: e.target.value })
-              }
-            />
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              {[
+                "equipment_name",
+                "description",
+                "equipment_group",
+                "equipment_type",
+                "space_name",
+                "manufacturer",
+                "model",
+                "serial_number",
+                "voltage",
+                "amperage",
+                "maintenance_interval_days",
+                "status",
+              ].map((field) => (
+                <div key={field} className="col-span-2">
+                  <label className="block text-gray-600 mb-1 capitalize">
+                    {field.replace(/_/g, " ")}
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-md p-2"
+                    value={editData[field] ?? ""}
+                    onChange={(e) =>
+                      setEditData({ ...editData, [field]: e.target.value })
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                className="px-4 py-1.5 text-sm"
+                onClick={() => setShowEdit(false)}
+              >
+                Cancel
+              </button>
+
+              <button
+                className="px-4 py-1.5 rounded-md text-white bg-green-600 hover:bg-green-700"
+                onClick={async () => {
+                  const { error } = await supabase
+                    .from("a_equipments")
+                    .update(editData)
+                    .eq("equipment_id", equipmentId);
+
+                  if (error) alert("Failed to update.");
+                  else {
+                    // ⬇ FIXED: merge editData with existing equipment
+                    setEquipment((prev) =>
+                      prev ? { ...prev, ...editData } : prev
+                    );
+                    setShowEdit(false);
+                  }
+                }}
+              >
+                Save Changes
+              </button>
+            </div>
           </div>
-        ))}
-
-      </div>
-
-      <div className="flex justify-end gap-3 mt-6">
-        <button
-          className="px-4 py-1.5 text-sm"
-          onClick={() => setShowEdit(false)}
-        >
-          Cancel
-        </button>
-
-        <button
-          className="px-4 py-1.5 rounded-md text-white bg-green-600 hover:bg-green-700"
-          onClick={async () => {
-            const { error } = await supabase
-              .from("a_equipments")
-              .update(editData)
-              .eq("equipment_id", equipmentId);
-
-            if (error) alert("Failed to update.");
-            else {
-              setEquipment(editData);
-              setShowEdit(false);
-            }
-          }}
-        >
-          Save Changes
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
+        </div>
+      )}
     </div>
   );
 }

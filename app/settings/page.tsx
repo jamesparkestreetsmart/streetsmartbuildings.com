@@ -178,8 +178,8 @@ export default function SettingsPage() {
     );
   })
   .sort((a, b) => {
-    const aVal = (a as Record<string, any>)[sortKey];
-    const bVal = (b as Record<string, any>)[sortKey];
+    const aVal = a[sortKey as keyof UserRecord] ?? "";
+    const bVal = b[sortKey as keyof UserRecord] ?? "";
     if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
     if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
     return 0;

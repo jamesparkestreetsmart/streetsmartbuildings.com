@@ -22,18 +22,19 @@
         "name": "next"
       }
     ],
+    "baseUrl": ".",
     "paths": {
       "@/*": [
-        "./"
+        "./*"
       ],
       "@/app/*": [
-        "./app/*"
+        "app/*"
       ],
       "@/components/*": [
-        "./components/*"
+        "components/*"
       ],
       "@/lib/*": [
-        "./lib/*"
+        "lib/*"
       ]
     }
   },
@@ -42,7 +43,6 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
     ".next\\dev/types/**/*.ts",
     ".next\\dev/types/**/*.ts"
   ],
