@@ -15,7 +15,7 @@ export default async function SitePage({
 }) {
   console.error("SERVER HIT: /sites/[siteid], params =", params);
 
-  const { siteid: id } = params;
+  const { siteid } = params;
 
   const cookieStore = await cookies();
 
@@ -31,14 +31,18 @@ export default async function SitePage({
     }
   );
 
+  // Fetch the site
   const { data: site, error: siteError } = await supabase
     .from("a_sites")
     .select("*")
-    .eq("site_id", id)
+    .eq("site_id", siteid)
     .single();
 
   if (siteError || !site) return notFound();
 
+  // ---------------------------------------------------
+  // WEATHER API (server-rendered)
+  // ---------------------------------------------------
   let weatherSummary = "Weather data unavailable";
 
   try {
@@ -66,6 +70,7 @@ export default async function SitePage({
 
       if (weatherResponse.ok) {
         const weatherData = await weatherResponse.json();
+
         const tempC = weatherData?.current_weather?.temperature;
         const wind = weatherData?.current_weather?.windspeed;
 
@@ -77,19 +82,26 @@ export default async function SitePage({
         }
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error("Weather API failed", err);
+  }
 
+  // ---------------------------------------------------
+  // RETURN PAGE
+  // ---------------------------------------------------
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-yellow-400 text-white p-6 shadow-lg">
         <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center md:justify-between gap-6">
           <div className="flex flex-col gap-2 flex-shrink">
             <h1 className="text-2xl font-bold">{site.site_name}</h1>
+
             <p className="text-sm opacity-90">
               {site.address_line1}
               {site.address_line2 ? `, ${site.address_line2}` : ""},{" "}
               {site.city}, {site.state} {site.postal_code}
             </p>
+
             <p className="text-sm opacity-90">
               {site.phone_number || "No phone on file"}
             </p>
@@ -102,7 +114,7 @@ export default async function SitePage({
             </div>
 
             <Link
-              href={`/sites/${id}/edit`}
+              href={`/sites/${siteid}/edit`}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-green-700 font-medium shadow hover:bg-gray-100 transition duration-150"
             >
               ✏️ Edit Site
@@ -112,7 +124,8 @@ export default async function SitePage({
       </header>
 
       <main className="p-6">
-        <EquipmentTable siteid={id} />
+        {/* Server component → delegates to client table */}
+        <EquipmentTable siteid={siteid} />
       </main>
     </div>
   );
