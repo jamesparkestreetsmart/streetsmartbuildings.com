@@ -2,12 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { ArrowUpDown } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-interface EquipmentRow {
+type EquipmentRow = {
   equipment_id: string;
-  site_id: string;
   equipment_name: string;
   equipment_group: string;
   equipment_type: string;
@@ -18,122 +15,77 @@ interface EquipmentRow {
   latest_temperature_ts: string | null;
   latest_humidity: string | null;
   latest_humidity_ts: string | null;
-}
+  latest_binary_state: string | null;
+  latest_binary_state_ts: string | null;
+};
 
 export default function EquipmentTable({ siteid }: { siteid: string }) {
   const [rows, setRows] = useState<EquipmentRow[]>([]);
-  const [sortField, setSortField] = useState<string>("equipment_name");
-  const [sortAsc, setSortAsc] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
 
-  // ⏳ Poll every 5 minutes
   useEffect(() => {
-    fetchRows();
+    async function load() {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("view_sites_equipment")
+        .select("*")
+        .eq("site_id", siteid)
+        .order("equipment_group", { ascending: true })
+        .order("space_name", { ascending: true })
+        .order("equipment_name", { ascending: true });
 
-    const interval = setInterval(fetchRows, 5 * 60 * 1000); // 5 minutes
-    return () => clearInterval(interval);
+      if (error) {
+        console.error("Equipment load error:", error);
+      } else {
+        setRows(data ?? []);
+      }
+
+      setLoading(false);
+    }
+
+    load();
   }, [siteid]);
 
-  async function fetchRows() {
-    const { data, error } = await supabase
-      .from("view_sites_equipment")
-      .select("*")
-      .eq("site_id", siteid);
-
-    if (!error && data) {
-      setRows(data);
-    }
+  if (loading) {
+    return <div className="mt-4 text-gray-500">Loading equipment…</div>;
   }
 
-  function sortBy(field: string) {
-    if (field === sortField) setSortAsc(!sortAsc);
-    else {
-      setSortField(field);
-      setSortAsc(true);
-    }
+  if (!rows.length) {
+    return (
+      <div className="mt-4 text-gray-500">
+        No equipment records found for this site.
+      </div>
+    );
   }
-
-  const sortedRows = [...rows].sort((a, b) => {
-    const av = (a as any)[sortField] ?? "";
-    const bv = (b as any)[sortField] ?? "";
-    return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
-  });
 
   return (
-    <TooltipProvider>
-      <div className="bg-white p-6 rounded-xl shadow border mt-6">
-        <h2 className="text-xl font-semibold mb-4">Equipment</h2>
-
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              {[
-                ["equipment_name", "Name"],
-                ["equipment_group", "Group"],
-                ["equipment_type", "Type"],
-                ["space_name", "Space"],
-                ["latest_temperature", "Temp"],
-                ["latest_humidity", "Humidity"],
-              ].map(([field, label]) => (
-                <th
-                  key={field}
-                  className="text-left py-2 cursor-pointer select-none"
-                  onClick={() => sortBy(field)}
-                >
-                  <div className="flex items-center gap-1">
-                    {label}
-                    <ArrowUpDown className="h-3 w-3 text-gray-400" />
-                  </div>
-                </th>
-              ))}
+    <div className="bg-white rounded-xl shadow border mt-4">
+      <table className="min-w-full text-left text-sm">
+        <thead className="border-b bg-gray-50">
+          <tr>
+            <th className="px-4 py-2">Group</th>
+            <th className="px-4 py-2">Space</th>
+            <th className="px-4 py-2">Name</th>
+            <th className="px-4 py-2">Type</th>
+            <th className="px-4 py-2">Latest Temp</th>
+            <th className="px-4 py-2">Latest Humidity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.equipment_id} className="border-t">
+              <td className="px-4 py-2">{row.equipment_group}</td>
+              <td className="px-4 py-2">{row.space_name}</td>
+              <td className="px-4 py-2">{row.equipment_name}</td>
+              <td className="px-4 py-2">{row.equipment_type}</td>
+              <td className="px-4 py-2">
+                {row.latest_temperature ?? "—"}
+              </td>
+              <td className="px-4 py-2">{row.latest_humidity ?? "—"}</td>
             </tr>
-          </thead>
-
-          <tbody>
-            {sortedRows.map((eq) => (
-              <tr key={eq.equipment_id} className="border-b last:border-none">
-                <td className="py-2">{eq.equipment_name}</td>
-                <td className="py-2">{eq.equipment_group}</td>
-                <td className="py-2">{eq.equipment_type}</td>
-                <td className="py-2">{eq.space_name}</td>
-
-                {/* Temperature with hover tooltip */}
-                <td className="py-2">
-                  <Tooltip>
-                    <TooltipTrigger>
-                      {eq.latest_temperature ?? "—"}
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>
-                        Last updated:{" "}
-                        {eq.latest_temperature_ts
-                          ? new Date(eq.latest_temperature_ts).toLocaleString()
-                          : "Unknown"}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </td>
-
-                {/* Humidity with hover tooltip */}
-                <td className="py-2">
-                  <Tooltip>
-                    <TooltipTrigger>
-                      {eq.latest_humidity ?? "—"}
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>
-                        Last updated:{" "}
-                        {eq.latest_humidity_ts
-                          ? new Date(eq.latest_humidity_ts).toLocaleString()
-                          : "Unknown"}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </TooltipProvider>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
