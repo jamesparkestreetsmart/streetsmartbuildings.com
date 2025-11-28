@@ -56,7 +56,7 @@ export default async function SitePage({
       </div>
 
       {/* WEATHER */}
-      <WeatherSummary site={site} />
+      <WeatherSummary />
 
       {/* EQUIPMENT TABLE */}
       <EquipmentTable siteid={siteid} />
