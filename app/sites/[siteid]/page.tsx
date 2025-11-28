@@ -6,14 +6,14 @@ import EquipmentTable from "./equipment-table";
 
 export const dynamic = "force-dynamic";
 
-export default async function SitePage({
-  params,
-}: {
-  params: { siteid: string };
-}) {
-  console.log("SERVER HIT /sites/[siteid] with params:", params);
+export default async function SitePage(props: any) {
+  console.log("RAW PROPS FROM SERVER:", props);
 
-  const { siteid } = params;
+  // 🚀 FIX: params is a Promise on Vercel, object in dev
+  const resolved = await props.params;
+  console.log("RESOLVED PARAMS:", resolved);
+
+  const siteid = resolved?.siteid;
 
   if (!siteid) {
     console.error("Missing siteid param");
@@ -40,7 +40,6 @@ export default async function SitePage({
     }
   );
 
-  // ❌ REMOVE Type Args — they cause "Expected 2 type arguments"
   const { data: site, error } = await supabase
     .from("a_sites")
     .select("*")
