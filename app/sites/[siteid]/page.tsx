@@ -4,6 +4,7 @@ export default async function SitePage(
   props: { params: Promise<{ siteid: string }> }
 ) {
   const { siteid } = await props.params;
+  console.log("BUILD HIT [siteid]/page.tsx");
 
   return (
     <div className="p-6">
