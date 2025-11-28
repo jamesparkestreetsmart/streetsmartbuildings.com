@@ -34,19 +34,6 @@ interface SensorRow {
   status: string | null;
 }
 
-interface EditDeviceData {
-  device_name: string;
-  serial_number: string;
-  protocol: string;
-  connection_type: string;
-  firmware_version: string;
-  ip_address: string;
-  status: string;
-  service_notes: string;
-  site_id: string;
-  equipment_id: string;
-}
-
 export default function DeviceDetailPageClient({
   deviceid,
 }: {
@@ -68,7 +55,7 @@ export default function DeviceDetailPageClient({
 
   const [showEdit, setShowEdit] = useState(false);
 
-  const [editData, setEditData] = useState<EditDeviceData>({
+  const [editData, setEditData] = useState<Record<string, any>>({
     device_name: "",
     serial_number: "",
     protocol: "",
@@ -370,7 +357,7 @@ export default function DeviceDetailPageClient({
                   </label>
                   <input
                     className="w-full border rounded-md p-2"
-                    value={editData[field as keyof EditDeviceData] || ""}
+                    value={editData[field] || ""}
                     onChange={(e) =>
                       setEditData({ ...editData, [field]: e.target.value })
                     }

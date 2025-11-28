@@ -1,18 +1,29 @@
+// app/sites/[siteid]/page.tsx
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 import WeatherSummary from "./weather-summary";
 import EquipmentTable from "./equipment-table";
 
-export default async function SitePage({
-  params,
-}: {
-  params: { siteid: string };
-}) {
-  const { siteid } = params;
-  console.log("SERVER HIT: /sites/[siteid]", siteid);
+export default async function SitePage(props: { params: { siteid?: string } }) {
+  console.log("DEBUG RAW PROPS:", props);
+
+  const siteid = props?.params?.siteid;
+  console.log("DEBUG SITEID:", siteid);
+
+  if (!siteid) {
+    console.error("Missing siteid param");
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold text-red-600">
+          Invalid site: Missing site ID in URL
+        </h1>
+      </div>
+    );
+  }
 
   const cookieStore = await cookies();
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -31,6 +42,8 @@ export default async function SitePage({
     .eq("site_id", siteid)
     .single();
 
+  console.log("SITE FETCH RESULT:", { site, error });
+
   if (error || !site) {
     console.error("Site fetch error:", error);
     return (
@@ -48,6 +61,7 @@ export default async function SitePage({
       <div className="bg-white shadow p-6 rounded-xl border">
         <h1 className="text-3xl font-bold mb-2">{site.site_name}</h1>
         <p className="text-gray-700">{site.address}</p>
+
         {site.phone_number && (
           <p className="text-gray-700 mt-1">
             <strong>Phone:</strong> {site.phone_number}
@@ -56,7 +70,7 @@ export default async function SitePage({
       </div>
 
       {/* WEATHER */}
-      <WeatherSummary />
+      <WeatherSummary site={site} />
 
       {/* EQUIPMENT TABLE */}
       <EquipmentTable siteid={siteid} />
