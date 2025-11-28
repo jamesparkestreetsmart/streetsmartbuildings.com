@@ -1,10 +1,11 @@
 // app/sites/[siteid]/page.tsx
 
-export default async function SitePage(
-  props: { params: Promise<{ siteid: string }> }
-) {
-  const { siteid } = await props.params;
-  console.log("BUILD HIT [siteid]/page.tsx");
+export default function SitePage({
+  params,
+}: {
+  params: { siteid: string };
+}) {
+  console.log("SERVER HIT [siteid]:", params.siteid);
 
   return (
     <div className="p-6">
@@ -12,12 +13,10 @@ export default async function SitePage(
 
       <div className="bg-white rounded-xl shadow p-6 border">
         <p className="text-gray-700 mb-2">
-          <strong>Dynamic Site ID:</strong> {siteid}
+          <strong>Dynamic Site ID:</strong> {params.siteid}
         </p>
 
-        <p className="text-gray-500">
-          This page will eventually show:
-        </p>
+        <p className="text-gray-500">This page will eventually show:</p>
 
         <ul className="list-disc ml-6 text-gray-600 mt-2">
           <li>Site header with address & phone</li>
