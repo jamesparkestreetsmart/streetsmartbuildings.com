@@ -1,18 +1,18 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+// app/sites/[siteid]/page.tsx
 
-import WeatherSummary from "./weather-summary";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 import EquipmentTable from "./equipment-table";
 
-export default async function SitePage(
-  props: { params: Promise<{ siteid: string }> }
-) {
-  console.log("DEBUG RAW PROPS:", props);
-
-  const { siteid } = await props.params;
-  console.log("DEBUG SITEID:", siteid);
+export default async function SitePage({
+  params,
+}: {
+  params: { siteid: string };
+}) {
+  const { siteid } = params;
 
   if (!siteid) {
+    console.error("Missing siteid param");
     return (
       <div className="p-6 text-red-600 text-xl">
         Invalid site: Missing site ID in URL
@@ -56,6 +56,7 @@ export default async function SitePage(
       <div className="bg-white shadow p-6 rounded-xl border">
         <h1 className="text-3xl font-bold mb-2">{site.site_name}</h1>
         <p className="text-gray-700">{site.address}</p>
+
         {site.phone_number && (
           <p className="text-gray-700 mt-1">
             <strong>Phone:</strong> {site.phone_number}
@@ -63,11 +64,9 @@ export default async function SitePage(
         )}
       </div>
 
-      {/* WEATHER */}
-      <WeatherSummary />
-
       {/* EQUIPMENT TABLE */}
       <EquipmentTable siteid={siteid} />
+
     </div>
   );
 }
