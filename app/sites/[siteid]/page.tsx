@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function SitePage(props: any) {
   console.log("RAW PROPS FROM SERVER:", props);
 
-  // 🚀 FIX: params is a Promise on Vercel, object in dev
+  // 🚀 FIX: params may be a Promise on Vercel but not in dev
   const resolved = await props.params;
   console.log("RESOLVED PARAMS:", resolved);
 
@@ -57,15 +57,34 @@ export default async function SitePage(props: any) {
     );
   }
 
+  // 👉 Build formatted address safely
+  const fullAddress =
+    [
+      site.address_line1,
+      site.address_line2,
+      site.city,
+      site.state,
+      site.postal_code,
+      site.country,
+    ]
+      .filter((x) => x && x.trim() !== "")
+      .join(", ") || "—";
+
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
       {/* HEADER */}
-      <div className="bg-white shadow p-6 rounded-xl border">
+      <div className="bg-white shadow p-6 rounded-xl border border-gray-200">
         <h1 className="text-3xl font-bold mb-2">{site.site_name}</h1>
-        <p className="text-gray-700">{site.address}</p>
-        {site.phone_number && (
+
+        {/* Address */}
+        <p className="text-gray-700">
+          <span className="font-semibold">Address:</span> {fullAddress}
+        </p>
+
+        {/* Phone */}
+        {site.phone_number && site.phone_number.trim() !== "" && (
           <p className="text-gray-700 mt-1">
-            <strong>Phone:</strong> {site.phone_number}
+            <span className="font-semibold">Phone:</span> {site.phone_number}
           </p>
         )}
       </div>
