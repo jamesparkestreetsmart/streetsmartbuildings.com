@@ -1,17 +1,16 @@
-// app/sites/[siteid]/page.tsx
-
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 import WeatherSummary from "./weather-summary";
 import EquipmentTable from "./equipment-table";
 
-export default async function SitePage(props: {
-  params: Promise<{ siteid: string }>
-}) {
-  const { siteid } = await props.params;
+export default async function SitePage(
+  props: { params: Promise<{ siteid: string }> }
+) {
+  console.log("DEBUG RAW PROPS:", props);
 
-  console.log("SERVER HIT /sites/[siteid]:", siteid);
+  const { siteid } = await props.params;
+  console.log("DEBUG SITEID:", siteid);
 
   if (!siteid) {
     return (
@@ -22,6 +21,7 @@ export default async function SitePage(props: {
   }
 
   const cookieStore = await cookies();
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -51,6 +51,8 @@ export default async function SitePage(props: {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
+
+      {/* HEADER */}
       <div className="bg-white shadow p-6 rounded-xl border">
         <h1 className="text-3xl font-bold mb-2">{site.site_name}</h1>
         <p className="text-gray-700">{site.address}</p>
@@ -61,8 +63,10 @@ export default async function SitePage(props: {
         )}
       </div>
 
+      {/* WEATHER */}
       <WeatherSummary />
 
+      {/* EQUIPMENT TABLE */}
       <EquipmentTable siteid={siteid} />
     </div>
   );
