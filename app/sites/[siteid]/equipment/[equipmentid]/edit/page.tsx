@@ -2,15 +2,29 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import EditEquipmentForm from "@/components/equipment/EditEquipmentForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditEquipmentPage(props: any) {
-  // Vercel sometimes sends params as a Promise – resolve safely
-  const resolved = await props.params;
-  const { siteid, equipmentid } = resolved;
+export default async function EditEquipmentPage({
+  params,
+}: {
+  params: Promise<{ siteid: string; equipmentid: string }>;
+}) {
+  // On Vercel, params is a Promise
+  const { siteid, equipmentid } = await params;
 
-  // Resolve cookies() (async on Vercel, sync in local dev)
+  if (!equipmentid) {
+    console.error("Missing equipmentid in route params");
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold text-red-600">
+          Error: Missing equipment ID in URL
+        </h1>
+      </div>
+    );
+  }
+
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -25,7 +39,6 @@ export default async function EditEquipmentPage(props: any) {
     }
   );
 
-  // Fetch equipment data
   const { data: equipment, error } = await supabase
     .from("a_equipments")
     .select("*")
@@ -33,33 +46,23 @@ export default async function EditEquipmentPage(props: any) {
     .single();
 
   if (error || !equipment) {
-    console.error(error);
+    console.error("Equipment fetch error:", error);
     return (
-      <div className="p-6 text-red-600">
-        Error loading equipment record.
+      <div className="p-6">
+        <h1 className="text-xl font-semibold text-red-600">
+          Error loading equipment
+        </h1>
+        <p className="text-gray-700 mt-2">
+          Could not find equipment with ID: <code>{equipmentid}</code>
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
-      {/* HEADER */}
-      <div className="bg-white shadow p-6 rounded-xl border border-gray-200">
-        <h1 className="text-3xl font-bold mb-2">
-          Edit Equipment — {equipment.equipment_name}
-        </h1>
-
-        <p className="text-gray-600">
-          You’ll add your edit form UI here soon.
-        </p>
-      </div>
-
-      {/* DATA PREVIEW */}
-      <div className="bg-gray-100 p-4 rounded shadow-inner">
-        <h2 className="font-semibold mb-2">Equipment Record</h2>
-        <pre className="text-xs overflow-auto">
-          {JSON.stringify(equipment, null, 2)}
-        </pre>
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-3xl mx-auto p-6">
+        <EditEquipmentForm equipment={equipment} siteid={siteid} />
       </div>
     </div>
   );
