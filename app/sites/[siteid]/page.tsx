@@ -6,25 +6,13 @@ import EquipmentTable from "./equipment-table";
 
 export const dynamic = "force-dynamic";
 
-export default async function SitePage(props: any) {
-  console.log("RAW PROPS FROM SERVER:", props);
-
-  // 🚀 FIX: params may be a Promise on Vercel but not in dev
-  const resolved = await props.params;
-  console.log("RESOLVED PARAMS:", resolved);
-
-  const siteid = resolved?.siteid;
-
-  if (!siteid) {
-    console.error("Missing siteid param");
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold text-red-600">
-          Invalid site: Missing site ID in URL
-        </h1>
-      </div>
-    );
-  }
+export default async function SitePage({
+  params,
+}: {
+  params: Promise<{ siteid: string }>;
+}) {
+  // FIX: Await the param promise under the new folder name
+  const { siteid: id } = await params;
 
   const cookieStore = await cookies();
 
@@ -40,57 +28,71 @@ export default async function SitePage(props: any) {
     }
   );
 
-  const { data: site, error } = await supabase
+  // Fetch site info (original working behavior)
+  const { data: site, error: siteError } = await supabase
     .from("a_sites")
     .select("*")
-    .eq("site_id", siteid)
+    .eq("site_id", id)
     .single();
 
-  if (error || !site) {
-    console.error("Site fetch error:", error);
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold text-red-600">
-          Site not found or error loading site
-        </h1>
-      </div>
+  if (siteError || !site)
+    return <div className="p-6 text-red-600">Error loading site.</div>;
+
+  // Weather API (unchanged)
+  let weatherSummary = "Weather data unavailable";
+  try {
+    const geoResponse = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+        site.city
+      )}&count=1&language=en&format=json`
     );
+    const geoData = await geoResponse.json();
+    const lat = geoData.results?.[0]?.latitude;
+    const lon = geoData.results?.[0]?.longitude;
+
+    if (lat && lon) {
+      const weatherResponse = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`
+      );
+      const weatherData = await weatherResponse.json();
+      const tempC = weatherData?.current_weather?.temperature;
+      const wind = weatherData?.current_weather?.windspeed;
+
+      if (tempC !== undefined && wind !== undefined) {
+        const tempF = (tempC * 9) / 5 + 32;
+        weatherSummary = `🌤️ ${tempF.toFixed(1)}°F • Wind ${wind.toFixed(
+          1
+        )} mph`;
+      }
+    }
+  } catch (err) {
+    console.error("Weather fetch error:", err);
   }
 
-  // 👉 Build formatted address safely
-  const fullAddress =
-    [
-      site.address_line1,
-      site.address_line2,
-      site.city,
-      site.state,
-      site.postal_code,
-      site.country,
-    ]
-      .filter((x) => x && x.trim() !== "")
-      .join(", ") || "—";
-
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* HEADER */}
-      <div className="bg-white shadow p-6 rounded-xl border border-gray-200">
-        <h1 className="text-3xl font-bold mb-2">{site.site_name}</h1>
-
-        {/* Address */}
-        <p className="text-gray-700">
-          <span className="font-semibold">Address:</span> {fullAddress}
-        </p>
-
-        {/* Phone */}
-        {site.phone_number && site.phone_number.trim() !== "" && (
-          <p className="text-gray-700 mt-1">
-            <span className="font-semibold">Phone:</span> {site.phone_number}
+    <div className="min-h-screen bg-gray-50">
+      <header className="sticky top-0 z-10 bg-gradient-to-r from-green-600 to-yellow-400 text-white p-6 shadow-lg flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">{site.site_name}</h1>
+          <p className="text-sm opacity-90">
+            {site.address_line1}
+            {site.address_line2 ? `, ${site.address_line2}` : ""},{" "}
+            {site.city}, {site.state} {site.postal_code}
           </p>
-        )}
-      </div>
+          <p className="text-sm opacity-90">
+            {site.phone_number || "No phone on file"}
+          </p>
+        </div>
 
-      {/* EQUIPMENT TABLE */}
-      <EquipmentTable siteid={siteid} />
+        <div className="bg-white/20 rounded-xl p-4 shadow-inner text-right">
+          <p className="font-semibold text-lg">Weather</p>
+          <p className="text-sm opacity-90">{weatherSummary}</p>
+        </div>
+      </header>
+
+      <main className="p-6">
+        <EquipmentTable siteId={id} />
+      </main>
     </div>
   );
 }
