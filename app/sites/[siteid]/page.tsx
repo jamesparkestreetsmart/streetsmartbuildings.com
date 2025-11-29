@@ -2,7 +2,7 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import EquipmentTable from "./equipment-table";
+import EquipmentTable from "@/components/equipment/EquipmentTable";
 
 export const dynamic = "force-dynamic";
 
