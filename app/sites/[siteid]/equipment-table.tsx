@@ -42,6 +42,7 @@ export default function EquipmentCheckupTable({ siteId }: Props) {
         .from("view_sites_equipment")
         .select("*")
         .eq("site_id", siteId)
+        .neq("equipment_group", "Inventory")
         .order("equipment_group", { ascending: true })
         .order("equipment_name", { ascending: true });
 
