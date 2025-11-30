@@ -64,7 +64,7 @@ interface SiteFormState {
   state: string;
   postal_code: string;
   country: string;
-  total_area_sqft: string; // keep as string in the UI
+  total_area_sqft: string;
   ha_webhook_url: string;
 }
 
@@ -112,11 +112,10 @@ export default function EditSitePage({ params }: EditSitePageProps) {
   const [gatewayRows, setGatewayRows] = useState<GatewayRegistryRow[]>([]);
   const [loadingGatewayRows, setLoadingGatewayRows] = useState(true);
 
-  // Fetch existing site to prefill the form
+  // Fetch site
   useEffect(() => {
     const fetchSite = async () => {
       setLoading(true);
-      setError(null);
 
       const { data, error } = await supabase
         .from("a_sites")
@@ -125,7 +124,6 @@ export default function EditSitePage({ params }: EditSitePageProps) {
         .single<SiteRow>();
 
       if (error || !data) {
-        console.error("Error fetching site for edit:", error);
         setError("Couldn't load site details. Please try again.");
         setLoading(false);
         return;
@@ -156,9 +154,9 @@ export default function EditSitePage({ params }: EditSitePageProps) {
     fetchSite();
   }, [siteid]);
 
-  // Fetch Home Assistant gateway registry rows for this site
+  // Fetch gateway registry
   useEffect(() => {
-    const fetchGatewayRows = async () => {
+    const fetchGateway = async () => {
       setLoadingGatewayRows(true);
 
       const { data, error } = await supabase
@@ -178,21 +176,19 @@ export default function EditSitePage({ params }: EditSitePageProps) {
         `
         )
         .eq("site_id", siteid)
-        .order("gr_device_name", { ascending: true });
+        .order("gr_device_name");
 
       if (error) {
-        console.error("Error fetching gateway registry rows:", error);
-        // don't surface as a blocking error, just log
+        console.error(error);
         setGatewayRows([]);
-        setLoadingGatewayRows(false);
-        return;
+      } else {
+        setGatewayRows((data as GatewayRegistryRow[]) ?? []);
       }
 
-      setGatewayRows((data as GatewayRegistryRow[]) ?? []);
       setLoadingGatewayRows(false);
     };
 
-    fetchGatewayRows();
+    fetchGateway();
   }, [siteid]);
 
   const handleChange =
@@ -201,24 +197,11 @@ export default function EditSitePage({ params }: EditSitePageProps) {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
     };
 
-  const handleIndustryChange = (value: string) => {
-    setForm((prev) => ({ ...prev, industry: value }));
-  };
-
-  const handleStatusChange = (value: string) => {
-    setForm((prev) => ({ ...prev, status: value }));
-  };
-
   const handleCopyWebhook = async () => {
     if (!form.ha_webhook_url) return;
-
-    try {
-      await navigator.clipboard.writeText(form.ha_webhook_url);
-      setSuccess("Webhook URL copied to clipboard.");
-      setTimeout(() => setSuccess(null), 1500);
-    } catch (err) {
-      console.error("Failed to copy webhook:", err);
-    }
+    await navigator.clipboard.writeText(form.ha_webhook_url);
+    setSuccess("Webhook copied!");
+    setTimeout(() => setSuccess(null), 1200);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -227,11 +210,10 @@ export default function EditSitePage({ params }: EditSitePageProps) {
     setError(null);
     setSuccess(null);
 
-    // Convert numeric-ish fields
     const totalArea =
       form.total_area_sqft.trim() === "" ? null : Number(form.total_area_sqft);
 
-    const { error: updateError } = await supabase
+    const { error } = await supabase
       .from("a_sites")
       .update({
         site_name: form.site_name,
@@ -254,26 +236,22 @@ export default function EditSitePage({ params }: EditSitePageProps) {
       })
       .eq("site_id", siteid);
 
-    if (updateError) {
-      console.error("Error updating site:", updateError);
-      setError("Failed to save changes. Please try again.");
+    if (error) {
+      setError("Failed to save changes.");
       setSaving(false);
       return;
     }
 
-    setSuccess("Site updated successfully.");
+    setSuccess("Site updated!");
     setSaving(false);
 
-    // small delay then go back to site page
-    setTimeout(() => {
-      router.push(`/sites/${siteid}`);
-    }, 800);
+    setTimeout(() => router.push(`/sites/${siteid}`), 600);
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-600">Loading site…</p>
+      <div className="min-h-screen flex items-center justify-center text-gray-600">
+        Loading site…
       </div>
     );
   }
@@ -286,50 +264,44 @@ export default function EditSitePage({ params }: EditSitePageProps) {
         <Card className="shadow-md border border-gray-200">
           <CardHeader>
             <CardTitle className="text-xl">
-              {form.site_name || "Site details"}
+              {form.site_name || "Site Details"}
             </CardTitle>
           </CardHeader>
 
           <CardContent>
             {error && (
-              <div className="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-700">
+              <div className="mb-4 bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-700 rounded">
                 {error}
               </div>
             )}
+
             {success && (
-              <div className="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-2 text-sm text-green-700">
+              <div className="mb-4 bg-green-50 border border-green-200 px-4 py-2 text-sm text-green-700 rounded">
                 {success}
               </div>
             )}
 
+            {/* FORM START */}
             <form onSubmit={handleSubmit} className="space-y-8">
-              {/* Top row: Name + Brand + Industry */}
+              {/* --- Site fields section --- */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <Label htmlFor="site_name">Site Name</Label>
-                  <Input
-                    id="site_name"
-                    value={form.site_name}
-                    onChange={handleChange("site_name")}
-                    required
-                  />
+                  <Label>Site Name</Label>
+                  <Input value={form.site_name} onChange={handleChange("site_name")} />
                 </div>
 
                 <div>
-                  <Label htmlFor="brand">Brand</Label>
-                  <Input
-                    id="brand"
-                    value={form.brand}
-                    onChange={handleChange("brand")}
-                    placeholder="Wendy's, Burger King, etc."
-                  />
+                  <Label>Brand</Label>
+                  <Input value={form.brand} onChange={handleChange("brand")} />
                 </div>
 
                 <div>
                   <Label>Industry</Label>
                   <Select
-                    value={form.industry || ""}
-                    onValueChange={handleIndustryChange}
+                    value={form.industry}
+                    onValueChange={(value) =>
+                      setForm((prev) => ({ ...prev, industry: value }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select industry" />
@@ -347,25 +319,23 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                 </div>
               </div>
 
-              {/* Identifier + Status + Timezone */}
+              {/* Row 2 */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <Label htmlFor="customer_identifier_number">
-                    Store / Customer ID
-                  </Label>
+                  <Label>Store / Customer ID</Label>
                   <Input
-                    id="customer_identifier_number"
                     value={form.customer_identifier_number}
                     onChange={handleChange("customer_identifier_number")}
-                    placeholder="e.g., 3301"
                   />
                 </div>
 
                 <div>
                   <Label>Status</Label>
                   <Select
-                    value={form.status || ""}
-                    onValueChange={handleStatusChange}
+                    value={form.status}
+                    onValueChange={(value) =>
+                      setForm((prev) => ({ ...prev, status: value }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select status" />
@@ -380,9 +350,8 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                 </div>
 
                 <div>
-                  <Label htmlFor="timezone">Timezone</Label>
+                  <Label>Timezone</Label>
                   <Input
-                    id="timezone"
                     value={form.timezone}
                     onChange={handleChange("timezone")}
                     placeholder="America/Chicago"
@@ -393,70 +362,56 @@ export default function EditSitePage({ params }: EditSitePageProps) {
               {/* Contact */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="site_email">Site Email</Label>
+                  <Label>Site Email</Label>
                   <Input
-                    id="site_email"
                     type="email"
                     value={form.site_email}
                     onChange={handleChange("site_email")}
-                    placeholder="manager@example.com"
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="phone_number">Phone Number</Label>
+                  <Label>Phone Number</Label>
                   <Input
-                    id="phone_number"
                     value={form.phone_number}
                     onChange={handleChange("phone_number")}
-                    placeholder="517-555-1234"
                   />
                 </div>
               </div>
 
-              {/* Address block */}
+              {/* Address */}
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="address_line1">Address Line 1</Label>
+                    <Label>Address Line 1</Label>
                     <Input
-                      id="address_line1"
                       value={form.address_line1}
                       onChange={handleChange("address_line1")}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="address_line2">Address Line 2</Label>
+                    <Label>Address Line 2</Label>
                     <Input
-                      id="address_line2"
                       value={form.address_line2}
                       onChange={handleChange("address_line2")}
-                      placeholder="Suite, Unit, etc. (optional)"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <Label htmlFor="city">City</Label>
-                    <Input
-                      id="city"
-                      value={form.city}
-                      onChange={handleChange("city")}
-                    />
+                    <Label>City</Label>
+                    <Input value={form.city} onChange={handleChange("city")} />
                   </div>
+
                   <div>
-                    <Label htmlFor="state">State</Label>
-                    <Input
-                      id="state"
-                      value={form.state}
-                      onChange={handleChange("state")}
-                    />
+                    <Label>State</Label>
+                    <Input value={form.state} onChange={handleChange("state")} />
                   </div>
+
                   <div>
-                    <Label htmlFor="postal_code">Postal Code</Label>
+                    <Label>Postal Code</Label>
                     <Input
-                      id="postal_code"
                       value={form.postal_code}
                       onChange={handleChange("postal_code")}
                     />
@@ -465,170 +420,39 @@ export default function EditSitePage({ params }: EditSitePageProps) {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="country">Country</Label>
+                    <Label>Country</Label>
                     <Input
-                      id="country"
                       value={form.country}
                       onChange={handleChange("country")}
-                      placeholder="US"
                     />
                   </div>
 
                   <div>
-                    <Label htmlFor="total_area_sqft">Total Area (sq ft)</Label>
+                    <Label>Total Area (sq ft)</Label>
                     <Input
-                      id="total_area_sqft"
                       value={form.total_area_sqft}
                       onChange={handleChange("total_area_sqft")}
-                      inputMode="numeric"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Webhook (part of site model) */}
+              {/* Webhook */}
               <div>
-                <Label htmlFor="ha_webhook_url">Home Assistant Webhook URL</Label>
+                <Label>Home Assistant Webhook URL</Label>
                 <Textarea
-                  id="ha_webhook_url"
                   value={form.ha_webhook_url}
-                  onChange={handleChange("ha_webhook_url")}
                   rows={2}
+                  onChange={handleChange("ha_webhook_url")}
                 />
               </div>
 
-              {/* ─────────────────────────────────────────────
-                  Home Assistant & Gateway Devices section (Option B)
-                ───────────────────────────────────────────── */}
-              <div className="mt-8 pt-6 border-t border-gray-200">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h2 className="text-lg font-semibold">
-                      Home Assistant & Gateway Devices
-                    </h2>
-                    <p className="text-sm text-gray-600">
-                      This section shows devices that Home Assistant has reported
-                      for this site via the sync endpoint. Use this for mapping
-                      HA devices to equipment and to verify your integration.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Webhook + hint for HA automation */}
-                <div className="mb-4 space-y-2">
-                  <Label>Webhook / Sync Endpoint</Label>
-                  <p className="text-xs text-gray-500 mb-1">
-                    Your Home Assistant automation should POST its device/entity
-                    payload to this URL (or a Cloudflare tunnel URL that
-                    forwards to it).
-                  </p>
-                  <div className="flex flex-col md:flex-row gap-2">
-                    <Input
-                      value={
-                        form.ha_webhook_url ||
-                        `https://streetsmartbuildings.com/api/sites/${siteid}/sync-ha`
-                      }
-                      readOnly
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleCopyWebhook}
-                    >
-                      Copy
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Registry table */}
-                <div className="mt-4">
-                  {loadingGatewayRows ? (
-                    <p className="text-sm text-gray-500">
-                      Loading gateway registry…
-                    </p>
-                  ) : gatewayRows.length === 0 ? (
-                    <p className="text-sm text-gray-500">
-                      No devices have been received from Home Assistant yet. Once
-                      your HA automation calls{" "}
-                      <code className="bg-gray-100 px-1 rounded text-xs">
-                        /api/sites/{siteid}/sync-ha
-                      </code>
-                      , devices will appear here.
-                    </p>
-                  ) : (
-                    <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="px-3 py-2 text-left font-semibold">
-                              Device Name
-                            </th>
-                            <th className="px-3 py-2 text-left font-semibold">
-                              HA Device ID
-                            </th>
-                            <th className="px-3 py-2 text-left font-semibold">
-                              Manufacturer
-                            </th>
-                            <th className="px-3 py-2 text-left font-semibold">
-                              Model
-                            </th>
-                            <th className="px-3 py-2 text-left font-semibold">
-                              Area
-                            </th>
-                            <th className="px-3 py-2 text-left font-semibold">
-                              Source Gateway
-                            </th>
-                            <th className="px-3 py-2 text-left font-semibold">
-                              Last Updated
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {gatewayRows.map((row) => (
-                            <tr
-                              key={row.gr_id}
-                              className="border-t hover:bg-gray-50"
-                            >
-                              <td className="px-3 py-2">
-                                {row.gr_device_name || "—"}
-                              </td>
-                              <td className="px-3 py-2 font-mono text-xs">
-                                {row.ha_device_id}
-                              </td>
-                              <td className="px-3 py-2">
-                                {row.gr_device_manufacturer || "—"}
-                              </td>
-                              <td className="px-3 py-2">
-                                {row.gr_device_model || "—"}
-                              </td>
-                              <td className="px-3 py-2">
-                                {row.gr_area || "—"}
-                              </td>
-                              <td className="px-3 py-2">
-                                {row.source_gateway || "ha"}
-                              </td>
-                              <td className="px-3 py-2 text-xs text-gray-500">
-                                {row.last_updated_at
-                                  ? new Date(
-                                      row.last_updated_at
-                                    ).toLocaleString()
-                                  : "—"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </div>
-
+              {/* FORM FOOTER */}
               <CardFooter className="px-0 pt-4 flex justify-between">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => router.push(`/sites/${siteid}`)}
-                  disabled={saving}
                 >
                   Cancel
                 </Button>
@@ -638,6 +462,101 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                 </Button>
               </CardFooter>
             </form>
+            {/* FORM END */}
+
+            {/* ─────────────────────────────────────────────
+                HOME ASSISTANT DEVICES SECTION (NOW OUTSIDE FORM)
+              ───────────────────────────────────────────── */}
+            <div className="mt-10 pt-6 border-t border-gray-300">
+              <h2 className="text-lg font-semibold mb-2">
+                Home Assistant & Gateway Devices
+              </h2>
+
+              <p className="text-sm text-gray-600 mb-4">
+                Devices reported by Home Assistant via your sync endpoint.
+              </p>
+
+              <div className="mb-4 space-y-2">
+                <Label>Webhook / Sync Endpoint</Label>
+                <div className="flex flex-col md:flex-row gap-2">
+                  <Input
+                    readOnly
+                    value={
+                      form.ha_webhook_url ||
+                      `https://streetsmartbuildings.com/api/sites/${siteid}/sync-ha`
+                    }
+                  />
+                  <Button variant="outline" onClick={handleCopyWebhook}>
+                    Copy
+                  </Button>
+                </div>
+              </div>
+
+              {/* Table */}
+              {loadingGatewayRows ? (
+                <p className="text-sm text-gray-500">Loading…</p>
+              ) : gatewayRows.length === 0 ? (
+                <p className="text-sm text-gray-500">
+                  No devices have been received from Home Assistant yet.
+                </p>
+              ) : (
+                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold">
+                          Device Name
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold">
+                          HA Device ID
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold">
+                          Manufacturer
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold">
+                          Model
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold">Area</th>
+                        <th className="px-3 py-2 text-left font-semibold">
+                          Source Gateway
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold">
+                          Last Updated
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {gatewayRows.map((row) => (
+                        <tr key={row.gr_id} className="border-t hover:bg-gray-50">
+                          <td className="px-3 py-2">
+                            {row.gr_device_name || "—"}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {row.ha_device_id}
+                          </td>
+                          <td className="px-3 py-2">
+                            {row.gr_device_manufacturer || "—"}
+                          </td>
+                          <td className="px-3 py-2">
+                            {row.gr_device_model || "—"}
+                          </td>
+                          <td className="px-3 py-2">{row.gr_area || "—"}</td>
+                          <td className="px-3 py-2">
+                            {row.source_gateway || "ha"}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-500">
+                            {row.last_updated_at
+                              ? new Date(row.last_updated_at).toLocaleString()
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
