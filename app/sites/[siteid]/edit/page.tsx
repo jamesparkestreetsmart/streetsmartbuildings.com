@@ -68,19 +68,6 @@ interface SiteFormState {
   ha_webhook_url: string;
 }
 
-interface GatewayRegistryRow {
-  gr_id: string;
-  ha_device_id: string;
-  source_gateway: string;
-  gr_device_name: string | null;
-  gr_device_manufacturer: string | null;
-  gr_device_model: string | null;
-  gr_area: string | null;
-  gr_device_sw_version: string | null;
-  gr_device_hw_version: string | null;
-  last_updated_at: string | null;
-}
-
 export default function EditSitePage({ params }: EditSitePageProps) {
   const { siteid } = params;
   const router = useRouter();
@@ -109,13 +96,10 @@ export default function EditSitePage({ params }: EditSitePageProps) {
     ha_webhook_url: "",
   });
 
-  const [gatewayRows, setGatewayRows] = useState<GatewayRegistryRow[]>([]);
-  const [loadingGatewayRows, setLoadingGatewayRows] = useState(true);
-
-  // Fetch site
   useEffect(() => {
     const fetchSite = async () => {
       setLoading(true);
+      setError(null);
 
       const { data, error } = await supabase
         .from("a_sites")
@@ -124,6 +108,7 @@ export default function EditSitePage({ params }: EditSitePageProps) {
         .single<SiteRow>();
 
       if (error || !data) {
+        console.error("Error fetching site:", error);
         setError("Couldn't load site details. Please try again.");
         setLoading(false);
         return;
@@ -154,55 +139,17 @@ export default function EditSitePage({ params }: EditSitePageProps) {
     fetchSite();
   }, [siteid]);
 
-  // Fetch gateway registry
-  useEffect(() => {
-    const fetchGateway = async () => {
-      setLoadingGatewayRows(true);
-
-      const { data, error } = await supabase
-        .from("a_devices_gateway_registry")
-        .select(
-          `
-          gr_id,
-          ha_device_id,
-          source_gateway,
-          gr_device_name,
-          gr_device_manufacturer,
-          gr_device_model,
-          gr_area,
-          gr_device_sw_version,
-          gr_device_hw_version,
-          last_updated_at
-        `
-        )
-        .eq("site_id", siteid)
-        .order("gr_device_name");
-
-      if (error) {
-        console.error(error);
-        setGatewayRows([]);
-      } else {
-        setGatewayRows((data as GatewayRegistryRow[]) ?? []);
-      }
-
-      setLoadingGatewayRows(false);
-    };
-
-    fetchGateway();
-  }, [siteid]);
-
   const handleChange =
     (field: keyof SiteFormState) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
     };
 
-  const handleCopyWebhook = async () => {
-    if (!form.ha_webhook_url) return;
-    await navigator.clipboard.writeText(form.ha_webhook_url);
-    setSuccess("Webhook copied!");
-    setTimeout(() => setSuccess(null), 1200);
-  };
+  const handleIndustryChange = (value: string) =>
+    setForm((prev) => ({ ...prev, industry: value }));
+
+  const handleStatusChange = (value: string) =>
+    setForm((prev) => ({ ...prev, status: value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,7 +160,7 @@ export default function EditSitePage({ params }: EditSitePageProps) {
     const totalArea =
       form.total_area_sqft.trim() === "" ? null : Number(form.total_area_sqft);
 
-    const { error } = await supabase
+    const { error: updateError } = await supabase
       .from("a_sites")
       .update({
         site_name: form.site_name,
@@ -236,22 +183,23 @@ export default function EditSitePage({ params }: EditSitePageProps) {
       })
       .eq("site_id", siteid);
 
-    if (error) {
-      setError("Failed to save changes.");
+    if (updateError) {
+      console.error("Error updating site:", updateError);
+      setError("Failed to save changes. Please try again.");
       setSaving(false);
       return;
     }
 
-    setSuccess("Site updated!");
+    setSuccess("Site updated successfully.");
     setSaving(false);
 
-    setTimeout(() => router.push(`/sites/${siteid}`), 600);
+    setTimeout(() => router.push(`/sites/${siteid}`), 700);
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-600">
-        Loading site…
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-600">Loading…</p>
       </div>
     );
   }
@@ -270,39 +218,38 @@ export default function EditSitePage({ params }: EditSitePageProps) {
 
           <CardContent>
             {error && (
-              <div className="mb-4 bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-700 rounded">
+              <div className="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-700">
                 {error}
               </div>
             )}
-
             {success && (
-              <div className="mb-4 bg-green-50 border border-green-200 px-4 py-2 text-sm text-green-700 rounded">
+              <div className="mb-4 rounded-md bg-green-50 border border-green-200 px-4 py-2 text-sm text-green-700">
                 {success}
               </div>
             )}
 
-            {/* FORM START */}
             <form onSubmit={handleSubmit} className="space-y-8">
-              {/* --- Site fields section --- */}
+              {/* Top row */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <Label>Site Name</Label>
-                  <Input value={form.site_name} onChange={handleChange("site_name")} />
+                  <Input
+                    value={form.site_name}
+                    onChange={handleChange("site_name")}
+                  />
                 </div>
 
                 <div>
                   <Label>Brand</Label>
-                  <Input value={form.brand} onChange={handleChange("brand")} />
+                  <Input
+                    value={form.brand}
+                    onChange={handleChange("brand")}
+                  />
                 </div>
 
                 <div>
                   <Label>Industry</Label>
-                  <Select
-                    value={form.industry}
-                    onValueChange={(value) =>
-                      setForm((prev) => ({ ...prev, industry: value }))
-                    }
-                  >
+                  <Select value={form.industry} onValueChange={handleIndustryChange}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select industry" />
                     </SelectTrigger>
@@ -319,7 +266,7 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                 </div>
               </div>
 
-              {/* Row 2 */}
+              {/* Second row */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <Label>Store / Customer ID</Label>
@@ -331,12 +278,7 @@ export default function EditSitePage({ params }: EditSitePageProps) {
 
                 <div>
                   <Label>Status</Label>
-                  <Select
-                    value={form.status}
-                    onValueChange={(value) =>
-                      setForm((prev) => ({ ...prev, status: value }))
-                    }
-                  >
+                  <Select value={form.status} onValueChange={handleStatusChange}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select status" />
                     </SelectTrigger>
@@ -354,12 +296,11 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                   <Input
                     value={form.timezone}
                     onChange={handleChange("timezone")}
-                    placeholder="America/Chicago"
                   />
                 </div>
               </div>
 
-              {/* Contact */}
+              {/* Email + Phone */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label>Site Email</Label>
@@ -379,7 +320,7 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                 </div>
               </div>
 
-              {/* Address */}
+              {/* Address fields */}
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -403,12 +344,10 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                     <Label>City</Label>
                     <Input value={form.city} onChange={handleChange("city")} />
                   </div>
-
                   <div>
                     <Label>State</Label>
                     <Input value={form.state} onChange={handleChange("state")} />
                   </div>
-
                   <div>
                     <Label>Postal Code</Label>
                     <Input
@@ -442,17 +381,17 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                 <Label>Home Assistant Webhook URL</Label>
                 <Textarea
                   value={form.ha_webhook_url}
-                  rows={2}
                   onChange={handleChange("ha_webhook_url")}
+                  rows={2}
                 />
               </div>
 
-              {/* FORM FOOTER */}
               <CardFooter className="px-0 pt-4 flex justify-between">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => router.push(`/sites/${siteid}`)}
+                  disabled={saving}
                 >
                   Cancel
                 </Button>
@@ -462,101 +401,6 @@ export default function EditSitePage({ params }: EditSitePageProps) {
                 </Button>
               </CardFooter>
             </form>
-            {/* FORM END */}
-
-            {/* ─────────────────────────────────────────────
-                HOME ASSISTANT DEVICES SECTION (NOW OUTSIDE FORM)
-              ───────────────────────────────────────────── */}
-            <div className="mt-10 pt-6 border-t border-gray-300">
-              <h2 className="text-lg font-semibold mb-2">
-                Home Assistant & Gateway Devices
-              </h2>
-
-              <p className="text-sm text-gray-600 mb-4">
-                Devices reported by Home Assistant via your sync endpoint.
-              </p>
-
-              <div className="mb-4 space-y-2">
-                <Label>Webhook / Sync Endpoint</Label>
-                <div className="flex flex-col md:flex-row gap-2">
-                  <Input
-                    readOnly
-                    value={
-                      form.ha_webhook_url ||
-                      `https://streetsmartbuildings.com/api/sites/${siteid}/sync-ha`
-                    }
-                  />
-                  <Button variant="outline" onClick={handleCopyWebhook}>
-                    Copy
-                  </Button>
-                </div>
-              </div>
-
-              {/* Table */}
-              {loadingGatewayRows ? (
-                <p className="text-sm text-gray-500">Loading…</p>
-              ) : gatewayRows.length === 0 ? (
-                <p className="text-sm text-gray-500">
-                  No devices have been received from Home Assistant yet.
-                </p>
-              ) : (
-                <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-semibold">
-                          Device Name
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold">
-                          HA Device ID
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold">
-                          Manufacturer
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold">
-                          Model
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold">Area</th>
-                        <th className="px-3 py-2 text-left font-semibold">
-                          Source Gateway
-                        </th>
-                        <th className="px-3 py-2 text-left font-semibold">
-                          Last Updated
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {gatewayRows.map((row) => (
-                        <tr key={row.gr_id} className="border-t hover:bg-gray-50">
-                          <td className="px-3 py-2">
-                            {row.gr_device_name || "—"}
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {row.ha_device_id}
-                          </td>
-                          <td className="px-3 py-2">
-                            {row.gr_device_manufacturer || "—"}
-                          </td>
-                          <td className="px-3 py-2">
-                            {row.gr_device_model || "—"}
-                          </td>
-                          <td className="px-3 py-2">{row.gr_area || "—"}</td>
-                          <td className="px-3 py-2">
-                            {row.source_gateway || "ha"}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-gray-500">
-                            {row.last_updated_at
-                              ? new Date(row.last_updated_at).toLocaleString()
-                              : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
           </CardContent>
         </Card>
       </div>
