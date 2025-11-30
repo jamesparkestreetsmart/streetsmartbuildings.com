@@ -1,20 +1,22 @@
-import { NextResponse } from "next/server";
+// app/api/sites/[siteid]/sync-ha/route.ts
+
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 export async function POST(
-  req: Request,
+  req: NextRequest,
   context: { params: Promise<{ siteid: string }> }
-) {
-  // FIX: Next.js gives us params wrapped in a Promise
+): Promise<NextResponse> {
+  // ✅ Next 16 gives params wrapped in a Promise in your setup
   const { siteid } = await context.params;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
-  // Parse JSON body safely
-  let payload;
+  // ✅ Parse JSON payload safely
+  let payload: any;
   try {
     payload = await req.json();
   } catch (err) {
@@ -25,7 +27,7 @@ export async function POST(
   const devices = payload.devices ?? [];
   const entities = payload.entities ?? [];
 
-  // Supabase SSR client (same style as your page.tsx files)
+  // ✅ Create Supabase server client (same pattern as page.tsx)
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,7 +41,7 @@ export async function POST(
     }
   );
 
-  // Build upsert rows
+  // ✅ Build upsert rows for a_devices_gateway_registry
   const upserts = devices.map((dev: any) => ({
     site_id: siteid,
     ha_device_id: dev.id,
@@ -62,9 +64,12 @@ export async function POST(
       });
 
     if (error) {
-      console.error("Upsert error:", error);
+      console.error("Supabase upsert error in /sync-ha:", error);
       return NextResponse.json(
-        { error: "Supabase upsert failed", detail: error.message },
+        {
+          error: "Supabase upsert failed",
+          detail: error.message,
+        },
         { status: 500 }
       );
     }
@@ -75,7 +80,7 @@ export async function POST(
     siteid,
     devices_received: devices.length,
     entities_received: entities.length,
-    matched: [],
-    unmatched_registry: [],
+    matched: [] as never[], // reserved for future HA–Supabase joins
+    unmatched_registry: [] as never[],
   });
 }
