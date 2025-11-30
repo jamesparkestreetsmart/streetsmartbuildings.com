@@ -105,13 +105,26 @@ export default async function SitePage({
           </p>
         </div>
 
-        {/* FAR RIGHT — Edit Site Button */}
-        <Link
-          href={`/sites/${id}/edit`}
-          className="px-4 py-2 bg-white/90 hover:bg-white text-green-700 font-semibold rounded-md shadow self-start md:self-auto"
-        >
-          Edit Site
-        </Link>
+        {/* FAR RIGHT — Action Buttons */}
+        <div className="flex flex-col gap-2 self-start md:self-auto">
+
+          {/* EDIT SITE */}
+          <Link
+            href={`/sites/${id}/edit`}
+            className="px-4 py-2 bg-white/90 hover:bg-white text-green-700 font-semibold rounded-md shadow text-center"
+          >
+            Edit Site
+          </Link>
+
+          {/* NEW BUTTON: Sync Devices & Gateways */}
+          <Link
+            href={`/sites/${id}/gateways`}
+            className="px-4 py-2 bg-white/90 hover:bg-white text-blue-700 font-semibold rounded-md shadow text-center"
+          >
+            Sync Devices & Gateways
+          </Link>
+
+        </div>
       </header>
 
       {/* MAIN CONTENT */}
