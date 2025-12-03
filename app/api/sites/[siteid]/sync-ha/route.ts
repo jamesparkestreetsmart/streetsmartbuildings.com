@@ -8,13 +8,14 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ siteid: string }> }
 ): Promise<NextResponse> {
+  // Next 16: params is a Promise in your current setup
   const { siteid } = await context.params;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
-  // Parse JSON
+  // Parse JSON payload
   let payload: any;
   try {
     payload = await req.json();
@@ -23,9 +24,10 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  const devices = payload.devices ?? [];
   const entities = payload.entities ?? [];
 
-  // Create Supabase client
+  // Supabase client
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,24 +41,46 @@ export async function POST(
     }
   );
 
-  // Build upsert rows for a_gateway_entities
-  const upserts = entities.map((ent: any) => ({
-    site_id: siteid,
-    entity_id: ent.entity_id,
-    friendly_name: ent.friendly_name ?? null,
-    domain: ent.domain ?? null,
-    device_class: ent.device_class ?? null,
-    value: ent.value ?? null,
-    unit: ent.unit ?? null,
-    state: ent.state ?? null,
-    raw: ent,
-    updated_at: new Date().toISOString(),
-  }));
+  // Build upsert rows into a_devices_gateway_registry
+  // We’ll treat each ENTITY as a "device" row for now.
+  const upserts = [
+    // Existing device objects (if you ever use them again)
+    ...devices.map((dev: any) => ({
+      site_id: siteid,
+      ha_device_id: dev.id ?? dev.entity_id ?? null,
+      source_gateway: "ha",
+      gr_device_name: dev.name ?? dev.friendly_name ?? null,
+      gr_device_manufacturer: dev.manufacturer ?? null,
+      gr_device_model: dev.model ?? null,
+      gr_area: dev.area ?? null,
+      gr_device_sw_version: dev.sw_version ?? null,
+      gr_device_hw_version: dev.hw_version ?? null,
+      gr_raw: dev,
+      last_updated_at: new Date().toISOString(),
+    })),
+
+    // NEW: entity-based rows
+    ...entities.map((ent: any) => ({
+      site_id: siteid,
+      ha_device_id: ent.entity_id, // use entity_id as our unique key
+      source_gateway: "ha",
+      gr_device_name: ent.friendly_name ?? null,
+      gr_device_manufacturer: ent.manufacturer ?? null,
+      gr_device_model: ent.model ?? null,
+      gr_area: ent.area ?? null,
+      gr_device_sw_version: ent.sw_version ?? null,
+      gr_device_hw_version: ent.hw_version ?? null,
+      gr_raw: ent,
+      last_updated_at: new Date().toISOString(),
+    })),
+  ];
 
   if (upserts.length > 0) {
     const { error } = await supabase
-      .from("a_gateway_entities")
-      .upsert(upserts, { onConflict: "site_id,entity_id" });
+      .from("a_devices_gateway_registry")
+      .upsert(upserts, {
+        onConflict: "site_id,ha_device_id",
+      });
 
     if (error) {
       console.error("Supabase upsert error in /sync-ha:", error);
@@ -70,6 +94,8 @@ export async function POST(
   return NextResponse.json({
     status: "ok",
     siteid,
+    devices_received: devices.length,
     entities_received: entities.length,
+    rows_upserted: upserts.length,
   });
 }
