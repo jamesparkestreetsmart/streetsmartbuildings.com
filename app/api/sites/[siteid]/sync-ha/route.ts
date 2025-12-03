@@ -12,7 +12,6 @@ export async function POST(
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
-  // Parse JSON payload
   let payload: any;
   try {
     payload = await req.json();
