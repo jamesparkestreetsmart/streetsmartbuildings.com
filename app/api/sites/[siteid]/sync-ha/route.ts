@@ -1,5 +1,3 @@
-// app/api/sites/[siteid]/sync-ha/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
@@ -19,13 +17,14 @@ export async function POST(
   try {
     payload = await req.json();
   } catch (err) {
-    console.error("Invalid JSON payload:", err);
+    console.error("Invalid JSON:", err);
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const devices = payload.devices ?? [];
   const entities = payload.entities ?? [];
 
+  // Supabase server client
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,6 +38,7 @@ export async function POST(
     }
   );
 
+  // Build rows to upsert
   const upserts = [
     ...devices.map((dev: any) => ({
       site_id: siteid,
@@ -69,6 +69,7 @@ export async function POST(
     })),
   ];
 
+  // Write to Supabase
   if (upserts.length > 0) {
     const { error } = await supabase
       .from("a_devices_gateway_registry")
@@ -77,7 +78,7 @@ export async function POST(
       });
 
     if (error) {
-      console.error("Supabase upsert error in /sync-ha:", error);
+      console.error("Supabase upsert error:", error);
       return NextResponse.json(
         { error: "Supabase upsert failed", detail: error.message },
         { status: 500 }
