@@ -6,10 +6,9 @@ import { createServerClient } from "@supabase/ssr";
 
 export async function POST(
   req: NextRequest,
-  context: { params: Promise<{ siteid: string }> }
-): Promise<NextResponse> {
-  // Next 16: params is a Promise in your current setup
-  const { siteid } = await context.params;
+  { params }: { params: { siteid: string } }
+) {
+  const { siteid } = params;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
@@ -27,7 +26,6 @@ export async function POST(
   const devices = payload.devices ?? [];
   const entities = payload.entities ?? [];
 
-  // Supabase client
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,10 +39,7 @@ export async function POST(
     }
   );
 
-  // Build upsert rows into a_devices_gateway_registry
-  // We’ll treat each ENTITY as a "device" row for now.
   const upserts = [
-    // Existing device objects (if you ever use them again)
     ...devices.map((dev: any) => ({
       site_id: siteid,
       ha_device_id: dev.id ?? dev.entity_id ?? null,
@@ -59,10 +54,9 @@ export async function POST(
       last_updated_at: new Date().toISOString(),
     })),
 
-    // NEW: entity-based rows
     ...entities.map((ent: any) => ({
       site_id: siteid,
-      ha_device_id: ent.entity_id, // use entity_id as our unique key
+      ha_device_id: ent.entity_id,
       source_gateway: "ha",
       gr_device_name: ent.friendly_name ?? null,
       gr_device_manufacturer: ent.manufacturer ?? null,
