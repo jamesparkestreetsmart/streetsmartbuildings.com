@@ -8,14 +8,13 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ siteid: string }> }
 ): Promise<NextResponse> {
-  // ✅ Next 16 gives params wrapped in a Promise in your setup
   const { siteid } = await context.params;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
-  // ✅ Parse JSON payload safely
+  // Parse JSON
   let payload: any;
   try {
     payload = await req.json();
@@ -24,10 +23,9 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const devices = payload.devices ?? [];
   const entities = payload.entities ?? [];
 
-  // ✅ Create Supabase server client (same pattern as page.tsx)
+  // Create Supabase client
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,35 +39,29 @@ export async function POST(
     }
   );
 
-  // ✅ Build upsert rows for a_devices_gateway_registry
-  const upserts = devices.map((dev: any) => ({
+  // Build upsert rows for a_gateway_entities
+  const upserts = entities.map((ent: any) => ({
     site_id: siteid,
-    ha_device_id: dev.id,
-    source_gateway: "ha",
-    gr_device_name: dev.name ?? null,
-    gr_device_manufacturer: dev.manufacturer ?? null,
-    gr_device_model: dev.model ?? null,
-    gr_area: dev.area ?? null,
-    gr_device_sw_version: dev.sw_version ?? null,
-    gr_device_hw_version: dev.hw_version ?? null,
-    gr_raw: dev,
-    last_updated_at: new Date().toISOString(),
+    entity_id: ent.entity_id,
+    friendly_name: ent.friendly_name ?? null,
+    domain: ent.domain ?? null,
+    device_class: ent.device_class ?? null,
+    value: ent.value ?? null,
+    unit: ent.unit ?? null,
+    state: ent.state ?? null,
+    raw: ent,
+    updated_at: new Date().toISOString(),
   }));
 
   if (upserts.length > 0) {
     const { error } = await supabase
-      .from("a_devices_gateway_registry")
-      .upsert(upserts, {
-        onConflict: "site_id,ha_device_id",
-      });
+      .from("a_gateway_entities")
+      .upsert(upserts, { onConflict: "site_id,entity_id" });
 
     if (error) {
       console.error("Supabase upsert error in /sync-ha:", error);
       return NextResponse.json(
-        {
-          error: "Supabase upsert failed",
-          detail: error.message,
-        },
+        { error: "Supabase upsert failed", detail: error.message },
         { status: 500 }
       );
     }
@@ -78,9 +70,6 @@ export async function POST(
   return NextResponse.json({
     status: "ok",
     siteid,
-    devices_received: devices.length,
     entities_received: entities.length,
-    matched: [] as never[], // reserved for future HA–Supabase joins
-    unmatched_registry: [] as never[],
   });
 }

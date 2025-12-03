@@ -8,17 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-interface GatewayRegistryRow {
-  gr_id: string;
-  ha_device_id: string;
-  source_gateway: string;
-  gr_device_name: string | null;
-  gr_device_manufacturer: string | null;
-  gr_device_model: string | null;
-  gr_area: string | null;
-  gr_device_sw_version: string | null;
-  gr_device_hw_version: string | null;
-  last_updated_at: string | null;
+interface GatewayEntityRow {
+  id: string;
+  site_id: string;
+  entity_id: string;
+  friendly_name: string | null;
+  domain: string | null;
+  device_class: string | null;
+  state: string | null;
+  value: string | null;
+  unit: string | null;
+  updated_at: string | null;
 }
 
 export default function GatewayPage({
@@ -27,13 +27,15 @@ export default function GatewayPage({
   params: Promise<{ siteid: string }>;
 }) {
   const router = useRouter();
+
   const [siteid, setSiteId] = useState<string>("");
-
-  const [syncStatus, setSyncStatus] = useState<"idle" | "loading" | "error" | "success">("idle");
-  const [registry, setRegistry] = useState<GatewayRegistryRow[]>([]);
+  const [registry, setRegistry] = useState<GatewayEntityRow[]>([]);
   const [loadingRegistry, setLoadingRegistry] = useState(true);
+  const [syncStatus, setSyncStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
 
-  /** Resolve params like our other pages */
+  /** Resolve params **/
   useEffect(() => {
     (async () => {
       const resolved = await params;
@@ -41,66 +43,62 @@ export default function GatewayPage({
     })();
   }, [params]);
 
-  /** Fetch registry rows */
+  /** Fetch registry entries **/
+  const fetchRegistry = async (sid: string) => {
+    setLoadingRegistry(true);
+
+    const { data, error } = await supabase
+      .from("a_gateway_entities")
+      .select("*")
+      .eq("site_id", sid)
+      .order("friendly_name", { ascending: true });
+
+    if (error) {
+      console.error("Error loading entity registry:", error);
+      setRegistry([]);
+    } else {
+      setRegistry(data as GatewayEntityRow[]);
+    }
+
+    setLoadingRegistry(false);
+  };
+
   useEffect(() => {
     if (!siteid) return;
-
-    const fetchRegistry = async () => {
-      setLoadingRegistry(true);
-
-      const { data, error } = await supabase
-        .from("a_devices_gateway_registry")
-        .select("*")
-        .eq("site_id", siteid)
-        .order("gr_device_name", { ascending: true });
-
-      if (error) {
-        console.error("Error loading HA registry:", error);
-        setRegistry([]);
-      } else {
-        setRegistry(data as GatewayRegistryRow[]);
-      }
-
-      setLoadingRegistry(false);
-    };
-
-    fetchRegistry();
+    fetchRegistry(siteid);
   }, [siteid]);
 
-  /** COPY WEBHOOK */
+  /** Copy webhook URL **/
   const handleCopyWebhook = async () => {
     const url = `https://streetsmartbuildings.com/api/sites/${siteid}/sync-ha`;
     await navigator.clipboard.writeText(url);
-
     setSyncStatus("success");
     setTimeout(() => setSyncStatus("idle"), 1500);
   };
 
-  /** RUN SYNC NOW */
+  /** Manual sync **/
   const handleRunSync = async () => {
     setSyncStatus("loading");
 
     try {
+      // Basic empty POST to notify HA
       const res = await fetch(`/api/sites/${siteid}/sync-ha`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ devices: [], entities: [] }), // empty structure signals HA format
+        body: JSON.stringify({ entities: [] }),
       });
 
       if (!res.ok) throw new Error("Sync failed");
 
+      // Give HA a moment (optional small delay)
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      // Reload registry
+      await fetchRegistry(siteid);
+
       setSyncStatus("success");
-
-      // Refresh registry after sync
-      const { data } = await supabase
-        .from("a_devices_gateway_registry")
-        .select("*")
-        .eq("site_id", siteid)
-        .order("gr_device_name", { ascending: true });
-
-      setRegistry((data as GatewayRegistryRow[]) ?? []);
     } catch (err) {
-      console.error(err);
+      console.error("Manual sync error:", err);
       setSyncStatus("error");
     }
 
@@ -121,7 +119,7 @@ export default function GatewayPage({
     <div className="min-h-screen bg-gray-50 p-6">
       {/* PAGE TITLE */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Gateway & Device Sync</h1>
+        <h1 className="text-3xl font-bold">Gateway Entity Registry</h1>
 
         <Button variant="outline" onClick={() => router.push(`/sites/${siteid}`)}>
           ← Back to Site
@@ -135,25 +133,28 @@ export default function GatewayPage({
         </CardHeader>
 
         <CardContent className="space-y-4">
-
           {/* Webhook URL */}
           <div>
             <p className="text-sm text-gray-600 mb-1">
-              This is the URL your Home Assistant should POST updates to.
+              This is the endpoint Home Assistant should POST entities to.
             </p>
 
             <div className="flex flex-col md:flex-row gap-2">
-              <Input readOnly value={webhookUrl} className="font-mono text-xs" />
+              <Input
+                readOnly
+                value={webhookUrl}
+                className="font-mono text-xs"
+              />
               <Button variant="outline" onClick={handleCopyWebhook}>
                 Copy
               </Button>
             </div>
           </div>
 
-          {/* Run Sync */}
+          {/* Manual Sync */}
           <div>
             <p className="text-sm text-gray-600 mb-2">
-              Click to manually trigger a sync. (HA normally calls this itself.)
+              Click to manually trigger a sync.
             </p>
 
             <Button
@@ -179,18 +180,18 @@ export default function GatewayPage({
         </CardContent>
       </Card>
 
-      {/* REGISTRY TABLE */}
+      {/* ENTITY REGISTRY TABLE */}
       <Card className="border border-gray-300 shadow-sm">
         <CardHeader>
-          <CardTitle>Gateway Device Registry</CardTitle>
+          <CardTitle>Z-Wave & HA Entities</CardTitle>
         </CardHeader>
 
         <CardContent>
           {loadingRegistry ? (
-            <p className="text-sm text-gray-500">Loading devices…</p>
+            <p className="text-sm text-gray-500">Loading entities…</p>
           ) : registry.length === 0 ? (
             <p className="text-sm text-gray-500">
-              No devices received from Home Assistant yet.
+              No entities received from Home Assistant yet.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -198,27 +199,31 @@ export default function GatewayPage({
                 <thead className="bg-gray-100 border-b">
                   <tr>
                     <th className="px-3 py-2 text-left">Name</th>
-                    <th className="px-3 py-2 text-left">HA Device ID</th>
-                    <th className="px-3 py-2 text-left">Manufacturer</th>
-                    <th className="px-3 py-2 text-left">Model</th>
-                    <th className="px-3 py-2 text-left">Area</th>
-                    <th className="px-3 py-2 text-left">Source</th>
-                    <th className="px-3 py-2 text-left">Last Updated</th>
+                    <th className="px-3 py-2 text-left">Entity ID</th>
+                    <th className="px-3 py-2 text-left">Domain</th>
+                    <th className="px-3 py-2 text-left">Class</th>
+                    <th className="px-3 py-2 text-left">State</th>
+                    <th className="px-3 py-2 text-left">Value</th>
+                    <th className="px-3 py-2 text-left">Unit</th>
+                    <th className="px-3 py-2 text-left">Updated</th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {registry.map((row) => (
-                    <tr key={row.gr_id} className="border-t hover:bg-gray-50">
-                      <td className="px-3 py-2">{row.gr_device_name || "—"}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{row.ha_device_id}</td>
-                      <td className="px-3 py-2">{row.gr_device_manufacturer || "—"}</td>
-                      <td className="px-3 py-2">{row.gr_device_model || "—"}</td>
-                      <td className="px-3 py-2">{row.gr_area || "—"}</td>
-                      <td className="px-3 py-2">{row.source_gateway}</td>
+                    <tr key={row.entity_id} className="border-t hover:bg-gray-50">
+                      <td className="px-3 py-2">{row.friendly_name ?? "—"}</td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {row.entity_id}
+                      </td>
+                      <td className="px-3 py-2">{row.domain ?? "—"}</td>
+                      <td className="px-3 py-2">{row.device_class ?? "—"}</td>
+                      <td className="px-3 py-2">{row.state ?? "—"}</td>
+                      <td className="px-3 py-2">{row.value ?? "—"}</td>
+                      <td className="px-3 py-2">{row.unit ?? "—"}</td>
                       <td className="px-3 py-2 text-xs text-gray-500">
-                        {row.last_updated_at
-                          ? new Date(row.last_updated_at).toLocaleString()
+                        {row.updated_at
+                          ? new Date(row.updated_at).toLocaleString()
                           : "—"}
                       </td>
                     </tr>
