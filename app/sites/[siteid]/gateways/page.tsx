@@ -48,7 +48,7 @@ export default function GatewayPage({
     setLoadingRegistry(true);
 
     const { data, error } = await supabase
-      .from("a_devices_gateway_entities")
+      .from("a_devices_gateway_registry")
       .select("*")
       .eq("site_id", sid)
       .order("friendly_name", { ascending: true });
