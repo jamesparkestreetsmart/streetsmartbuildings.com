@@ -1,18 +1,33 @@
+// app/api/sites/[siteid]/map-entity/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { siteid: string } }
+  context: { params: Promise<{ siteid: string }> }
 ) {
-  const site_id = params.siteid;
-  const body = await req.json();
+  const { siteid } = await context.params;
 
-  const { equipment_id, ha_entity_id, sensor_type } = body;
+  if (!siteid) {
+    return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
+  }
 
-  if (!equipment_id || !ha_entity_id || !sensor_type) {
-    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const { ha_device_id, equipment_id } = body;
+
+  if (!ha_device_id || !equipment_id) {
+    return NextResponse.json(
+      { error: "Missing ha_device_id or equipment_id" },
+      { status: 400 }
+    );
   }
 
   const cookieStore = await cookies();
@@ -21,7 +36,7 @@ export async function POST(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
+        get(name: string) {
           return cookieStore.get(name)?.value;
         },
       },
@@ -29,16 +44,12 @@ export async function POST(
   );
 
   const { error } = await supabase
-    .from("a_equipment_sensor_map")
-    .upsert({
-      site_id,
-      equipment_id,
-      ha_entity_id,
-      sensor_type,
-    });
+    .from("a_devices_gateway_registry")
+    .update({ mapped_equipment_id: equipment_id })
+    .eq("site_id", siteid)
+    .eq("ha_device_id", ha_device_id);
 
   if (error) {
-    console.error("Map save error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
