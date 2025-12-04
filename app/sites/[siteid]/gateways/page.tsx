@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
+// ⭐ ADD THIS IMPORT
+import EntityMappingRow from "@/components/gateways/EntityMappingRow";
+
 interface GatewayEntityRow {
   id: string;
   site_id: string;
@@ -19,7 +22,11 @@ interface GatewayEntityRow {
   last_updated_at: string | null;
 }
 
-export default function GatewayPage({ params }: { params: Promise<{ siteid: string }> }) {
+export default function GatewayPage({
+  params,
+}: {
+  params: Promise<{ siteid: string }>;
+}) {
   const router = useRouter();
 
   const [siteid, setSiteId] = useState<string>("");
@@ -30,9 +37,9 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
     "idle" | "loading" | "success" | "error"
   >("idle");
 
-  // ---------------------
-  // RESOLVE PARAMS
-  // ---------------------
+  // ---------------------------------
+  // Resolve params
+  // ---------------------------------
   useEffect(() => {
     (async () => {
       const resolved = await params;
@@ -40,9 +47,9 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
     })();
   }, [params]);
 
-  // ---------------------
-  // FETCH REGISTRY
-  // ---------------------
+  // ---------------------------------
+  // Fetch registry
+  // ---------------------------------
   const fetchRegistry = async (sid: string) => {
     setLoadingRegistry(true);
 
@@ -66,9 +73,9 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
     fetchRegistry(siteid);
   }, [siteid]);
 
-  // ---------------------
-  // SORT REGISTRY (SAFE)
-  // ---------------------
+  // ---------------------------------
+  // Safe sorted registry
+  // ---------------------------------
   const sortedRegistry = useMemo(() => {
     try {
       return [...registry].sort((a, b) => {
@@ -82,9 +89,9 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
     }
   }, [registry]);
 
-  // ---------------------
-  // COPY WEBHOOK
-  // ---------------------
+  // ---------------------------------
+  // Sync functions
+  // ---------------------------------
   const webhookUrl = siteid
     ? `https://streetsmartbuildings.com/api/sites/${siteid}/sync-ha`
     : "";
@@ -95,9 +102,6 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
     setTimeout(() => setSyncStatus("idle"), 1500);
   };
 
-  // ---------------------
-  // RUN MANUAL SYNC
-  // ---------------------
   const handleRunSync = async () => {
     setSyncStatus("loading");
 
@@ -111,7 +115,6 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
       if (!res.ok) throw new Error("Sync failed");
 
       await new Promise((resolve) => setTimeout(resolve, 1200));
-
       await fetchRegistry(siteid);
 
       setSyncStatus("success");
@@ -127,9 +130,9 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
     return <div className="p-12 text-center text-gray-500">Loading…</div>;
   }
 
-  // ---------------------
+  // ---------------------------------
   // PAGE UI
-  // ---------------------
+  // ---------------------------------
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="flex items-center justify-between mb-6">
@@ -139,7 +142,9 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
         </Button>
       </div>
 
-      {/* SYNC SECTION */}
+      {/* ---------------------------------
+          SYNC SECTION
+      --------------------------------- */}
       <Card className="mb-8 border border-gray-300">
         <CardHeader>
           <CardTitle>Home Assistant Sync Endpoint</CardTitle>
@@ -147,21 +152,19 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
 
         <CardContent className="space-y-4">
           <p className="text-sm text-gray-700">
-            This is the endpoint Home Assistant will POST detected devices & entities into.
+            This is the endpoint Home Assistant will POST detected devices & entities to.
           </p>
 
           <div className="flex flex-col md:flex-row gap-2">
             <Input readOnly value={webhookUrl} className="font-mono text-xs" />
-            <Button variant="outline" onClick={handleCopyWebhook}>
-              Copy
-            </Button>
+            <Button variant="outline" onClick={handleCopyWebhook}>Copy</Button>
           </div>
 
           {syncStatus !== "idle" && (
             <div className="mt-3 p-3 text-sm rounded border bg-gray-100">
               {syncStatus === "loading" && "Syncing…"}
               {syncStatus === "success" && "Sync complete ✓"}
-              {syncStatus === "error" && "Sync failed — check logs."}
+              {syncStatus === "error" && "Sync failed — see logs."}
             </div>
           )}
 
@@ -187,15 +190,40 @@ export default function GatewayPage({ params }: { params: Promise<{ siteid: stri
         </CardContent>
       </Card>
 
-      {/* LAST SYNC */}
-      <p className="text-xs text-gray-500 mb-3">
+      {/* ---------------------------------
+          SENSOR MAPPING UI
+      --------------------------------- */}
+      <Card className="border mt-10 border-gray-300 shadow-sm">
+        <CardHeader>
+          <CardTitle>Equipment ↔ HA Entity Mapping</CardTitle>
+        </CardHeader>
+
+        <CardContent className="space-y-6">
+          {loadingRegistry ? (
+            <p className="text-gray-500 text-sm">Loading…</p>
+          ) : (
+            <div className="space-y-6">
+              {sortedRegistry.map((row) => (
+                <EntityMappingRow key={row.ha_device_id} row={row} siteid={siteid} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---------------------------------
+          LAST SYNC DISPLAY
+      --------------------------------- */}
+      <p className="text-xs text-gray-500 mt-4 mb-3">
         Last sync:{" "}
         {sortedRegistry.length > 0
           ? new Date(sortedRegistry[0].last_updated_at ?? "").toLocaleString()
           : "—"}
       </p>
 
-      {/* REGISTRY TABLE */}
+      {/* ---------------------------------
+          REGISTRY TABLE
+      --------------------------------- */}
       <Card className="border border-gray-300">
         <CardHeader>
           <CardTitle>Z-Wave & HA Entities</CardTitle>
