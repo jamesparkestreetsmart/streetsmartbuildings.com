@@ -81,7 +81,6 @@ export default function GatewayPage({
     setSyncStatus("loading");
 
     try {
-      // Basic empty POST to notify HA
       const res = await fetch(`/api/sites/${siteid}/sync-ha`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,10 +89,8 @@ export default function GatewayPage({
 
       if (!res.ok) throw new Error("Sync failed");
 
-      // Give HA a moment (optional small delay)
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      // Reload registry
       await fetchRegistry(siteid);
 
       setSyncStatus("success");
@@ -132,7 +129,7 @@ export default function GatewayPage({
           <CardTitle>Home Assistant Sync Endpoint</CardTitle>
         </CardHeader>
 
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           {/* Webhook URL */}
           <div>
             <p className="text-sm text-gray-600 mb-1">
@@ -140,11 +137,7 @@ export default function GatewayPage({
             </p>
 
             <div className="flex flex-col md:flex-row gap-2">
-              <Input
-                readOnly
-                value={webhookUrl}
-                className="font-mono text-xs"
-              />
+              <Input readOnly value={webhookUrl} className="font-mono text-xs" />
               <Button variant="outline" onClick={handleCopyWebhook}>
                 Copy
               </Button>
@@ -176,9 +169,40 @@ export default function GatewayPage({
                 ? "Sync Failed"
                 : "Run Sync Now"}
             </Button>
+
+            {/* SYNC RESULT OUTPUT */}
+            {syncStatus !== "idle" && (
+              <div
+                className={`mt-4 p-3 rounded text-sm ${
+                  syncStatus === "success"
+                    ? "bg-green-100 text-green-700 border border-green-300"
+                    : syncStatus === "error"
+                    ? "bg-red-100 text-red-700 border border-red-300"
+                    : "bg-blue-100 text-blue-700 border border-blue-300"
+                }`}
+              >
+                {syncStatus === "loading" && (
+                  <p>Sync in progress… Home Assistant is sending updated entities.</p>
+                )}
+                {syncStatus === "success" && (
+                  <p>Sync complete — registry updated and reloaded successfully.</p>
+                )}
+                {syncStatus === "error" && (
+                  <p>Sync failed — see console for details.</p>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
+
+      {/* LAST SYNC INFO */}
+      <p className="text-xs text-gray-500 mb-2">
+        Last sync:{" "}
+        {registry.length > 0
+          ? new Date(registry[0].updated_at || "").toLocaleString()
+          : "—"}
+      </p>
 
       {/* ENTITY REGISTRY TABLE */}
       <Card className="border border-gray-300 shadow-sm">

@@ -4,98 +4,146 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-export async function POST(
-  req: NextRequest,
-  context: { params: Promise<{ siteid: string }> }
-): Promise<NextResponse> {
-  // Next 16: params is a Promise in your current setup
-  const { siteid } = await context.params;
+/** Simple fuzzy scoring using keyword overlap */
+function scoreMatch(name: string, entity: string) {
+  const n = name.toLowerCase();
+  const e = entity.toLowerCase();
 
-  if (!siteid) {
-    return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
+  let score = 0;
+
+  const keywords = [
+    "freezer",
+    "kitchen",
+    "ambient",
+    "dining",
+    "thermostat",
+    "humidity",
+    "temperature",
+    "battery",
+    "leak",
+    "water",
+  ];
+
+  for (const k of keywords) {
+    if (n.includes(k) && e.includes(k)) score += 2;
   }
 
-  // Parse JSON payload
+  // bonus for temperature/humidity structure
+  if (e.includes("air_temperature")) score += 1;
+  if (e.includes("humidity")) score += 1;
+  if (e.includes("battery")) score += 1;
+
+  return score;
+}
+
+export async function POST(req: NextRequest, context: { params: Promise<{ siteid: string }> }) {
+  const { siteid } = await context.params;
+  if (!siteid) return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
+
   let payload: any;
   try {
     payload = await req.json();
   } catch (err) {
-    console.error("Invalid JSON payload:", err);
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const devices = payload.devices ?? [];
   const entities = payload.entities ?? [];
 
-  // Supabase client
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-      },
+      cookies: { get(name: string) { return cookieStore.get(name)?.value; } },
     }
   );
 
-  // Build upsert rows into a_devices_gateway_registry
-  // We’ll treat each ENTITY as a "device" row for now.
-  const upserts = [
-    // Existing device objects (if you ever use them again)
-    ...devices.map((dev: any) => ({
-      site_id: siteid,
-      ha_device_id: dev.id ?? dev.entity_id ?? null,
-      source_gateway: "ha",
-      gr_device_name: dev.name ?? dev.friendly_name ?? null,
-      gr_device_manufacturer: dev.manufacturer ?? null,
-      gr_device_model: dev.model ?? null,
-      gr_area: dev.area ?? null,
-      gr_device_sw_version: dev.sw_version ?? null,
-      gr_device_hw_version: dev.hw_version ?? null,
-      gr_raw: dev,
-      last_updated_at: new Date().toISOString(),
-    })),
+  // ============================================================
+  // 1. UPSERT ENTITY REGISTRY (keep your existing behavior)
+  // ============================================================
 
-    // NEW: entity-based rows
+  const upserts = [
     ...entities.map((ent: any) => ({
       site_id: siteid,
-      ha_device_id: ent.entity_id, // use entity_id as our unique key
+      ha_device_id: ent.entity_id,
       source_gateway: "ha",
       gr_device_name: ent.friendly_name ?? null,
-      gr_device_manufacturer: ent.manufacturer ?? null,
-      gr_device_model: ent.model ?? null,
-      gr_area: ent.area ?? null,
-      gr_device_sw_version: ent.sw_version ?? null,
-      gr_device_hw_version: ent.hw_version ?? null,
       gr_raw: ent,
       last_updated_at: new Date().toISOString(),
     })),
   ];
 
   if (upserts.length > 0) {
-    const { error } = await supabase
-      .from("a_devices_gateway_registry")
-      .upsert(upserts, {
-        onConflict: "site_id,ha_device_id",
-      });
+    await supabase.from("a_devices_gateway_registry").upsert(upserts, {
+      onConflict: "site_id,ha_device_id",
+    });
+  }
 
-    if (error) {
-      console.error("Supabase upsert error in /sync-ha:", error);
-      return NextResponse.json(
-        { error: "Supabase upsert failed", detail: error.message },
-        { status: 500 }
-      );
+  // ============================================================
+  // 2. LOAD SUPABASE SENSORS (the a_sensors table)
+  // ============================================================
+
+  const { data: sensors, error: errSensors } = await supabase
+    .from("a_sensors")
+    .select("*")
+    .eq("site_id", siteid);
+
+  if (errSensors) {
+    return NextResponse.json({ error: "Failed to load sensors", detail: errSensors.message }, { status: 500 });
+  }
+
+  // ============================================================
+  // 3. PERFORM FUZZY MATCHING
+  // ============================================================
+
+  const results: any[] = [];
+
+  for (const sensor of sensors) {
+    let bestMatch = null;
+    let bestScore = 0;
+
+    for (const ent of entities) {
+      const score = scoreMatch(sensor.sensor_name, ent.entity_id);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = ent.entity_id;
+      }
     }
+
+    results.push({
+      sensor_id: sensor.sensor_id,
+      sensor_name: sensor.sensor_name,
+      matched_entity: bestMatch,
+      score: bestScore,
+    });
+  }
+
+  // ============================================================
+  // 4. UPDATE MATCHED SENSORS IN SUPABASE
+  // ============================================================
+
+  const updates = results
+    .filter(r => r.matched_entity && r.score >= 3) // minimum score threshold
+    .map(r => ({
+      sensor_id: r.sensor_id,
+      ha_entity_id: r.matched_entity,
+      updated_at: new Date().toISOString(),
+    }));
+
+  if (updates.length > 0) {
+    await supabase.from("a_sensors").upsert(updates, {
+      onConflict: "sensor_id",
+    });
   }
 
   return NextResponse.json({
     status: "ok",
     siteid,
-    devices_received: devices.length,
     entities_received: entities.length,
-    rows_upserted: upserts.length,
+    sensors_checked: sensors.length,
+    sensors_mapped: updates.length,
+    mappings: results,
   });
 }
