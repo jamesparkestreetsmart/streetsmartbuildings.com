@@ -4,13 +4,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-// ------------------------------
-// Fuzzy Matching Scoring
-// ------------------------------
-function scoreMatch(name: string, entity: string) {
-  const n = name.toLowerCase();
-  const e = entity.toLowerCase();
-
+/* --------------------------------------------------------------------------
+   FUZZY MATCHING — scores how well an HA entity matches a Supabase sensor
+   -------------------------------------------------------------------------- */
+function scoreMatch(sensorName: string, entityId: string): number {
+  const n = sensorName.toLowerCase();
+  const e = entityId.toLowerCase();
   let score = 0;
 
   const keywords = [
@@ -37,42 +36,58 @@ function scoreMatch(name: string, entity: string) {
   return score;
 }
 
-// ------------------------------
-// FIXED Next.js Typings
-// ------------------------------
-interface RouteContext {
-  params: {
-    siteid: string;
-  };
+/* --------------------------------------------------------------------------
+   HOME ASSISTANT PAYLOAD TYPES
+   -------------------------------------------------------------------------- */
+interface HAEntity {
+  entity_id: string;
+  friendly_name?: string | null;
+  domain?: string | null;
+  device_class?: string | null;
+  value?: any;
+  unit?: string | null;
+  state?: string | null;
+  device_id?: string | null;
+  device_name?: string | null;
+  area_id?: string | null;
 }
 
-// ------------------------------
-// POST Handler
-// ------------------------------
-export async function POST(req: NextRequest, { params }: RouteContext) {
-  const siteid = params.siteid;
+interface HAIncomingPayload {
+  entities?: HAEntity[];
+  devices?: any[];
+}
+
+/* --------------------------------------------------------------------------
+   POST ROUTE — receives registry from Home Assistant
+   -------------------------------------------------------------------------- */
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { siteid: string } }
+) {
+  const { siteid } = params;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
-  // Parse incoming JSON safely
-  let payload: any;
+  /* ----------------------------------------------------------------------
+     1. Parse Incoming JSON From Home Assistant
+     ---------------------------------------------------------------------- */
+  let payload: HAIncomingPayload = {};
   try {
     payload = await req.json();
-  } catch {
-    return NextResponse.json(
-      { error: "Invalid JSON" },
-      { status: 400 }
-    );
+  } catch (error) {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const entities = payload.entities ?? [];
+  const entities: HAEntity[] = payload.entities ?? [];
+  const devices = payload.devices ?? [];
 
-  // ------------------------------
-  // Supabase Client
-  // ------------------------------
+  /* ----------------------------------------------------------------------
+     2. Create Supabase Server Client
+     ---------------------------------------------------------------------- */
   const cookieStore = await cookies();
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -85,96 +100,116 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     }
   );
 
-  // ------------------------------
-  // 1. UPSERT INTO a_devices_gateway_registry
-  // ------------------------------
-  const upserts = entities.map((ent: any) => ({
+  /* ----------------------------------------------------------------------
+     3. UPSERT ENTITY REGISTRY INTO b_entity_sync TABLE
+        (Your new normalized registry structure)
+     ---------------------------------------------------------------------- */
+  const registryUpserts = entities.map((ent) => ({
     site_id: siteid,
-    ha_entity_id: ent.entity_id,
-    ha_device_id: ent.device_id,
+    entity_id: ent.entity_id,
     friendly_name: ent.friendly_name ?? null,
     domain: ent.domain ?? null,
     device_class: ent.device_class ?? null,
-    unit: ent.unit ?? null,
     value: ent.value ?? null,
+    unit_of_measurement: ent.unit ?? null,
     state: ent.state ?? null,
-    area_id: ent.area_id ?? null,
-    raw: ent,
-    last_seen: new Date().toISOString(),
+    ha_device_id: ent.device_id ?? null,
+    ha_device_name: ent.device_name ?? null,
+    ha_area_id: ent.area_id ?? null,
+    equipment_id: null, // you will fill during commissioning
+    raw_json: ent,
+    last_updated_at: new Date().toISOString(),
   }));
 
-  if (upserts.length > 0) {
-    await supabase.from("b_entity_sync").upsert(upserts, {
-      onConflict: "site_id,ha_entity_id",
-    });
+  if (registryUpserts.length > 0) {
+    const { error: regErr } = await supabase
+      .from("b_entity_sync")
+      .upsert(registryUpserts, { onConflict: "site_id,entity_id" });
+
+    if (regErr) {
+      return NextResponse.json(
+        { error: "Failed to upsert b_entity_sync", detail: regErr.message },
+        { status: 500 }
+      );
+    }
   }
 
-  // ------------------------------
-  // 2. LOAD a_sensors
-  // ------------------------------
-  const { data: sensors, error: errSensors } = await supabase
+  /* ----------------------------------------------------------------------
+     4. LOAD SENSORS FROM a_sensors TABLE
+     ---------------------------------------------------------------------- */
+  const { data: sensors, error: sensorsErr } = await supabase
     .from("a_sensors")
     .select("*")
     .eq("site_id", siteid);
 
-  if (errSensors) {
+  if (sensorsErr) {
     return NextResponse.json(
-      { error: "Failed to load sensors", detail: errSensors.message },
+      { error: "Failed to load sensors", detail: sensorsErr.message },
       { status: 500 }
     );
   }
 
-  // ------------------------------
-  // 3. FUZZY MATCH INTERNAL SENSORS
-  // ------------------------------
-  const results: any[] = [];
-
-  for (const sensor of sensors) {
-    let bestMatch = null;
+  /* ----------------------------------------------------------------------
+     5. FUZZY MATCH SENSORS WITH HA ENTITIES
+     ---------------------------------------------------------------------- */
+  const matchResults = (sensors ?? []).map((sensor) => {
+    let bestMatch: string | null = null;
     let bestScore = 0;
 
     for (const ent of entities) {
       const score = scoreMatch(sensor.sensor_name, ent.entity_id);
+
       if (score > bestScore) {
         bestScore = score;
         bestMatch = ent.entity_id;
       }
     }
 
-    results.push({
+    return {
       sensor_id: sensor.sensor_id,
       sensor_name: sensor.sensor_name,
       matched_entity: bestMatch,
       score: bestScore,
-    });
-  }
+    };
+  });
 
-  // ------------------------------
-  // 4. UPDATE MATCHES IN Supabase
-  // ------------------------------
-  const updates = results
-    .filter((r) => r.matched_entity && r.score >= 3)
-    .map((r) => ({
-      sensor_id: r.sensor_id,
-      ha_entity_id: r.matched_entity,
+  /* ----------------------------------------------------------------------
+     6. UPDATE SENSOR MAPPINGS WITH MATCHED ENTITIES (Score ≥ 3)
+     ---------------------------------------------------------------------- */
+  const sensorUpdates = matchResults
+    .filter((m) => m.matched_entity && m.score >= 3)
+    .map((m) => ({
+      sensor_id: m.sensor_id,
+      ha_entity_id: m.matched_entity!,
       updated_at: new Date().toISOString(),
     }));
 
-  if (updates.length > 0) {
-    await supabase.from("a_sensors").upsert(updates, {
-      onConflict: "sensor_id",
-    });
+  if (sensorUpdates.length > 0) {
+    const { error: updErr } = await supabase
+      .from("a_sensors")
+      .upsert(sensorUpdates, { onConflict: "sensor_id" });
+
+    if (updErr) {
+      return NextResponse.json(
+        { error: "Failed to update a_sensors", detail: updErr.message },
+        { status: 500 }
+      );
+    }
   }
 
-  // ------------------------------
-  // Response
-  // ------------------------------
-  return NextResponse.json({
-    status: "ok",
-    siteid,
-    entities_received: entities.length,
-    sensors_checked: sensors.length,
-    sensors_mapped: updates.length,
-    mappings: results,
-  });
+  /* ----------------------------------------------------------------------
+     7. RESPONSE — return detailed mapping report
+     ---------------------------------------------------------------------- */
+  return NextResponse.json(
+    {
+      status: "ok",
+      site_id: siteid,
+      entities_received: entities.length,
+      devices_received: devices.length,
+      sensors_checked: sensors?.length ?? 0,
+      sensors_mapped: sensorUpdates.length,
+      mappings: matchResults,
+    },
+    { status: 200 }
+  );
 }
