@@ -1,14 +1,12 @@
-// app/api/sites/[siteid]/map-entity/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 export async function POST(
   req: NextRequest,
-  context: { params: { siteid: string } }
+  { params }: { params: { siteid: string } }
 ) {
-  const { siteid } = context.params;
+  const { siteid } = params;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
@@ -21,11 +19,11 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { entity_id, equipment_id } = body;
+  const { ha_entity_id, equipment_id } = body;
 
-  if (!entity_id || !equipment_id) {
+  if (!ha_entity_id || !equipment_id) {
     return NextResponse.json(
-      { error: "Missing entity_id or equipment_id" },
+      { error: "Missing ha_entity_id or equipment_id" },
       { status: 400 }
     );
   }
@@ -38,24 +36,28 @@ export async function POST(
       cookies: {
         get(name) {
           return cookieStore.get(name)?.value;
-        },
-      },
+        }
+      }
     }
   );
 
+  // Updates the new normalized registry table
   const { error } = await supabase
     .from("b_entity_sync")
     .update({ equipment_id })
     .eq("site_id", siteid)
-    .eq("entity_id", entity_id);
+    .eq("entity_id", ha_entity_id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({
     status: "ok",
-    mapped_entity: entity_id,
-    mapped_to_equipment: equipment_id,
+    mapped_entity: ha_entity_id,
+    mapped_to_equipment: equipment_id
   });
 }
