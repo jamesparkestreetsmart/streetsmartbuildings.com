@@ -10,10 +10,10 @@ export const dynamic = "force-dynamic";
 export default async function SitePage({
   params,
 }: {
-  params: Promise<{ siteid: string }>;
+  params: { siteid: string };
 }) {
   // FIX — Correct params handling
-  const { siteid: id } = await params;
+  const { siteid: id } = params;
 
   const cookieStore = await cookies();
 

@@ -8,9 +8,9 @@ export const dynamic = "force-dynamic";
 export default async function EditSitePage({
   params,
 }: {
-  params: Promise<{ siteid: string }>;
+  params: { siteid: string };
 }) {
-  const { siteid } = await params;
+  const { siteid } = params;
 
   if (!siteid) {
     return (

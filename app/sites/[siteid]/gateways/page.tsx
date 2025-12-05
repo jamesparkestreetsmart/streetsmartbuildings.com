@@ -22,7 +22,7 @@ interface GatewayEntityRow {
 export default function GatewayPage({
   params,
 }: {
-  params: Promise<{ siteid: string }>;
+  params: { siteid: string };
 }) {
   const router = useRouter();
 
@@ -35,13 +35,10 @@ export default function GatewayPage({
   >("idle");
 
   // ---------------------
-  // RESOLVE PARAMS
+  // RESOLVE PARAMS (FIXED)
   // ---------------------
   useEffect(() => {
-    (async () => {
-      const resolved = await params;
-      setSiteId(resolved.siteid);
-    })();
+    setSiteId(params.siteid);
   }, [params]);
 
   // ---------------------
@@ -71,7 +68,7 @@ export default function GatewayPage({
   }, [siteid]);
 
   // ---------------------
-  // SORT REGISTRY (by device name, then entity_id)
+  // SORT REGISTRY
   // ---------------------
   const sortedRegistry = useMemo(() => {
     try {
@@ -112,17 +109,14 @@ export default function GatewayPage({
       const res = await fetch(`/api/sites/${siteid}/sync-ha`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // We send an empty "entities" array just to ping the endpoint;
-        // HA is still the one that POSTs the real payload into this URL.
         body: JSON.stringify({ entities: [] }),
       });
 
       if (!res.ok) throw new Error("Sync failed");
 
-      // Let HA finish its POST(s)
       await new Promise((resolve) => setTimeout(resolve, 1200));
-
       await fetchRegistry(siteid);
+
       setSyncStatus("success");
     } catch (err) {
       console.error("Manual sync error:", err);
@@ -171,11 +165,7 @@ export default function GatewayPage({
           </p>
 
           <div className="flex flex-col md:flex-row gap-2">
-            <Input
-              readOnly
-              value={webhookUrl}
-              className="font-mono text-xs"
-            />
+            <Input readOnly value={webhookUrl} className="font-mono text-xs" />
             <Button variant="outline" onClick={handleCopyWebhook}>
               Copy
             </Button>
@@ -198,9 +188,7 @@ export default function GatewayPage({
           )}
 
           <div>
-            <p className="text-sm text-gray-600 mb-2">
-              Click to manually trigger a sync.
-            </p>
+            <p className="text-sm text-gray-600 mb-2">Click to manually trigger a sync.</p>
             <Button
               onClick={handleRunSync}
               disabled={syncStatus === "loading"}
