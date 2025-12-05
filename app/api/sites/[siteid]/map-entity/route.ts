@@ -6,14 +6,17 @@ import { cookies } from "next/headers";
 
 export async function POST(
   req: NextRequest,
-  context: { params: Promise<{ siteid: string }> }
+  { params }: { params: { siteid: string } }
 ) {
-  const { siteid } = await context.params;
+  const { siteid } = params;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
+  // -------------------------------------------------------------
+  // 1. Read JSON
+  // -------------------------------------------------------------
   let body;
   try {
     body = await req.json();
@@ -21,16 +24,25 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { ha_device_id, equipment_id } = body;
+  // Expected payload from website:
+  // {
+  //   entity_id: "sensor.kitchen_temp",
+  //   equipment_id: "uuid-of-equipment"
+  // }
+  const { entity_id, equipment_id } = body;
 
-  if (!ha_device_id || !equipment_id) {
+  if (!entity_id || !equipment_id) {
     return NextResponse.json(
-      { error: "Missing ha_device_id or equipment_id" },
+      { error: "Missing entity_id or equipment_id" },
       { status: 400 }
     );
   }
 
+  // -------------------------------------------------------------
+  // 2. Create Supabase client
+  // -------------------------------------------------------------
   const cookieStore = await cookies();
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -43,15 +55,28 @@ export async function POST(
     }
   );
 
+  // -------------------------------------------------------------
+  // 3. Update the NEW table: b_entity_sync
+  // -------------------------------------------------------------
   const { error } = await supabase
-    .from("a_devices_gateway_registry")
-    .update({ mapped_equipment_id: equipment_id })
+    .from("b_entity_sync")
+    .update({
+      equipment_id: equipment_id,
+      last_updated_at: new Date().toISOString(),
+    })
     .eq("site_id", siteid)
-    .eq("ha_device_id", ha_device_id);
+    .eq("entity_id", entity_id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to update b_entity_sync", detail: error.message },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ status: "ok" });
+  return NextResponse.json({
+    status: "ok",
+    mapped_entity: entity_id,
+    mapped_to_equipment: equipment_id,
+  });
 }
