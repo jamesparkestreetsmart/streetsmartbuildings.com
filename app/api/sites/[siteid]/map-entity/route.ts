@@ -2,18 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-type RouteContext = {
-  params: { siteid: string };
-};
-
-export async function POST(req: NextRequest, context: RouteContext) {
-  const siteid = context.params.siteid;
+// ✅ FIXED — Next.js 15 requires this exact signature
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { siteid: string } }
+) {
+  const { siteid } = params;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
-  // Parse JSON body
+  // Parse JSON body safely
   let body;
   try {
     body = await req.json();
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
+        get(name: string) {
           return cookieStore.get(name)?.value;
         }
       }
