@@ -1,12 +1,7 @@
 // app/sites/[siteid]/gateways/page.tsx
 import GatewayClientPage from "./GatewayClientPage";
 
-export default async function Page({
-  params,
-}: {
-  params: Promise<{ siteid: string }>;
-}) {
-  const { siteid } = await params;
-
+export default async function Page(props: any) {
+  const { siteid } = await props.params;
   return <GatewayClientPage siteid={siteid} />;
 }
