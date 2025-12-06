@@ -2,16 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { siteid: string } }
-) {
-  const { siteid } = params;
+type RouteContext = {
+  params: { siteid: string };
+};
+
+export async function POST(req: NextRequest, context: RouteContext) {
+  const siteid = context.params.siteid;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
+  // Parse JSON body
   let body;
   try {
     body = await req.json();
@@ -28,6 +30,7 @@ export async function POST(
     );
   }
 
+  // Supabase client
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,7 +44,7 @@ export async function POST(
     }
   );
 
-  // Updates the new normalized registry table
+  // Update mapping in b_entity_sync
   const { error } = await supabase
     .from("b_entity_sync")
     .update({ equipment_id })
@@ -49,10 +52,7 @@ export async function POST(
     .eq("entity_id", ha_entity_id);
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({

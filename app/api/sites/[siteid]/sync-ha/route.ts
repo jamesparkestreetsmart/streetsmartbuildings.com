@@ -2,16 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { siteid: string } }
-) {
-  const siteid = params.siteid;
+type RouteContext = {
+  params: { siteid: string };
+};
+
+export async function POST(req: NextRequest, context: RouteContext) {
+  const siteid = context.params.siteid;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
+  // Parse JSON body
   let payload: any = {};
   try {
     payload = await req.json();
@@ -21,6 +23,7 @@ export async function POST(
 
   const entities = payload.entities ?? [];
 
+  // Supabase client
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,7 +37,7 @@ export async function POST(
     }
   );
 
-  // Store entities in b_entity_sync
+  // Build upsert payload for b_entity_sync
   const upserts = entities.map((ent: any) => ({
     site_id: siteid,
     entity_id: ent.entity_id,
@@ -47,11 +50,12 @@ export async function POST(
     ha_device_id: ent.device_id ?? null,
     ha_device_name: ent.device_name ?? null,
     ha_area_id: ent.area_id ?? null,
-    equipment_id: null,        // mapping done later
+    equipment_id: null, // mapped later
     raw_json: ent,
-    last_updated_at: new Date().toISOString(),
+    last_updated_at: new Date().toISOString()
   }));
 
+  // Insert into b_entity_sync
   const { error } = await supabase
     .from("b_entity_sync")
     .upsert(upserts, { onConflict: "site_id,entity_id" });
@@ -66,6 +70,6 @@ export async function POST(
   return NextResponse.json({
     status: "ok",
     site_id: siteid,
-    entities_received: entities.length,
+    entities_received: entities.length
   });
 }
