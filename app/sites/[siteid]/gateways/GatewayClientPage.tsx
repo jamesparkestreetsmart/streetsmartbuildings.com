@@ -1,4 +1,3 @@
-// app/sites/[siteid]/gateways/page.tsx
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
@@ -19,17 +18,16 @@ interface SyncEntityRow {
   value: string | number | null;
   unit_of_measurement: string | null;
   ha_area_id: string | null;
-  raw_json: any;
+  raw_json: unknown;
   last_updated_at: string | null;
 }
 
-export default function GatewayPage({
-  params,
-}: {
-  params: { siteid: string };
-}) {
+interface Props {
+  siteid: string;
+}
+
+export default function GatewayClientPage({ siteid }: Props) {
   const router = useRouter();
-  const siteid = params.siteid;
 
   const [registry, setRegistry] = useState<SyncEntityRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +50,7 @@ export default function GatewayPage({
       console.error("Registry fetch error:", error);
       setRegistry([]);
     } else {
-      setRegistry(data as SyncEntityRow[]);
+      setRegistry((data ?? []) as SyncEntityRow[]);
     }
 
     setLoading(false);
@@ -62,7 +60,9 @@ export default function GatewayPage({
     fetchRegistry();
   }, [siteid]);
 
-  // Sort alphabetically by device name
+  // ---------------------
+  // SORT
+  // ---------------------
   const sorted = useMemo(() => {
     return [...registry].sort((a, b) => {
       const an = a.ha_device_name?.toLowerCase() ?? "";
@@ -108,7 +108,6 @@ export default function GatewayPage({
   // ---------------------
   // UI
   // ---------------------
-
   return (
     <div className="min-h-screen bg-gray-50 p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -182,12 +181,16 @@ export default function GatewayPage({
                 <tbody>
                   {sorted.map((row) => (
                     <tr key={row.entity_id} className="border-t">
-                      <td className="px-3 py-2">{row.ha_device_name ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        {row.ha_device_name ?? "—"}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs">
                         {row.entity_id}
                       </td>
                       <td className="px-3 py-2">{row.domain ?? "—"}</td>
-                      <td className="px-3 py-2">{row.device_class ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        {row.device_class ?? "—"}
+                      </td>
                       <td className="px-3 py-2">
                         {row.value ?? row.state ?? "—"}
                         {row.unit_of_measurement
@@ -197,7 +200,9 @@ export default function GatewayPage({
                       <td className="px-3 py-2">{row.ha_area_id ?? "—"}</td>
                       <td className="px-3 py-2 text-xs text-gray-500">
                         {row.last_updated_at
-                          ? new Date(row.last_updated_at).toLocaleString()
+                          ? new Date(
+                              row.last_updated_at
+                            ).toLocaleString()
                           : "—"}
                       </td>
                     </tr>
