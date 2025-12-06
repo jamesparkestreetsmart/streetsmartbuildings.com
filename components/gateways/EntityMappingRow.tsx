@@ -1,9 +1,18 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "../ui/button";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../ui/select";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem
+} from "../ui/select";
 
 export default function EntityMappingRow({ row, siteid }: any) {
   const [equipments, setEquipments] = useState<any[]>([]);
@@ -42,17 +51,17 @@ export default function EntityMappingRow({ row, siteid }: any) {
 
     const entityName = row.gr_device_name?.toLowerCase() ?? "";
 
-    let scores = equipments.map((eq) => ({
-      ...eq,
-      score: similarity(entityName, eq.equipment_name.toLowerCase()),
-    }));
-
-    scores.sort((a, b) => b.score - a.score);
+    const scores = equipments
+      .map((eq) => ({
+        ...eq,
+        score: similarity(entityName, eq.equipment_name.toLowerCase()),
+      }))
+      .sort((a, b) => b.score - a.score);
 
     return scores[0]?.equipment_id || null;
   }, [equipments, row]);
 
-  // auto-select the suggestion if none chosen
+  // Auto-select suggestion if none chosen
   useEffect(() => {
     if (!selectedEq && suggestedEquipment) {
       setSelectedEq(suggestedEquipment);
@@ -82,12 +91,10 @@ export default function EntityMappingRow({ row, siteid }: any) {
 
   return (
     <div className="border-b py-4">
-      {/* Header */}
       <p className="font-medium">{row.gr_device_name ?? row.ha_device_id}</p>
       <p className="text-xs text-gray-500 mb-3">{row.ha_device_id}</p>
 
       <div className="flex flex-col md:flex-row gap-3">
-
         {/* Equipment dropdown */}
         <Select value={selectedEq} onValueChange={setSelectedEq}>
           <SelectTrigger className="w-full md:w-80">
