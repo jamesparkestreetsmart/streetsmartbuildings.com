@@ -1,10 +1,14 @@
-// app/settings/devices/[deviceid]/page.tsx (SERVER COMPONENT)
+/// app/settings/devices/[deviceid]/page.tsx
 
 import DeviceDetailPageClient from "./devicedetailpageclient";
 
-export default async function Page(
-  { params }: { params: Promise<{ deviceid: string }> }
-) {
+interface DevicePageProps {
+  params: Promise<{
+    deviceid: string;
+  }>;
+}
+
+export default async function Page({ params }: DevicePageProps) {
   const { deviceid } = await params;
 
   return <DeviceDetailPageClient deviceid={deviceid} />;
