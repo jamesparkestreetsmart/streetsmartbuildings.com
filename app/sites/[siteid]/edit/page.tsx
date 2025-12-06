@@ -6,10 +6,14 @@ import EditSiteForm from "@/components/sites/EditSiteForm";
 export const dynamic = "force-dynamic";
 
 export default async function EditSitePage({ params }: any) {
-  const siteid = params?.siteid;
+  const { siteid } = await params;
 
   if (!siteid) {
-    return <div className="p-6 text-red-600">Error: Missing site ID</div>;
+    return (
+      <div className="p-6 text-red-600">
+        Error: Missing site ID in URL
+      </div>
+    );
   }
 
   const cookieStore = await cookies();
@@ -19,7 +23,7 @@ export default async function EditSitePage({ params }: any) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
+        get(name: string) {
           return cookieStore.get(name)?.value;
         },
       },
@@ -33,7 +37,12 @@ export default async function EditSitePage({ params }: any) {
     .single();
 
   if (error || !site) {
-    return <div className="p-6 text-red-600">Error loading site</div>;
+    console.error("Site fetch error:", error);
+    return (
+      <div className="p-6 text-red-600">
+        Error loading site details
+      </div>
+    );
   }
 
   return (
