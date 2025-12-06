@@ -6,11 +6,6 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-type ParamsPromise = Promise<{
-  siteid: string;
-  equipmentid: string;
-}>;
-
 interface Equipment {
   equipment_id: string;
   site_id: string;
@@ -43,7 +38,7 @@ interface Sensor {
   sensor_id: string;
   device_id: string;
   sensor_name: string;
-  entity_category: string | null; // "measurement" | "diagnostic" | "config" | "system" | null
+  entity_category: string | null;
   unit_of_measurement: string | null;
   last_value: string | number | null;
   last_updated_at: string | null;
@@ -64,12 +59,9 @@ function formatCategoryLabel(raw: string | null): string {
   return "Other";
 }
 
-export default async function IndividualEquipmentPage({
-  params,
-}: {
-  params: ParamsPromise;
-}) {
-  // ⬇️ Vercel sometimes passes params as a Promise – resolve it explicitly
+export default async function IndividualEquipmentPage(
+  { params }: { params: Promise<{ siteid: string; equipmentid: string }> }
+) {
   const { siteid, equipmentid } = await params;
 
   const cookieStore = await cookies();
@@ -102,7 +94,7 @@ export default async function IndividualEquipmentPage({
     );
   }
 
-  // 2) Load devices for this equipment
+  // 2) Load devices
   const { data: devices, error: devicesError } = await supabase
     .from("a_devices")
     .select("*")
@@ -115,7 +107,7 @@ export default async function IndividualEquipmentPage({
 
   const deviceList = (devices || []) as Device[];
 
-  // 3) Load sensors for those devices (if any)
+  // 3) Load sensors for devices
   let sensorsByDevice: Record<string, Sensor[]> = {};
 
   if (deviceList.length > 0) {
@@ -129,12 +121,14 @@ export default async function IndividualEquipmentPage({
     if (sensorsError) {
       console.error("Sensors fetch error:", sensorsError);
     } else if (sensors) {
-      const cast = sensors as Sensor[];
-      sensorsByDevice = cast.reduce<Record<string, Sensor[]>>((acc, s) => {
-        if (!acc[s.device_id]) acc[s.device_id] = [];
-        acc[s.device_id].push(s);
-        return acc;
-      }, {});
+      sensorsByDevice = (sensors as Sensor[]).reduce<Record<string, Sensor[]>>(
+        (acc, s) => {
+          if (!acc[s.device_id]) acc[s.device_id] = [];
+          acc[s.device_id].push(s);
+          return acc;
+        },
+        {}
+      );
     }
   }
 
@@ -174,52 +168,27 @@ export default async function IndividualEquipmentPage({
       </header>
 
       <main className="max-w-6xl mx-auto p-6 space-y-6">
-        {/* EQUIPMENT DETAILS CARD */}
+        {/* DETAILS CARD */}
         <section className="bg-white rounded-xl shadow p-6 grid gap-6 md:grid-cols-2">
           <div className="space-y-2">
             <h2 className="text-lg font-semibold mb-2">Equipment Details</h2>
-            <p>
-              <span className="font-semibold">Group:</span>{" "}
-              {equipment.equipment_group || "—"}
-            </p>
-            <p>
-              <span className="font-semibold">Type:</span>{" "}
-              {equipment.equipment_type || "—"}
-            </p>
-            <p>
-              <span className="font-semibold">Space:</span>{" "}
-              {equipment.space_name || "—"}
-            </p>
+            <p><span className="font-semibold">Group:</span> {equipment.equipment_group || "—"}</p>
+            <p><span className="font-semibold">Type:</span> {equipment.equipment_type || "—"}</p>
+            <p><span className="font-semibold">Space:</span> {equipment.space_name || "—"}</p>
             {equipment.description && (
               <p className="mt-2 text-sm text-gray-700">
-                <span className="font-semibold">Description:</span>{" "}
-                {equipment.description}
+                <span className="font-semibold">Description:</span> {equipment.description}
               </p>
             )}
           </div>
 
           <div className="space-y-2">
             <h2 className="text-lg font-semibold mb-2">Technical Info</h2>
-            <p>
-              <span className="font-semibold">Manufacturer:</span>{" "}
-              {equipment.manufacturer || "—"}
-            </p>
-            <p>
-              <span className="font-semibold">Model:</span>{" "}
-              {equipment.model || "—"}
-            </p>
-            <p>
-              <span className="font-semibold">Serial:</span>{" "}
-              {equipment.serial_number || "—"}
-            </p>
-            <p>
-              <span className="font-semibold">Voltage:</span>{" "}
-              {equipment.voltage || "—"}
-            </p>
-            <p>
-              <span className="font-semibold">Amperage:</span>{" "}
-              {equipment.amperage || "—"}
-            </p>
+            <p><span className="font-semibold">Manufacturer:</span> {equipment.manufacturer || "—"}</p>
+            <p><span className="font-semibold">Model:</span> {equipment.model || "—"}</p>
+            <p><span className="font-semibold">Serial:</span> {equipment.serial_number || "—"}</p>
+            <p><span className="font-semibold">Voltage:</span> {equipment.voltage || "—"}</p>
+            <p><span className="font-semibold">Amperage:</span> {equipment.amperage || "—"}</p>
             <p>
               <span className="font-semibold">Maintenance Interval:</span>{" "}
               {equipment.maintenance_interval_days
@@ -241,23 +210,20 @@ export default async function IndividualEquipmentPage({
           </div>
         </section>
 
-        {/* DEVICES + SENSORS */}
+        {/* DEVICE + SENSOR SECTION */}
         <section className="bg-white rounded-xl shadow p-6 space-y-4">
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-lg font-semibold">Devices</h2>
             <span className="text-sm text-gray-500">
               {deviceList.length === 0
                 ? "No devices linked yet"
-                : `${deviceList.length} device${
-                    deviceList.length === 1 ? "" : "s"
-                  }`}
+                : `${deviceList.length} device${deviceList.length === 1 ? "" : "s"}`}
             </span>
           </div>
 
           {deviceList.length === 0 && (
             <p className="text-sm text-gray-600">
-              When you tie Home Assistant devices to this equipment, they will
-              appear here with their sensors/entities.
+              When you tie Home Assistant devices to this equipment, they will appear here.
             </p>
           )}
 
@@ -265,34 +231,27 @@ export default async function IndividualEquipmentPage({
             {deviceList.map((device) => {
               const sensors = sensorsByDevice[device.device_id] || [];
 
-              // Group sensors by entity_category (style C)
-              const grouped: Record<string, Sensor[]> = sensors.reduce(
+              const grouped = sensors.reduce<Record<string, Sensor[]>>(
                 (acc, sensor) => {
                   const cat = sensor.entity_category || "measurement";
                   if (!acc[cat]) acc[cat] = [];
                   acc[cat].push(sensor);
                   return acc;
                 },
-                {} as Record<string, Sensor[]>
+                {}
               );
 
-              const categories = Object.entries(grouped).sort(
-                ([a], [b]) => a.localeCompare(b) // stable alphabetical
+              const categories = Object.entries(grouped).sort(([a], [b]) =>
+                a.localeCompare(b)
               );
 
               return (
-                <div
-                  key={device.device_id}
-                  className="border border-gray-200 rounded-xl p-4"
-                >
+                <div key={device.device_id} className="border border-gray-200 rounded-xl p-4">
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2">
                     <div>
-                      <h3 className="font-semibold text-base">
-                        {device.device_name}
-                      </h3>
+                      <h3 className="font-semibold text-base">{device.device_name}</h3>
                       <p className="text-xs text-gray-600">
-                        {device.device_type || "Device"} •{" "}
-                        {device.status || "unknown"}
+                        {device.device_type || "Device"} • {device.status || "unknown"}
                       </p>
                       <p className="text-xs text-gray-500">
                         Last seen: {formatDateTime(device.last_seen_at)}
@@ -341,7 +300,6 @@ export default async function IndividualEquipmentPage({
                             ))}
                           </div>
 
-                          {/* Last updated (most recent within this category) */}
                           <p className="text-[11px] text-gray-500 mt-2">
                             Last updated:{" "}
                             {formatDateTime(

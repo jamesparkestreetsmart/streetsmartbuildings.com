@@ -2,7 +2,10 @@
 
 import DeviceDetailPageClient from "./devicedetailpageclient";
 
-export default async function Page(props: { params: { deviceid: string } }) {
-  const { deviceid } = await props.params; // ⬅ FIXES the PROMISE issue
+export default async function Page(
+  { params }: { params: Promise<{ deviceid: string }> }
+) {
+  const { deviceid } = await params;
+
   return <DeviceDetailPageClient deviceid={deviceid} />;
 }

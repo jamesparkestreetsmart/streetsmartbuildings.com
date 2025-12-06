@@ -7,13 +7,11 @@ import EquipmentTable from "@/components/equipment/EquipmentTable";
 
 export const dynamic = "force-dynamic";
 
-export default async function SitePage({
-  params,
-}: {
-  params: { siteid: string };
-}) {
-  // FIX — Correct params handling
-  const { siteid: id } = params;
+export default async function SitePage(
+  { params }: { params: Promise<{ siteid: string }> }
+) {
+  // ⬅ FIX: Await params because Next.js 15+ passes them as a Promise
+  const { siteid: id } = await params;
 
   const cookieStore = await cookies();
 
@@ -82,10 +80,8 @@ export default async function SitePage({
    *  ============================ */
   return (
     <div className="min-h-screen bg-gray-50">
-
       {/* HEADER */}
       <header className="w-full rounded-lg bg-gradient-to-r from-green-600 to-yellow-500 p-6 flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-
         {/* LEFT — Site Info */}
         <div>
           <h1 className="text-3xl font-bold text-white">{site.site_name}</h1>
@@ -105,10 +101,8 @@ export default async function SitePage({
           </p>
         </div>
 
-        {/* FAR RIGHT — Action Buttons */}
+        {/* ACTION BUTTONS */}
         <div className="flex flex-col gap-2 self-start md:self-auto">
-
-          {/* EDIT SITE */}
           <Link
             href={`/sites/${id}/edit`}
             className="px-4 py-2 bg-white/90 hover:bg-white text-green-700 font-semibold rounded-md shadow text-center"
@@ -116,14 +110,12 @@ export default async function SitePage({
             Edit Site
           </Link>
 
-          {/* NEW BUTTON: Sync Devices & Gateways */}
           <Link
             href={`/sites/${id}/gateways`}
             className="px-4 py-2 bg-white/90 hover:bg-white text-blue-700 font-semibold rounded-md shadow text-center"
           >
             Sync Devices & Gateways
           </Link>
-
         </div>
       </header>
 
