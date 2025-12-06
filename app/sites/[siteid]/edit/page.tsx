@@ -6,7 +6,7 @@ import EditSiteForm from "@/components/sites/EditSiteForm";
 export const dynamic = "force-dynamic";
 
 export default async function EditSitePage({ params }: any) {
-  const { siteid } = await params;
+  const siteid = params?.siteid;   // ✅ Correct here (NOT await)
 
   if (!siteid) {
     return (
