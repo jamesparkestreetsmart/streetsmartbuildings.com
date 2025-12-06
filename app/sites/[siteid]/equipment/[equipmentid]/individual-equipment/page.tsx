@@ -59,10 +59,17 @@ function formatCategoryLabel(raw: string | null): string {
   return "Other";
 }
 
-export default async function IndividualEquipmentPage(
-  { params }: { params: Promise<{ siteid: string; equipmentid: string }> }
-) {
-  const { siteid, equipmentid } = await params;
+export default async function IndividualEquipmentPage({ params }: any) {
+  const siteid = params?.siteid;
+  const equipmentid = params?.equipmentid;
+
+  if (!siteid || !equipmentid) {
+    return (
+      <div className="p-6 text-red-600">
+        Error: Missing site or equipment ID.
+      </div>
+    );
+  }
 
   const cookieStore = await cookies();
 
@@ -124,7 +131,7 @@ export default async function IndividualEquipmentPage(
       sensorsByDevice = (sensors as Sensor[]).reduce<Record<string, Sensor[]>>(
         (acc, s) => {
           if (!acc[s.device_id]) acc[s.device_id] = [];
-          acc[s.device_id].push(s);
+            acc[s.device_id].push(s);
           return acc;
         },
         {}

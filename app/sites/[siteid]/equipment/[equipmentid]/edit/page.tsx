@@ -6,10 +6,9 @@ import EditEquipmentForm from "@/components/equipment/EditEquipmentForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditEquipmentPage(
-  { params }: { params: Promise<{ siteid: string; equipmentid: string }> }
-) {
-  const { siteid, equipmentid } = await params;
+export default async function EditEquipmentPage({ params }: any) {
+  const siteid = params?.siteid;
+  const equipmentid = params?.equipmentid;
 
   if (!equipmentid) {
     console.error("Missing equipmentid in route params");

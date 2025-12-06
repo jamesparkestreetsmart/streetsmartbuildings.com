@@ -9,11 +9,7 @@ export default async function EditSitePage({ params }: any) {
   const siteid = params?.siteid;
 
   if (!siteid) {
-    return (
-      <div className="p-6 text-red-600">
-        Error: Missing site ID in URL
-      </div>
-    );
+    return <div className="p-6 text-red-600">Error: Missing site ID</div>;
   }
 
   const cookieStore = await cookies();
@@ -37,12 +33,7 @@ export default async function EditSitePage({ params }: any) {
     .single();
 
   if (error || !site) {
-    console.error("Site fetch error:", error);
-    return (
-      <div className="p-6 text-red-600">
-        Error loading site details
-      </div>
-    );
+    return <div className="p-6 text-red-600">Error loading site</div>;
   }
 
   return (
