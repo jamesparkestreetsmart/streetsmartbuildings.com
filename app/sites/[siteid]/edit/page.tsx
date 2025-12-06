@@ -5,12 +5,10 @@ import EditSiteForm from "@/components/sites/EditSiteForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditSitePage({
-  params,
-}: {
-  params: { siteid: string };
-}) {
-  const { siteid } = params;
+export default async function EditSitePage(
+  { params }: { params: Promise<{ siteid: string }> }
+) {
+  const { siteid } = await params;
 
   if (!siteid) {
     return (
