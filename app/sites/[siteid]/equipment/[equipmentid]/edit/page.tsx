@@ -9,10 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function EditEquipmentPage({
   params,
 }: {
-  params: Promise<{ siteid: string; equipmentid: string }>;
+  params: { siteid: string; equipmentid: string };
 }) {
-  // On Vercel, params is a Promise
-  const { siteid, equipmentid } = await params;
+  const { siteid, equipmentid } = params;
 
   if (!equipmentid) {
     console.error("Missing equipmentid in route params");
