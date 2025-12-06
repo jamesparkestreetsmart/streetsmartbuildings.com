@@ -1,7 +1,7 @@
 // app/sites/[siteid]/gateways/page.tsx
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, use } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
@@ -19,11 +19,12 @@ interface GatewayEntityRow {
   last_updated_at: string | null;
 }
 
-export default function GatewayPage({
-  params,
-}: {
-  params: { siteid: string };
-}) {
+export default function GatewayPage(
+  props: {
+    params: Promise<{ siteid: string }>;
+  }
+) {
+  const params = use(props.params);
   const router = useRouter();
 
   const [siteid, setSiteId] = useState<string>("");

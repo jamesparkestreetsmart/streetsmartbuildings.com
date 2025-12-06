@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 export async function POST(req: NextRequest, context: any) {
-  const siteid = context?.params?.siteid;
+  const siteid = (await context?.params)?.siteid;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });

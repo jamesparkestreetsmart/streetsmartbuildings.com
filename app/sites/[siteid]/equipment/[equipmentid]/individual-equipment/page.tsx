@@ -59,7 +59,8 @@ function formatCategoryLabel(raw: string | null): string {
   return "Other";
 }
 
-export default async function IndividualEquipmentPage({ params }: any) {
+export default async function IndividualEquipmentPage(props: any) {
+  const params = await props.params;
   const siteid = params?.siteid;
   const equipmentid = params?.equipmentid;
 

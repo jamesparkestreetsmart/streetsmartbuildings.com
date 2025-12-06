@@ -6,7 +6,8 @@ import EditEquipmentForm from "@/components/equipment/EditEquipmentForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditEquipmentPage({ params }: any) {
+export default async function EditEquipmentPage(props: any) {
+  const params = await props.params;
   const siteid = params?.siteid;
   const equipmentid = params?.equipmentid;
 

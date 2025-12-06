@@ -7,7 +7,8 @@ import EquipmentTable from "@/components/equipment/EquipmentTable";
 
 export const dynamic = "force-dynamic";
 
-export default async function SitePage({ params }: any) {
+export default async function SitePage(props: any) {
+  const params = await props.params;
   // FIX — do not expect a Promise, Next 15+ passes plain object
   const id = params?.siteid;
 
