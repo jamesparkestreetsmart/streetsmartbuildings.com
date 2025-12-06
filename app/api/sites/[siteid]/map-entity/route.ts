@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-// ✅ FIXED — Next.js 15 requires this exact signature
 export async function POST(
   req: NextRequest,
   { params }: { params: { siteid: string } }
@@ -13,7 +12,6 @@ export async function POST(
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
   }
 
-  // Parse JSON body safely
   let body;
   try {
     body = await req.json();
@@ -30,7 +28,6 @@ export async function POST(
     );
   }
 
-  // Supabase client
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,7 +41,6 @@ export async function POST(
     }
   );
 
-  // Update mapping in b_entity_sync
   const { error } = await supabase
     .from("b_entity_sync")
     .update({ equipment_id })
