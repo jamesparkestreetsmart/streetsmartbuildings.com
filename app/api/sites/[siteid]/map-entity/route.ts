@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { siteid: string } }
-) {
-  const { siteid } = params;
+export async function POST(req: NextRequest, context: any) {
+  const siteid = context?.params?.siteid;
 
   if (!siteid) {
     return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
