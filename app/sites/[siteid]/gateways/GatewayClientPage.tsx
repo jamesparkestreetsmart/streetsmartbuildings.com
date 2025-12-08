@@ -43,7 +43,7 @@ export default function GatewayClientPage({ siteid }: Props) {
     setLoading(true);
 
     const { data, error } = await supabase
-      .from("b_entity_sync")
+      .from("view_entity_sync")
       .select("*")
       .eq("site_id", siteid);
 
