@@ -1,26 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 interface SyncEntityRow {
+  org_id: string;
   site_id: string;
+  equipment_id: string;
+  equipment_name: string | null;
+
   entity_id: string;
-  ha_device_id: string | null;
-  ha_device_name: string | null;
   domain: string | null;
   device_class: string | null;
-  state: string | number | null;
-  value: string | number | null;
   unit_of_measurement: string | null;
-  ha_area_id: string | null;
-  raw_json: unknown;
-  last_updated_at: string | null;
+  last_state: string | null;
+  area_id: string | null;
+  last_updated: string | null;
+
+  // extra columns from the view if you ever need them
+  ha_device_id?: string | null;
+  device_name?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  sw_version?: string | null;
+  hw_version?: string | null;
 }
 
 interface Props {
@@ -37,7 +44,7 @@ export default function GatewayClientPage({ siteid }: Props) {
   >("idle");
 
   // ---------------------
-  // FETCH ENTITY REGISTRY
+  // FETCH ENTITY SYNC DATA (from view_entity_sync)
   // ---------------------
   const fetchRegistry = async () => {
     setLoading(true);
@@ -62,18 +69,24 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [siteid]);
 
   // ---------------------
-  // SORT
+  // SORT by entity name AFTER the dot
   // ---------------------
   const sorted = useMemo(() => {
-    return [...registry].sort((a, b) => {
-      const an = a.ha_device_name?.toLowerCase() ?? "";
-      const bn = b.ha_device_name?.toLowerCase() ?? "";
-      return an.localeCompare(bn);
-    });
+    const getEntitySortKey = (row: SyncEntityRow) => {
+      if (!row.entity_id) return "";
+      const parts = row.entity_id.split(".");
+      // sensor.test_power_1 -> test_power_1
+      const name = parts.length > 1 ? parts.slice(1).join(".") : row.entity_id;
+      return name.toLowerCase();
+    };
+
+    return [...registry].sort((a, b) =>
+      getEntitySortKey(a).localeCompare(getEntitySortKey(b))
+    );
   }, [registry]);
 
   // ---------------------
-  // SYNC HANDLING ✅ CORRECT
+  // SYNC HANDLING (button calls the same endpoint HA uses)
   // ---------------------
   const webhookUrl = `/api/ha/entity-sync`;
 
@@ -81,32 +94,41 @@ export default function GatewayClientPage({ siteid }: Props) {
     setSyncStatus("loading");
 
     try {
-      const res = await fetch("/api/ha/entity-sync", {
+      const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteid }),
+        body: JSON.stringify({
+          site_id: siteid,
+        }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Sync failed (${res.status})`);
-      }
+      if (!res.ok) throw new Error("Sync failed");
 
-      await new Promise((r) => setTimeout(r, 1000));
+      // give HA a moment to push + DB to commit
+      await new Promise((r) => setTimeout(r, 1200));
       await fetchRegistry();
 
       setSyncStatus("success");
-    } catch (err) {
-      console.error("Sync error:", err);
+    } catch (e) {
+      console.error(e);
       setSyncStatus("error");
-    } finally {
-      setTimeout(() => setSyncStatus("idle"), 2500);
     }
+
+    setTimeout(() => setSyncStatus("idle"), 2500);
   };
 
   const lastSync =
-    sorted[0]?.last_updated_at
-      ? new Date(sorted[0].last_updated_at).toLocaleString()
+    sorted[0]?.last_updated
+      ? new Date(sorted[0].last_updated).toLocaleString()
       : "—";
+
+  const formatValue = (row: SyncEntityRow) => {
+    if (!row.last_state || row.last_state === "unknown") return "—";
+    if (row.unit_of_measurement) {
+      return `${row.last_state} ${row.unit_of_measurement}`;
+    }
+    return row.last_state;
+  };
 
   // ---------------------
   // UI
@@ -120,13 +142,14 @@ export default function GatewayClientPage({ siteid }: Props) {
         </Button>
       </div>
 
+      {/* SYNC CARD */}
       <Card>
         <CardHeader>
           <CardTitle>Sync Endpoint (Home Assistant → Supabase)</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-gray-600 mb-2">
-            Home Assistant POSTs entities to this endpoint.
+            Home Assistant POSTs all entities to this endpoint.
           </p>
 
           <div className="flex gap-2 mb-3">
@@ -144,6 +167,8 @@ export default function GatewayClientPage({ siteid }: Props) {
               ? "Syncing…"
               : syncStatus === "success"
               ? "Sync Complete ✓"
+              : syncStatus === "error"
+              ? "Sync Failed – Retry"
               : "Run Sync Now"}
           </Button>
 
@@ -153,9 +178,10 @@ export default function GatewayClientPage({ siteid }: Props) {
         </CardContent>
       </Card>
 
+      {/* ENTITY TABLE */}
       <Card>
         <CardHeader>
-          <CardTitle>Z-Wave & Home Assistant Entities</CardTitle>
+          <CardTitle>Z-Wave &amp; Home Assistant Entities</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -169,7 +195,7 @@ export default function GatewayClientPage({ siteid }: Props) {
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
                   <tr>
-                    <th className="px-3 py-2 text-left">Device Name</th>
+                    <th className="px-3 py-2 text-left">Equipment</th>
                     <th className="px-3 py-2 text-left">Entity ID</th>
                     <th className="px-3 py-2 text-left">Domain</th>
                     <th className="px-3 py-2 text-left">Class</th>
@@ -178,29 +204,32 @@ export default function GatewayClientPage({ siteid }: Props) {
                     <th className="px-3 py-2 text-left">Updated</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {sorted.map((row) => (
                     <tr key={row.entity_id} className="border-t">
+                      {/* Equipment name from a_equipments via the view */}
                       <td className="px-3 py-2">
-                        {row.ha_device_name ?? "—"}
+                        {row.equipment_name ?? "—"}
                       </td>
+
+                      {/* Full entity_id (sensor.xyz) */}
                       <td className="px-3 py-2 font-mono text-xs">
                         {row.entity_id}
                       </td>
+
                       <td className="px-3 py-2">{row.domain ?? "—"}</td>
                       <td className="px-3 py-2">
                         {row.device_class ?? "—"}
                       </td>
-                      <td className="px-3 py-2">
-                        {row.value ?? row.state ?? "—"}
-                        {row.unit_of_measurement
-                          ? ` ${row.unit_of_measurement}`
-                          : ""}
-                      </td>
-                      <td className="px-3 py-2">{row.ha_area_id ?? "—"}</td>
+
+                      <td className="px-3 py-2">{formatValue(row)}</td>
+
+                      <td className="px-3 py-2">{row.area_id ?? "—"}</td>
+
                       <td className="px-3 py-2 text-xs text-gray-500">
-                        {row.last_updated_at
-                          ? new Date(row.last_updated_at).toLocaleString()
+                        {row.last_updated
+                          ? new Date(row.last_updated).toLocaleString()
                           : "—"}
                       </td>
                     </tr>
