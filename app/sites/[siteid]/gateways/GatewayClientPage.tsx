@@ -72,18 +72,18 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [registry]);
 
   // ---------------------
-  // SYNC HANDLING
+  // SYNC HANDLING ✅ FIXED
   // ---------------------
-  const webhookUrl = `https://streetsmartbuildings.com/api/sites/${siteid}/sync-ha`;
+  const webhookUrl = `https://streetsmartbuildings.com/api/ha/entity-sync`;
 
   const handleRunSync = async () => {
     setSyncStatus("loading");
 
     try {
-      const res = await fetch(`/api/sites/${siteid}/sync-ha`, {
+      const res = await fetch("/api/ha/entity-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entities: [] }),
+        body: JSON.stringify({ site_id: siteid }),
       });
 
       if (!res.ok) throw new Error("Sync failed");
@@ -200,9 +200,7 @@ export default function GatewayClientPage({ siteid }: Props) {
                       <td className="px-3 py-2">{row.ha_area_id ?? "—"}</td>
                       <td className="px-3 py-2 text-xs text-gray-500">
                         {row.last_updated_at
-                          ? new Date(
-                              row.last_updated_at
-                            ).toLocaleString()
+                          ? new Date(row.last_updated_at).toLocaleString()
                           : "—"}
                       </td>
                     </tr>
