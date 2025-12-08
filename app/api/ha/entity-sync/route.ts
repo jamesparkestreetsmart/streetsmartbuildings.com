@@ -1,19 +1,96 @@
-// app/api/ha/entity-sync/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
-export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
+export async function POST(req: NextRequest) {
+  // ✅ MUST await cookies()
+  const cookieStore = await cookies();
 
-  if (!body?.site_id) {
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+      },
+    }
+  );
+
+  let payload;
+  try {
+    payload = await req.json();
+  } catch {
     return NextResponse.json(
-      { ok: false, error: "Missing site_id" },
+      { error: "Invalid JSON payload" },
       { status: 400 }
+    );
+  }
+
+  const {
+    org_id,
+    site_id,
+    equipment_id,
+    entity_id,
+    domain,
+    device_class,
+    unit_of_measurement,
+    area_id,
+    last_state,
+    ha_device_id,
+    raw_json,
+  } = payload ?? {};
+
+  // ✅ Hard validation (prevents silent failures)
+  if (!org_id || !site_id || !equipment_id || !entity_id || !domain) {
+    return NextResponse.json(
+      {
+        error: "Missing required fields",
+        required: [
+          "org_id",
+          "site_id",
+          "equipment_id",
+          "entity_id",
+          "domain",
+        ],
+      },
+      { status: 400 }
+    );
+  }
+
+  const { error } = await supabase
+    .from("b_entity_sync")
+    .upsert(
+      {
+        org_id,
+        site_id,
+        equipment_id,
+        entity_id,
+        domain,
+        device_class,
+        unit_of_measurement,
+        area_id,
+        last_state,
+        ha_device_id,
+        raw_json,
+        last_seen_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "org_id,site_id,equipment_id,entity_id",
+      }
+    );
+
+  if (error) {
+    console.error("Entity sync error:", error);
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 }
     );
   }
 
   return NextResponse.json({
     ok: true,
-    message: "HA entity sync endpoint received request",
-    site_id: body.site_id,
+    entity_id,
   });
 }
