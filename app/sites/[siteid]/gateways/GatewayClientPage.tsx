@@ -29,6 +29,7 @@ interface Props {
 export default function GatewayClientPage({ siteid }: Props) {
   const router = useRouter();
 
+  // ✅ STATE (this is what TS says is missing)
   const [registry, setRegistry] = useState<SyncEntityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<
@@ -72,33 +73,31 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [registry]);
 
   // ---------------------
-  // SYNC HANDLING ✅ HARD FIX
+  // SYNC HANDLING (✅ FIXED)
   // ---------------------
-  const webhookUrl = "https://streetsmartbuildings.com/api/ha/entity-sync";
+
+  // shown to Home Assistant
+  const webhookUrl =
+    "https://streetsmartbuildings.com/api/ha/entity-sync";
 
   const handleRunSync = async () => {
     setSyncStatus("loading");
 
     try {
-      console.log("Running HA sync for site:", siteid);
-
-      const res = await fetch(webhookUrl, {
+      const res = await fetch("/api/ha/entity-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ site_id: siteid }),
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Sync failed (${res.status}): ${text}`);
-      }
+      if (!res.ok) throw new Error("Sync failed");
 
       await new Promise((r) => setTimeout(r, 1200));
       await fetchRegistry();
 
       setSyncStatus("success");
     } catch (e) {
-      console.error("Sync error:", e);
+      console.error(e);
       setSyncStatus("error");
     }
 
@@ -117,12 +116,14 @@ export default function GatewayClientPage({ siteid }: Props) {
     <div className="min-h-screen bg-gray-50 p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Gateway Entity Registry</h1>
-        <Button variant="outline" onClick={() => router.push(`/sites/${siteid}`)}>
+        <Button
+          variant="outline"
+          onClick={() => router.push(`/sites/${siteid}`)}
+        >
           ← Back to Site
         </Button>
       </div>
 
-      {/* SYNC CARD */}
       <Card>
         <CardHeader>
           <CardTitle>Sync Endpoint (Home Assistant → Supabase)</CardTitle>
@@ -156,7 +157,6 @@ export default function GatewayClientPage({ siteid }: Props) {
         </CardContent>
       </Card>
 
-      {/* ENTITY TABLE */}
       <Card>
         <CardHeader>
           <CardTitle>Z-Wave & Home Assistant Entities</CardTitle>
@@ -182,11 +182,12 @@ export default function GatewayClientPage({ siteid }: Props) {
                     <th className="px-3 py-2 text-left">Updated</th>
                   </tr>
                 </thead>
-
                 <tbody>
                   {sorted.map((row) => (
                     <tr key={row.entity_id} className="border-t">
-                      <td className="px-3 py-2">{row.ha_device_name ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        {row.ha_device_name ?? "—"}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs">
                         {row.entity_id}
                       </td>
