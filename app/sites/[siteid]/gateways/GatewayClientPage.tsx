@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,7 +30,6 @@ interface Props {
 export default function GatewayClientPage({ siteid }: Props) {
   const router = useRouter();
 
-  // ✅ STATE (this is what TS says is missing)
   const [registry, setRegistry] = useState<SyncEntityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<
@@ -37,7 +37,7 @@ export default function GatewayClientPage({ siteid }: Props) {
   >("idle");
 
   // ---------------------
-  // FETCH ENTITY SYNC DATA
+  // FETCH ENTITY REGISTRY
   // ---------------------
   const fetchRegistry = async () => {
     setLoading(true);
@@ -73,12 +73,9 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [registry]);
 
   // ---------------------
-  // SYNC HANDLING (✅ FIXED)
+  // SYNC HANDLING ✅ CORRECT
   // ---------------------
-
-  // shown to Home Assistant
-  const webhookUrl =
-    "https://streetsmartbuildings.com/api/ha/entity-sync";
+  const webhookUrl = `/api/ha/entity-sync`;
 
   const handleRunSync = async () => {
     setSyncStatus("loading");
@@ -90,18 +87,20 @@ export default function GatewayClientPage({ siteid }: Props) {
         body: JSON.stringify({ site_id: siteid }),
       });
 
-      if (!res.ok) throw new Error("Sync failed");
+      if (!res.ok) {
+        throw new Error(`Sync failed (${res.status})`);
+      }
 
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 1000));
       await fetchRegistry();
 
       setSyncStatus("success");
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error("Sync error:", err);
       setSyncStatus("error");
+    } finally {
+      setTimeout(() => setSyncStatus("idle"), 2500);
     }
-
-    setTimeout(() => setSyncStatus("idle"), 2500);
   };
 
   const lastSync =
@@ -116,10 +115,7 @@ export default function GatewayClientPage({ siteid }: Props) {
     <div className="min-h-screen bg-gray-50 p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Gateway Entity Registry</h1>
-        <Button
-          variant="outline"
-          onClick={() => router.push(`/sites/${siteid}`)}
-        >
+        <Button variant="outline" onClick={() => router.push(`/sites/${siteid}`)}>
           ← Back to Site
         </Button>
       </div>
@@ -130,7 +126,7 @@ export default function GatewayClientPage({ siteid }: Props) {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-gray-600 mb-2">
-            Home Assistant POSTs all entities to this webhook when discovered.
+            Home Assistant POSTs entities to this endpoint.
           </p>
 
           <div className="flex gap-2 mb-3">
