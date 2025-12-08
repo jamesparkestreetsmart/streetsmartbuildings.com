@@ -72,28 +72,33 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [registry]);
 
   // ---------------------
-  // SYNC HANDLING ✅ FIXED
+  // SYNC HANDLING ✅ HARD FIX
   // ---------------------
-  const webhookUrl = `https://streetsmartbuildings.com/api/ha/entity-sync`;
+  const webhookUrl = "https://streetsmartbuildings.com/api/ha/entity-sync";
 
   const handleRunSync = async () => {
     setSyncStatus("loading");
 
     try {
-      const res = await fetch("/api/ha/entity-sync", {
+      console.log("Running HA sync for site:", siteid);
+
+      const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ site_id: siteid }),
       });
 
-      if (!res.ok) throw new Error("Sync failed");
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Sync failed (${res.status}): ${text}`);
+      }
 
       await new Promise((r) => setTimeout(r, 1200));
       await fetchRegistry();
 
       setSyncStatus("success");
     } catch (e) {
-      console.error(e);
+      console.error("Sync error:", e);
       setSyncStatus("error");
     }
 
@@ -181,9 +186,7 @@ export default function GatewayClientPage({ siteid }: Props) {
                 <tbody>
                   {sorted.map((row) => (
                     <tr key={row.entity_id} className="border-t">
-                      <td className="px-3 py-2">
-                        {row.ha_device_name ?? "—"}
-                      </td>
+                      <td className="px-3 py-2">{row.ha_device_name ?? "—"}</td>
                       <td className="px-3 py-2 font-mono text-xs">
                         {row.entity_id}
                       </td>
