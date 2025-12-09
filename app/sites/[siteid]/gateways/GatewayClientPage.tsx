@@ -132,10 +132,10 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [siteid]);
 
   /* ---------------------------------------------
-     Group by HA device (sorted)
+     Group by HA device (sorted, stable)
   --------------------------------------------- */
   const devices = useMemo<DeviceGroup[]>(() => {
-    const map = new Map<string, any>();
+    const map = new Map<string, DeviceGroup>();
 
     rows.forEach((r) => {
       if (!r.ha_device_id) return;
@@ -152,12 +152,29 @@ export default function GatewayClientPage({ siteid }: Props) {
         });
       }
 
-      map.get(r.ha_device_id).entities.push(r);
+      map.get(r.ha_device_id)!.entities.push(r);
     });
 
-    return Array.from(map.values()).sort((a, b) =>
-      a.device_name.localeCompare(b.device_name)
-    );
+    // ✅ Stable, deterministic ordering of devices
+    const grouped = Array.from(map.values()).sort((a, b) => {
+      const aName = a.device_name?.toLowerCase() ?? "";
+      const bName = b.device_name?.toLowerCase() ?? "";
+
+      if (aName && bName && aName !== bName) {
+        return aName.localeCompare(bName);
+      }
+
+      return a.ha_device_id.localeCompare(b.ha_device_id);
+    });
+
+    // ✅ NEW: stable ordering of entities within each device
+    grouped.forEach((device) => {
+      device.entities.sort((a, b) =>
+        a.entity_id.localeCompare(b.entity_id)
+      );
+    });
+
+    return grouped;
   }, [rows]);
 
   /* ---------------------------------------------
@@ -258,7 +275,11 @@ export default function GatewayClientPage({ siteid }: Props) {
                     <tr key={e.entity_id} className="border-t">
                       <td className="font-mono text-xs">{e.entity_id}</td>
                       <td>{e.sensor_type ?? "—"}</td>
-                      <td className={isOffline(e.last_seen_at) ? "text-red-600" : ""}>
+                      <td
+                        className={
+                          isOffline(e.last_seen_at) ? "text-red-600" : ""
+                        }
+                      >
                         {formatRelativeTime(e.last_seen_at)}
                       </td>
                       <td>{formatValue(e)}</td>
