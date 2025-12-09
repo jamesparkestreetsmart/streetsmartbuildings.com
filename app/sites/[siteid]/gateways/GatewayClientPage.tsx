@@ -25,6 +25,7 @@ interface SyncEntityRow {
 
   equipment_id: string | null;
   equipment_name: string | null;
+  equipment_status: "active" | "inactive" | "dummy" | null;
 
   last_state: string | null;
   unit_of_measurement: string | null;
@@ -34,6 +35,7 @@ interface SyncEntityRow {
 interface Equipment {
   equipment_id: string;
   equipment_name: string;
+  status: "active" | "inactive" | "dummy";
 }
 
 interface Props {
@@ -47,6 +49,7 @@ interface DeviceGroup {
   model?: string | null;
   equipment_id: string | null;
   equipment_name: string | null;
+  equipment_status: "active" | "inactive" | "dummy" | null;
   entities: SyncEntityRow[];
 }
 
@@ -57,25 +60,19 @@ const HOURS_24_MS = 24 * 60 * 60 * 1000;
 const DUMMY_EQUIPMENT_NAME = "Inventory Closet";
 
 /* ---------------------------------------------
- Time helpers
+ Helpers
 --------------------------------------------- */
-const isOffline = (lastSeen: string | null) => {
-  if (!lastSeen) return true;
-  return Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
-};
+const isOffline = (lastSeen: string | null) =>
+  !lastSeen ||
+  Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
 
 const formatRelativeTime = (date: string | null) => {
   if (!date) return "never";
-
-  const deltaMs = Date.now() - new Date(date).getTime();
-  const minutes = Math.floor(deltaMs / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
+  const minutes = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;
-  if (hours < 24) return `${hours} hr ago`;
-  return `${days} day${days > 1 ? "s" : ""} ago`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)} hr ago`;
+  return `${Math.floor(minutes / 1440)} days ago`;
 };
 
 const formatValue = (row: SyncEntityRow) => {
@@ -101,31 +98,25 @@ export default function GatewayClientPage({ siteid }: Props) {
   const fetchRegistry = async () => {
     setLoading(true);
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("view_entity_sync")
       .select("*")
       .eq("site_id", siteid);
 
-    if (error) {
-      console.error(error);
-      setRows([]);
-    } else {
-      setRows((data ?? []) as SyncEntityRow[]);
-    }
-
+    setRows((data ?? []) as SyncEntityRow[]);
     setLoading(false);
   };
 
   /* ---------------------------------------------
-     Fetch equipment list (✅ dummy first)
+     Fetch equipments (dummy first)
   --------------------------------------------- */
   const fetchEquipments = async () => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("a_equipments")
-      .select("equipment_id, equipment_name")
+      .select("equipment_id, equipment_name, status")
       .eq("site_id", siteid);
 
-    if (error || !data) return;
+    if (!data) return;
 
     const sorted = [...data].sort((a, b) => {
       if (a.equipment_name === DUMMY_EQUIPMENT_NAME) return -1;
@@ -133,7 +124,7 @@ export default function GatewayClientPage({ siteid }: Props) {
       return a.equipment_name.localeCompare(b.equipment_name);
     });
 
-    setEquipments(sorted);
+    setEquipments(sorted as Equipment[]);
   };
 
   useEffect(() => {
@@ -142,7 +133,7 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [siteid]);
 
   /* ---------------------------------------------
-     Group by HA device (stable, deterministic)
+     Group by HA device (stable)
   --------------------------------------------- */
   const devices = useMemo<DeviceGroup[]>(() => {
     const map = new Map<string, DeviceGroup>();
@@ -158,6 +149,7 @@ export default function GatewayClientPage({ siteid }: Props) {
           model: r.model,
           equipment_id: r.equipment_id,
           equipment_name: r.equipment_name,
+          equipment_status: r.equipment_status,
           entities: [],
         });
       }
@@ -165,18 +157,10 @@ export default function GatewayClientPage({ siteid }: Props) {
       map.get(r.ha_device_id)!.entities.push(r);
     });
 
-    const grouped = Array.from(map.values()).sort((a, b) => {
-      const aName = a.device_name?.toLowerCase() ?? "";
-      const bName = b.device_name?.toLowerCase() ?? "";
+    const grouped = Array.from(map.values()).sort((a, b) =>
+      (a.device_name ?? "").localeCompare(b.device_name ?? "")
+    );
 
-      if (aName && bName && aName !== bName) {
-        return aName.localeCompare(bName);
-      }
-
-      return a.ha_device_id.localeCompare(b.ha_device_id);
-    });
-
-    // Stable entity ordering inside each device
     grouped.forEach((d) =>
       d.entities.sort((a, b) => a.entity_id.localeCompare(b.entity_id))
     );
@@ -185,20 +169,16 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [rows]);
 
   /* ---------------------------------------------
-     Persist device → equipment mapping
+     Update mapping
   --------------------------------------------- */
   const updateDeviceEquipment = async (
     ha_device_id: string,
-    equipment_id: string | null
+    equipment_id: string
   ) => {
     await fetch("/api/device-map", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        site_id: siteid,
-        ha_device_id,
-        equipment_id,
-      }),
+      body: JSON.stringify({ site_id: siteid, ha_device_id, equipment_id }),
     });
 
     await fetchRegistry();
@@ -234,9 +214,16 @@ export default function GatewayClientPage({ siteid }: Props) {
         <p>Loading…</p>
       ) : (
         devices.map((device) => (
-          <Card key={device.ha_device_id}>
+          <Card
+            key={device.ha_device_id}
+            className={
+              device.equipment_status === "active"
+                ? "border-l-4 border-green-500"
+                : "border-l-4 border-yellow-400"
+            }
+          >
             <CardHeader>
-              <CardTitle className="flex justify-between">
+              <CardTitle className="flex justify-between items-center">
                 <div>
                   <div>{device.device_name}</div>
                   <div className="text-xs text-gray-500">
@@ -245,17 +232,22 @@ export default function GatewayClientPage({ siteid }: Props) {
                 </div>
 
                 <select
-                  className="border rounded px-2 py-1"
+                  className="border rounded px-2 py-1 text-sm"
                   value={device.equipment_id ?? ""}
                   onChange={(e) =>
-                    updateDeviceEquipment(
-                      device.ha_device_id,
-                      e.target.value || null
-                    )
+                    updateDeviceEquipment(device.ha_device_id, e.target.value)
                   }
                 >
                   {equipments.map((eq) => (
-                    <option key={eq.equipment_id} value={eq.equipment_id}>
+                    <option
+                      key={eq.equipment_id}
+                      value={eq.equipment_id}
+                      className={
+                        eq.status === "active"
+                          ? "text-green-700"
+                          : "text-yellow-700 font-medium"
+                      }
+                    >
                       {eq.equipment_name}
                     </option>
                   ))}
