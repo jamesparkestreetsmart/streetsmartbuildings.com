@@ -95,7 +95,6 @@ export default function GatewayClientPage({ siteid }: Props) {
       .from("view_entity_sync")
       .select("*")
       .eq("site_id", siteid)
-      .not("sensor_type", "is", null);
 
     if (error) {
       console.error("Registry fetch error:", error);
