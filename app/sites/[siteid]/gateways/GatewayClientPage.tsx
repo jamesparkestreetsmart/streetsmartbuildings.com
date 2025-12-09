@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-
+import Link from "next/link";
 /* ---------------------------------------------
  Types
 --------------------------------------------- */
@@ -225,7 +225,13 @@ export default function GatewayClientPage({ siteid }: Props) {
             <CardHeader>
               <CardTitle className="flex justify-between items-center">
                 <div>
-                  <div>{device.device_name}</div>
+                  <Link
+  href={`/sites/${siteid}/devices/${device.ha_device_id}`}
+  className="font-semibold text-emerald-700 hover:underline"
+>
+  {device.device_name}
+</Link>
+
                   <div className="text-xs text-gray-500">
                     {device.manufacturer} {device.model}
                   </div>
