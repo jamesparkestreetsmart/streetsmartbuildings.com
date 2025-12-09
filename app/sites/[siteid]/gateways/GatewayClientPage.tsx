@@ -14,20 +14,26 @@ interface SyncEntityRow {
   org_id: string;
   site_id: string;
 
-  equipment_id: string | null;
-  equipment_name: string | null;
-
   entity_id: string;
+  domain?: string | null;
   sensor_type: string | null;
 
   ha_device_id: string | null;
   device_name: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
 
-  last_seen_at: string | null;
-  first_seen_at: string | null;
+  equipment_id: string | null;
+  equipment_name: string | null;
 
-  unit_of_measurement: string | null;
   last_state: string | null;
+  unit_of_measurement: string | null;
+  last_seen_at: string | null;
+}
+
+interface Equipment {
+  equipment_id: string;
+  equipment_name: string;
 }
 
 interface Props {
@@ -58,6 +64,14 @@ function formatRelativeTime(date: string | null) {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
+function formatValue(row: SyncEntityRow) {
+  if (!row.last_state || row.last_state === "unknown") return "—";
+  if (row.unit_of_measurement) {
+    return `${row.last_state} ${row.unit_of_measurement}`;
+  }
+  return row.last_state;
+}
+
 /* ---------------------------------------------
  Component
 --------------------------------------------- */
@@ -65,13 +79,14 @@ export default function GatewayClientPage({ siteid }: Props) {
   const router = useRouter();
 
   const [rows, setRows] = useState<SyncEntityRow[]>([]);
+  const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
 
   /* ---------------------------------------------
-     Fetch from view_entity_sync
+     Fetch entity registry
   --------------------------------------------- */
   const fetchRegistry = async () => {
     setLoading(true);
@@ -92,18 +107,83 @@ export default function GatewayClientPage({ siteid }: Props) {
     setLoading(false);
   };
 
+  /* ---------------------------------------------
+     Fetch equipment list
+  --------------------------------------------- */
+  const fetchEquipments = async () => {
+    const { data, error } = await supabase
+      .from("a_equipments")
+      .select("equipment_id, equipment_name")
+      .eq("site_id", siteid)
+      .order("equipment_name");
+
+    if (error) {
+      console.error("Equipment fetch error:", error);
+      setEquipments([]);
+    } else {
+      setEquipments((data ?? []) as Equipment[]);
+    }
+  };
+
   useEffect(() => {
     fetchRegistry();
+    fetchEquipments();
   }, [siteid]);
 
   /* ---------------------------------------------
-     Stable sort by entity name
+     Group entities by device
   --------------------------------------------- */
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) =>
-      a.entity_id.localeCompare(b.entity_id)
-    );
+  const devices = useMemo(() => {
+    const map = new Map<string, {
+      ha_device_id: string;
+      device_name: string | null;
+      manufacturer?: string | null;
+      model?: string | null;
+      equipment_id: string | null;
+      equipment_name: string | null;
+      entities: SyncEntityRow[];
+    }>();
+
+    rows.forEach((r) => {
+      if (!r.ha_device_id) return;
+
+      if (!map.has(r.ha_device_id)) {
+        map.set(r.ha_device_id, {
+          ha_device_id: r.ha_device_id,
+          device_name: r.device_name,
+          manufacturer: r.manufacturer,
+          model: r.model,
+          equipment_id: r.equipment_id,
+          equipment_name: r.equipment_name,
+          entities: [],
+        });
+      }
+
+      map.get(r.ha_device_id)!.entities.push(r);
+    });
+
+    return Array.from(map.values());
   }, [rows]);
+
+  /* ---------------------------------------------
+     Device → equipment update
+  --------------------------------------------- */
+  async function updateDeviceEquipment(
+    ha_device_id: string,
+    equipment_id: string | null
+  ) {
+    await fetch("/api/device-map", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        site_id: siteid,
+        ha_device_id,
+        equipment_id,
+      }),
+    });
+
+    await fetchRegistry();
+  }
 
   /* ---------------------------------------------
      Sync logic
@@ -135,17 +215,9 @@ export default function GatewayClientPage({ siteid }: Props) {
   };
 
   const lastSync =
-    sorted[0]?.last_seen_at
-      ? new Date(sorted[0].last_seen_at).toLocaleString()
+    rows[0]?.last_seen_at
+      ? new Date(rows[0].last_seen_at).toLocaleString()
       : "—";
-
-  const formatValue = (row: SyncEntityRow) => {
-    if (!row.last_state || row.last_state === "unknown") return "—";
-    if (row.unit_of_measurement) {
-      return `${row.last_state} ${row.unit_of_measurement}`;
-    }
-    return row.last_state;
-  };
 
   /* ---------------------------------------------
      UI
@@ -196,86 +268,87 @@ export default function GatewayClientPage({ siteid }: Props) {
         </CardContent>
       </Card>
 
-      {/* ENTITY TABLE */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Entities (Mapped & Meaningful)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <p className="text-sm text-gray-500">Loading…</p>
-          ) : sorted.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No mapped entities found.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Entity</th>
-                    <th className="px-3 py-2 text-left">Device</th>
-                    <th className="px-3 py-2 text-left">Sensor Type</th>
-                    <th className="px-3 py-2 text-left">Equipment</th>
-                    <th className="px-3 py-2 text-left">Last Seen</th>
-                    <th className="px-3 py-2 text-left">Value</th>
-                  </tr>
-                </thead>
+      {/* DEVICE GROUPS */}
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : devices.length === 0 ? (
+        <p className="text-sm text-gray-500">No entities found.</p>
+      ) : (
+        <div className="space-y-6">
+          {devices.map((device) => (
+            <Card key={device.ha_device_id}>
+              <CardHeader>
+                <CardTitle className="flex justify-between items-center">
+                  <div>
+                    <div className="font-semibold">
+                      {device.device_name ?? "Unnamed Device"}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {device.manufacturer} {device.model}
+                    </div>
+                  </div>
 
-                <tbody>
-                  {sorted.map((row) => {
-                    const offline = isOffline(row.last_seen_at);
+                  <select
+                    className="border rounded px-2 py-1 text-sm"
+                    value={device.equipment_id ?? ""}
+                    onChange={(e) =>
+                      updateDeviceEquipment(
+                        device.ha_device_id,
+                        e.target.value || null
+                      )
+                    }
+                  >
+                    <option value="">Unassigned</option>
+                    {equipments.map((eq) => (
+                      <option key={eq.equipment_id} value={eq.equipment_id}>
+                        {eq.equipment_name}
+                      </option>
+                    ))}
+                  </select>
+                </CardTitle>
+              </CardHeader>
 
-                    return (
-                      <tr key={row.entity_id} className="border-t">
-                        <td className="px-3 py-2 font-mono text-xs">
-                          {row.entity_id}
-                        </td>
-
-                        <td className="px-3 py-2">
-                          {row.device_name ?? (
-                            <span className="italic text-gray-400">
-                              Unassigned
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="px-3 py-2 capitalize">
-                          {row.sensor_type?.replace(/_/g, " ") ?? "—"}
-                        </td>
-
-                        {/* Equipment dropdown placeholder */}
-                        <td className="px-3 py-2">
-                          {row.equipment_name ?? "—"}
-                        </td>
-
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`h-2 w-2 rounded-full ${
-                                offline ? "bg-red-500" : "bg-green-500"
-                              }`}
-                            />
+              <CardContent>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b">
+                      <th className="py-1">Entity</th>
+                      <th className="py-1">Type</th>
+                      <th className="py-1">Last Seen</th>
+                      <th className="py-1">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {device.entities.map((e) => {
+                      const offline = isOffline(e.last_seen_at);
+                      return (
+                        <tr key={e.entity_id} className="border-t">
+                          <td className="py-1 font-mono text-xs">
+                            {e.entity_id}
+                          </td>
+                          <td className="py-1 capitalize">
+                            {e.sensor_type?.replace(/_/g, " ") ?? "—"}
+                          </td>
+                          <td className="py-1">
                             <span
                               className={offline ? "text-red-600" : ""}
                             >
-                              {formatRelativeTime(row.last_seen_at)}
+                              {formatRelativeTime(e.last_seen_at)}
                             </span>
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2">
-                          {formatValue(row)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                          </td>
+                          <td className="py-1">
+                            {formatValue(e)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
