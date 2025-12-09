@@ -64,11 +64,20 @@ function formatRelativeTime(date: string | null) {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
+/* ✅ UPDATED: ISO timestamps now render as local time */
 function formatValue(row: SyncEntityRow) {
   if (!row.last_state || row.last_state === "unknown") return "—";
+
+  // Detect ISO timestamps (sun sensors, backups, etc.)
+  const parsed = Date.parse(row.last_state);
+  if (!isNaN(parsed) && row.last_state.includes("T")) {
+    return new Date(parsed).toLocaleString(); // ✅ local time
+  }
+
   if (row.unit_of_measurement) {
     return `${row.last_state} ${row.unit_of_measurement}`;
   }
+
   return row.last_state;
 }
 
@@ -94,7 +103,7 @@ export default function GatewayClientPage({ siteid }: Props) {
     const { data, error } = await supabase
       .from("view_entity_sync")
       .select("*")
-      .eq("site_id", siteid)
+      .eq("site_id", siteid);
 
     if (error) {
       console.error("Registry fetch error:", error);
@@ -133,15 +142,18 @@ export default function GatewayClientPage({ siteid }: Props) {
      Group entities by device
   --------------------------------------------- */
   const devices = useMemo(() => {
-    const map = new Map<string, {
-      ha_device_id: string;
-      device_name: string | null;
-      manufacturer?: string | null;
-      model?: string | null;
-      equipment_id: string | null;
-      equipment_name: string | null;
-      entities: SyncEntityRow[];
-    }>();
+    const map = new Map<
+      string,
+      {
+        ha_device_id: string;
+        device_name: string | null;
+        manufacturer?: string | null;
+        model?: string | null;
+        equipment_id: string | null;
+        equipment_name: string | null;
+        entities: SyncEntityRow[];
+      }
+    >();
 
     rows.forEach((r) => {
       if (!r.ha_device_id) return;
@@ -223,7 +235,6 @@ export default function GatewayClientPage({ siteid }: Props) {
   --------------------------------------------- */
   return (
     <div className="min-h-screen bg-gray-50 p-6 space-y-6">
-      {/* HEADER */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Gateway Entity Registry</h1>
         <Button variant="outline" onClick={() => router.push(`/sites/${siteid}`)}>
@@ -237,10 +248,6 @@ export default function GatewayClientPage({ siteid }: Props) {
           <CardTitle>Home Assistant Sync Endpoint</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-gray-600 mb-2">
-            Home Assistant POSTs entity data to this endpoint.
-          </p>
-
           <div className="flex gap-2 mb-3">
             <Input readOnly value={webhookUrl} className="font-mono text-xs" />
             <Button
@@ -267,7 +274,7 @@ export default function GatewayClientPage({ siteid }: Props) {
         </CardContent>
       </Card>
 
-      {/* DEVICE GROUPS */}
+      {/* DEVICES */}
       {loading ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : devices.length === 0 ? (
@@ -322,22 +329,14 @@ export default function GatewayClientPage({ siteid }: Props) {
                       const offline = isOffline(e.last_seen_at);
                       return (
                         <tr key={e.entity_id} className="border-t">
-                          <td className="py-1 font-mono text-xs">
-                            {e.entity_id}
-                          </td>
+                          <td className="py-1 font-mono text-xs">{e.entity_id}</td>
                           <td className="py-1 capitalize">
                             {e.sensor_type?.replace(/_/g, " ") ?? "—"}
                           </td>
-                          <td className="py-1">
-                            <span
-                              className={offline ? "text-red-600" : ""}
-                            >
-                              {formatRelativeTime(e.last_seen_at)}
-                            </span>
+                          <td className={`py-1 ${offline ? "text-red-600" : ""}`}>
+                            {formatRelativeTime(e.last_seen_at)}
                           </td>
-                          <td className="py-1">
-                            {formatValue(e)}
-                          </td>
+                          <td className="py-1">{formatValue(e)}</td>
                         </tr>
                       );
                     })}
