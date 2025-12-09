@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 export default async function Page({
   params,
 }: {
-  params: { siteid: string };
+  params: Promise<{ siteid: string }>;
 }) {
-  const { siteid } = params;
+  const { siteid } = await params;
   return <GatewayClientPage siteid={siteid} />;
 }
