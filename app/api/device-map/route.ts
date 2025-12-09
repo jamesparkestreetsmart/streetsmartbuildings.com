@@ -2,13 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export async function POST(req: NextRequest, context: any) {
-  const siteid = (await context?.params)?.siteid;
-
-  if (!siteid) {
-    return NextResponse.json({ error: "Missing siteid" }, { status: 400 });
-  }
-
+export async function POST(req: NextRequest) {
   let body;
   try {
     body = await req.json();
@@ -16,11 +10,11 @@ export async function POST(req: NextRequest, context: any) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { ha_entity_id, equipment_id } = body;
+  const { site_id, ha_device_id, equipment_id } = body;
 
-  if (!ha_entity_id || !equipment_id) {
+  if (!site_id || !ha_device_id) {
     return NextResponse.json(
-      { error: "Missing ha_entity_id or equipment_id" },
+      { error: "Missing site_id or ha_device_id" },
       { status: 400 }
     );
   }
@@ -33,24 +27,23 @@ export async function POST(req: NextRequest, context: any) {
       cookies: {
         get(name: string) {
           return cookieStore.get(name)?.value;
-        }
-      }
+        },
+      },
     }
   );
 
   const { error } = await supabase
-    .from("b_entity_sync")
-    .update({ equipment_id })
-    .eq("site_id", siteid)
-    .eq("entity_id", ha_entity_id);
+    .from("a_devices")
+    .update({ equipment_id: equipment_id ?? null })
+    .eq("site_id", site_id)
+    .eq("ha_device_id", ha_device_id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({
-    status: "ok",
-    mapped_entity: ha_entity_id,
-    mapped_to_equipment: equipment_id
-  });
+  return NextResponse.json({ success: true });
 }
