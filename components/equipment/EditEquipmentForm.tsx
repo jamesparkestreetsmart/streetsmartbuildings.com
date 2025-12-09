@@ -49,7 +49,6 @@ export default function EditEquipmentForm({
 
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     equipment_name: equipment.equipment_name ?? "",
@@ -77,7 +76,6 @@ export default function EditEquipmentForm({
     e.preventDefault();
     setSaving(true);
     setErrorMsg(null);
-    setSuccessMsg(null);
 
     const payload = {
       equipment_name: form.equipment_name.trim(),
@@ -88,7 +86,7 @@ export default function EditEquipmentForm({
       manufacturer: form.manufacturer.trim() || null,
       model: form.model.trim() || null,
       serial_number: form.serial_number.trim() || null,
-      status: form.status as EquipmentStatus,
+      status: form.status,
       manufacture_date: form.manufacture_date || null,
       install_date: form.install_date || null,
       voltage: form.voltage === "" ? null : Number(form.voltage),
@@ -105,14 +103,10 @@ export default function EditEquipmentForm({
       .eq("equipment_id", equipment.equipment_id);
 
     if (error) {
-      console.error("Update error:", error);
       setErrorMsg(error.message);
       setSaving(false);
       return;
     }
-
-    setSuccessMsg("Equipment updated successfully.");
-    setSaving(false);
 
     router.push(
       `/sites/${siteid}/equipment/${equipment.equipment_id}/individual-equipment`
@@ -120,8 +114,8 @@ export default function EditEquipmentForm({
   }
 
   return (
-    <Card className="border border-gray-200 shadow-lg">
-      <CardHeader className="bg-gradient-to-r from-green-600 to-yellow-400 text-white rounded-t-xl">
+    <Card className="border shadow-lg">
+      <CardHeader className="bg-gradient-to-r from-green-600 to-yellow-400 text-white">
         <CardTitle className="text-2xl">
           Edit Equipment — {equipment.equipment_name}
         </CardTitle>
@@ -132,18 +126,13 @@ export default function EditEquipmentForm({
 
       <CardContent className="space-y-6 pt-6">
         {errorMsg && (
-          <div className="bg-red-50 border border-red-200 px-3 py-2 text-red-700 text-sm rounded">
+          <div className="bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700 rounded">
             {errorMsg}
           </div>
         )}
 
-        {successMsg && (
-          <div className="bg-emerald-50 border border-emerald-200 px-3 py-2 text-emerald-700 text-sm rounded">
-            {successMsg}
-          </div>
-        )}
-
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Name + Status */}
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <Label>Equipment Name</Label>
@@ -173,7 +162,140 @@ export default function EditEquipmentForm({
             </div>
           </div>
 
-          {/* remaining fields unchanged */}
+          {/* Description */}
+          <div>
+            <Label>Description</Label>
+            <Textarea
+              value={form.description}
+              onChange={(e) =>
+                handleChange("description", e.target.value)
+              }
+              rows={3}
+            />
+          </div>
+
+          {/* Group / Type / Space */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <Label>Group</Label>
+              <Input
+                value={form.equipment_group}
+                onChange={(e) =>
+                  handleChange("equipment_group", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <Label>Type</Label>
+              <Input
+                value={form.equipment_type}
+                onChange={(e) =>
+                  handleChange("equipment_type", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <Label>Space</Label>
+              <Input
+                value={form.space_name}
+                onChange={(e) =>
+                  handleChange("space_name", e.target.value)
+                }
+              />
+            </div>
+          </div>
+
+          {/* Manufacturer */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <Label>Manufacturer</Label>
+              <Input
+                value={form.manufacturer}
+                onChange={(e) =>
+                  handleChange("manufacturer", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <Label>Model</Label>
+              <Input
+                value={form.model}
+                onChange={(e) =>
+                  handleChange("model", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <Label>Serial Number</Label>
+              <Input
+                value={form.serial_number}
+                onChange={(e) =>
+                  handleChange("serial_number", e.target.value)
+                }
+              />
+            </div>
+          </div>
+
+          {/* Dates */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <Label>Manufacture Date</Label>
+              <Input
+                type="date"
+                value={form.manufacture_date}
+                onChange={(e) =>
+                  handleChange("manufacture_date", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <Label>Install Date</Label>
+              <Input
+                type="date"
+                value={form.install_date}
+                onChange={(e) =>
+                  handleChange("install_date", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <Label>Maintenance Interval (days)</Label>
+              <Input
+                type="number"
+                value={form.maintenance_interval_days}
+                onChange={(e) =>
+                  handleChange(
+                    "maintenance_interval_days",
+                    e.target.value
+                  )
+                }
+              />
+            </div>
+          </div>
+
+          {/* Electrical */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <Label>Voltage</Label>
+              <Input
+                type="number"
+                value={form.voltage}
+                onChange={(e) =>
+                  handleChange("voltage", e.target.value)
+                }
+              />
+            </div>
+            <div>
+              <Label>Amperage</Label>
+              <Input
+                type="number"
+                value={form.amperage}
+                onChange={(e) =>
+                  handleChange("amperage", e.target.value)
+                }
+              />
+            </div>
+          </div>
 
           <CardFooter className="flex justify-between px-0">
             <Button
@@ -188,7 +310,7 @@ export default function EditEquipmentForm({
               Cancel
             </Button>
 
-            <Button type="submit">
+            <Button type="submit" disabled={saving}>
               {saving ? "Saving…" : "Save Changes"}
             </Button>
           </CardFooter>
