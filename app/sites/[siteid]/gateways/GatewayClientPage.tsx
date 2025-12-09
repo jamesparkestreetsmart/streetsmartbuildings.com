@@ -254,7 +254,6 @@ export default function GatewayClientPage({ siteid }: Props) {
                     )
                   }
                 >
-                  <option value="">Unassigned</option>
                   {equipments.map((eq) => (
                     <option key={eq.equipment_id} value={eq.equipment_id}>
                       {eq.equipment_name}
