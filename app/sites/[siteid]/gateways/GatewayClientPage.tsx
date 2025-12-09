@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 /* ---------------------------------------------
- Types — matches view_entity_sync
+ Types
 --------------------------------------------- */
 interface SyncEntityRow {
   org_id: string;
@@ -40,20 +40,31 @@ interface Props {
   siteid: string;
 }
 
+interface DeviceGroup {
+  ha_device_id: string;
+  device_name: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  equipment_id: string | null;
+  equipment_name: string | null;
+  entities: SyncEntityRow[];
+}
+
 /* ---------------------------------------------
  Time helpers
 --------------------------------------------- */
 const HOURS_24_MS = 24 * 60 * 60 * 1000;
 
-function isOffline(lastSeen: string | null) {
+const isOffline = (lastSeen: string | null) => {
   if (!lastSeen) return true;
   return Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
-}
+};
 
-function formatRelativeTime(date: string | null) {
+const formatRelativeTime = (date: string | null) => {
   if (!date) return "never";
 
-  const deltaMs = Date.now() - new Date(date).getTime();
+  const d = new Date(date);
+  const deltaMs = Date.now() - d.getTime();
   const minutes = Math.floor(deltaMs / 60000);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
@@ -62,24 +73,14 @@ function formatRelativeTime(date: string | null) {
   if (minutes < 60) return `${minutes} min ago`;
   if (hours < 24) return `${hours} hr ago`;
   return `${days} day${days > 1 ? "s" : ""} ago`;
-}
+};
 
-/* ✅ UPDATED: ISO timestamps now render as local time */
-function formatValue(row: SyncEntityRow) {
+const formatValue = (row: SyncEntityRow) => {
   if (!row.last_state || row.last_state === "unknown") return "—";
-
-  // Detect ISO timestamps (sun sensors, backups, etc.)
-  const parsed = Date.parse(row.last_state);
-  if (!isNaN(parsed) && row.last_state.includes("T")) {
-    return new Date(parsed).toLocaleString(); // ✅ local time
-  }
-
-  if (row.unit_of_measurement) {
-    return `${row.last_state} ${row.unit_of_measurement}`;
-  }
-
-  return row.last_state;
-}
+  return row.unit_of_measurement
+    ? `${row.last_state} ${row.unit_of_measurement}`
+    : row.last_state;
+};
 
 /* ---------------------------------------------
  Component
@@ -90,12 +91,9 @@ export default function GatewayClientPage({ siteid }: Props) {
   const [rows, setRows] = useState<SyncEntityRow[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncStatus, setSyncStatus] = useState<
-    "idle" | "loading" | "success" | "error"
-  >("idle");
 
   /* ---------------------------------------------
-     Fetch entity registry
+     Fetch registry
   --------------------------------------------- */
   const fetchRegistry = async () => {
     setLoading(true);
@@ -106,7 +104,7 @@ export default function GatewayClientPage({ siteid }: Props) {
       .eq("site_id", siteid);
 
     if (error) {
-      console.error("Registry fetch error:", error);
+      console.error(error);
       setRows([]);
     } else {
       setRows((data ?? []) as SyncEntityRow[]);
@@ -125,12 +123,7 @@ export default function GatewayClientPage({ siteid }: Props) {
       .eq("site_id", siteid)
       .order("equipment_name");
 
-    if (error) {
-      console.error("Equipment fetch error:", error);
-      setEquipments([]);
-    } else {
-      setEquipments((data ?? []) as Equipment[]);
-    }
+    if (!error) setEquipments(data ?? []);
   };
 
   useEffect(() => {
@@ -139,21 +132,10 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [siteid]);
 
   /* ---------------------------------------------
-     Group entities by device
+     Group by HA device (sorted)
   --------------------------------------------- */
-  const devices = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        ha_device_id: string;
-        device_name: string | null;
-        manufacturer?: string | null;
-        model?: string | null;
-        equipment_id: string | null;
-        equipment_name: string | null;
-        entities: SyncEntityRow[];
-      }
-    >();
+  const devices = useMemo<DeviceGroup[]>(() => {
+    const map = new Map<string, any>();
 
     rows.forEach((r) => {
       if (!r.ha_device_id) return;
@@ -161,7 +143,7 @@ export default function GatewayClientPage({ siteid }: Props) {
       if (!map.has(r.ha_device_id)) {
         map.set(r.ha_device_id, {
           ha_device_id: r.ha_device_id,
-          device_name: r.device_name,
+          device_name: r.device_name ?? "Unnamed Device",
           manufacturer: r.manufacturer,
           model: r.model,
           equipment_id: r.equipment_id,
@@ -170,19 +152,21 @@ export default function GatewayClientPage({ siteid }: Props) {
         });
       }
 
-      map.get(r.ha_device_id)!.entities.push(r);
+      map.get(r.ha_device_id).entities.push(r);
     });
 
-    return Array.from(map.values());
+    return Array.from(map.values()).sort((a, b) =>
+      a.device_name.localeCompare(b.device_name)
+    );
   }, [rows]);
 
   /* ---------------------------------------------
-     Device → equipment update
+     Persist mapping — THIS is the anchor
   --------------------------------------------- */
-  async function updateDeviceEquipment(
+  const updateDeviceEquipment = async (
     ha_device_id: string,
     equipment_id: string | null
-  ) {
+  ) => {
     await fetch("/api/device-map", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -194,158 +178,97 @@ export default function GatewayClientPage({ siteid }: Props) {
     });
 
     await fetchRegistry();
-  }
-
-  /* ---------------------------------------------
-     Sync logic
-  --------------------------------------------- */
-  const webhookUrl = `/api/ha/entity-sync`;
-
-  const handleRunSync = async () => {
-    setSyncStatus("loading");
-
-    try {
-      const res = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteid }),
-      });
-
-      if (!res.ok) throw new Error("Sync failed");
-
-      await new Promise((r) => setTimeout(r, 1200));
-      await fetchRegistry();
-
-      setSyncStatus("success");
-    } catch (e) {
-      console.error(e);
-      setSyncStatus("error");
-    }
-
-    setTimeout(() => setSyncStatus("idle"), 2500);
   };
 
-  const lastSync =
-    rows[0]?.last_seen_at
-      ? new Date(rows[0].last_seen_at).toLocaleString()
-      : "—";
+  const webhookUrl = "/api/ha/entity-sync";
 
   /* ---------------------------------------------
      UI
   --------------------------------------------- */
   return (
     <div className="min-h-screen bg-gray-50 p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Gateway Entity Registry</h1>
-        <Button variant="outline" onClick={() => router.push(`/sites/${siteid}`)}>
+        <Button
+          variant="outline"
+          onClick={() => router.push(`/sites/${siteid}`)}
+        >
           ← Back to Site
         </Button>
       </div>
 
-      {/* SYNC CARD */}
       <Card>
         <CardHeader>
           <CardTitle>Home Assistant Sync Endpoint</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2 mb-3">
-            <Input readOnly value={webhookUrl} className="font-mono text-xs" />
-            <Button
-              variant="outline"
-              onClick={() => navigator.clipboard.writeText(webhookUrl)}
-            >
-              Copy
-            </Button>
-          </div>
-
-          <Button onClick={handleRunSync} disabled={syncStatus === "loading"}>
-            {syncStatus === "loading"
-              ? "Syncing…"
-              : syncStatus === "success"
-              ? "Sync Complete ✓"
-              : syncStatus === "error"
-              ? "Sync Failed – Retry"
-              : "Run Sync Now"}
+          <Input readOnly value={webhookUrl} className="font-mono text-xs mb-2" />
+          <Button onClick={() => navigator.clipboard.writeText(webhookUrl)}>
+            Copy Endpoint
           </Button>
-
-          <p className="mt-3 text-xs text-gray-500">
-            Last sync: <span className="font-mono">{lastSync}</span>
-          </p>
         </CardContent>
       </Card>
 
-      {/* DEVICES */}
       {loading ? (
-        <p className="text-sm text-gray-500">Loading…</p>
-      ) : devices.length === 0 ? (
-        <p className="text-sm text-gray-500">No entities found.</p>
+        <p>Loading…</p>
       ) : (
-        <div className="space-y-6">
-          {devices.map((device) => (
-            <Card key={device.ha_device_id}>
-              <CardHeader>
-                <CardTitle className="flex justify-between items-center">
-                  <div>
-                    <div className="font-semibold">
-                      {device.device_name ?? "Unnamed Device"}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {device.manufacturer} {device.model}
-                    </div>
+        devices.map((device) => (
+          <Card key={device.ha_device_id}>
+            <CardHeader>
+              <CardTitle className="flex justify-between">
+                <div>
+                  <div>{device.device_name}</div>
+                  <div className="text-xs text-gray-500">
+                    {device.manufacturer} {device.model}
                   </div>
+                </div>
 
-                  <select
-                    className="border rounded px-2 py-1 text-sm"
-                    value={device.equipment_id ?? ""}
-                    onChange={(e) =>
-                      updateDeviceEquipment(
-                        device.ha_device_id,
-                        e.target.value || null
-                      )
-                    }
-                  >
-                    <option value="">Unassigned</option>
-                    {equipments.map((eq) => (
-                      <option key={eq.equipment_id} value={eq.equipment_id}>
-                        {eq.equipment_name}
-                      </option>
-                    ))}
-                  </select>
-                </CardTitle>
-              </CardHeader>
+                <select
+                  className="border rounded px-2 py-1"
+                  value={device.equipment_id ?? ""}
+                  onChange={(e) =>
+                    updateDeviceEquipment(
+                      device.ha_device_id,
+                      e.target.value || null
+                    )
+                  }
+                >
+                  <option value="">Unassigned</option>
+                  {equipments.map((eq) => (
+                    <option key={eq.equipment_id} value={eq.equipment_id}>
+                      {eq.equipment_name}
+                    </option>
+                  ))}
+                </select>
+              </CardTitle>
+            </CardHeader>
 
-              <CardContent>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b">
-                      <th className="py-1">Entity</th>
-                      <th className="py-1">Type</th>
-                      <th className="py-1">Last Seen</th>
-                      <th className="py-1">Value</th>
+            <CardContent>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-gray-500">
+                    <th>Entity</th>
+                    <th>Type</th>
+                    <th>Last Seen</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {device.entities.map((e) => (
+                    <tr key={e.entity_id} className="border-t">
+                      <td className="font-mono text-xs">{e.entity_id}</td>
+                      <td>{e.sensor_type ?? "—"}</td>
+                      <td className={isOffline(e.last_seen_at) ? "text-red-600" : ""}>
+                        {formatRelativeTime(e.last_seen_at)}
+                      </td>
+                      <td>{formatValue(e)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {device.entities.map((e) => {
-                      const offline = isOffline(e.last_seen_at);
-                      return (
-                        <tr key={e.entity_id} className="border-t">
-                          <td className="py-1 font-mono text-xs">{e.entity_id}</td>
-                          <td className="py-1 capitalize">
-                            {e.sensor_type?.replace(/_/g, " ") ?? "—"}
-                          </td>
-                          <td className={`py-1 ${offline ? "text-red-600" : ""}`}>
-                            {formatRelativeTime(e.last_seen_at)}
-                          </td>
-                          <td className="py-1">{formatValue(e)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        ))
       )}
     </div>
   );
