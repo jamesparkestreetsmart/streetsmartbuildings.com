@@ -51,10 +51,14 @@ interface DeviceGroup {
 }
 
 /* ---------------------------------------------
- Time helpers
+ Constants
 --------------------------------------------- */
 const HOURS_24_MS = 24 * 60 * 60 * 1000;
+const DUMMY_EQUIPMENT_NAME = "Inventory Closet";
 
+/* ---------------------------------------------
+ Time helpers
+--------------------------------------------- */
 const isOffline = (lastSeen: string | null) => {
   if (!lastSeen) return true;
   return Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
@@ -63,8 +67,7 @@ const isOffline = (lastSeen: string | null) => {
 const formatRelativeTime = (date: string | null) => {
   if (!date) return "never";
 
-  const d = new Date(date);
-  const deltaMs = Date.now() - d.getTime();
+  const deltaMs = Date.now() - new Date(date).getTime();
   const minutes = Math.floor(deltaMs / 60000);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
@@ -114,16 +117,23 @@ export default function GatewayClientPage({ siteid }: Props) {
   };
 
   /* ---------------------------------------------
-     Fetch equipment list
+     Fetch equipment list (✅ dummy first)
   --------------------------------------------- */
   const fetchEquipments = async () => {
     const { data, error } = await supabase
       .from("a_equipments")
       .select("equipment_id, equipment_name")
-      .eq("site_id", siteid)
-      .order("equipment_name");
+      .eq("site_id", siteid);
 
-    if (!error) setEquipments(data ?? []);
+    if (error || !data) return;
+
+    const sorted = [...data].sort((a, b) => {
+      if (a.equipment_name === DUMMY_EQUIPMENT_NAME) return -1;
+      if (b.equipment_name === DUMMY_EQUIPMENT_NAME) return 1;
+      return a.equipment_name.localeCompare(b.equipment_name);
+    });
+
+    setEquipments(sorted);
   };
 
   useEffect(() => {
@@ -132,7 +142,7 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [siteid]);
 
   /* ---------------------------------------------
-     Group by HA device (sorted, stable)
+     Group by HA device (stable, deterministic)
   --------------------------------------------- */
   const devices = useMemo<DeviceGroup[]>(() => {
     const map = new Map<string, DeviceGroup>();
@@ -155,7 +165,6 @@ export default function GatewayClientPage({ siteid }: Props) {
       map.get(r.ha_device_id)!.entities.push(r);
     });
 
-    // ✅ Stable, deterministic ordering of devices
     const grouped = Array.from(map.values()).sort((a, b) => {
       const aName = a.device_name?.toLowerCase() ?? "";
       const bName = b.device_name?.toLowerCase() ?? "";
@@ -167,18 +176,16 @@ export default function GatewayClientPage({ siteid }: Props) {
       return a.ha_device_id.localeCompare(b.ha_device_id);
     });
 
-    // ✅ NEW: stable ordering of entities within each device
-    grouped.forEach((device) => {
-      device.entities.sort((a, b) =>
-        a.entity_id.localeCompare(b.entity_id)
-      );
-    });
+    // Stable entity ordering inside each device
+    grouped.forEach((d) =>
+      d.entities.sort((a, b) => a.entity_id.localeCompare(b.entity_id))
+    );
 
     return grouped;
   }, [rows]);
 
   /* ---------------------------------------------
-     Persist mapping — THIS is the anchor
+     Persist device → equipment mapping
   --------------------------------------------- */
   const updateDeviceEquipment = async (
     ha_device_id: string,
@@ -206,10 +213,7 @@ export default function GatewayClientPage({ siteid }: Props) {
     <div className="min-h-screen bg-gray-50 p-6 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Gateway Entity Registry</h1>
-        <Button
-          variant="outline"
-          onClick={() => router.push(`/sites/${siteid}`)}
-        >
+        <Button variant="outline" onClick={() => router.push(`/sites/${siteid}`)}>
           ← Back to Site
         </Button>
       </div>
@@ -275,11 +279,7 @@ export default function GatewayClientPage({ siteid }: Props) {
                     <tr key={e.entity_id} className="border-t">
                       <td className="font-mono text-xs">{e.entity_id}</td>
                       <td>{e.sensor_type ?? "—"}</td>
-                      <td
-                        className={
-                          isOffline(e.last_seen_at) ? "text-red-600" : ""
-                        }
-                      >
+                      <td className={isOffline(e.last_seen_at) ? "text-red-600" : ""}>
                         {formatRelativeTime(e.last_seen_at)}
                       </td>
                       <td>{formatValue(e)}</td>
