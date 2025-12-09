@@ -1,45 +1,44 @@
+// app/sites/[siteid]/devices/[ha_device_id]/page.tsx
+
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import Link from "next/link";
-
-/* ------------------------------
-   Helpers
------------------------------- */
-
-const HOURS_24_MS = 24 * 60 * 60 * 1000;
-
-function isOffline(lastSeen: string | null) {
-  if (!lastSeen) return true;
-  return Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
-}
-
-function formatRelativeTime(date: string | null) {
-  if (!date) return "never";
-
-  const d = new Date(date);
-  const delta = Date.now() - d.getTime();
-
-  const minutes = Math.floor(delta / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  if (hours < 24) return `${hours} hr ago`;
-  return `${days} day${days > 1 ? "s" : ""} ago`;
-}
-
-/* ------------------------------
-   PAGE
------------------------------- */
 
 export const dynamic = "force-dynamic";
 
-export default async function DevicePage(props: any) {
+interface DeviceRow {
+  device_id: string;
+  site_id: string;
+  device_name: string;
+  protocol: string | null;
+  connection_type: string | null;
+  ip_address: string | null;
+  serial_number: string | null;
+  firmware_version: string | null;
+  created_at: string | null;
+  org_id: string | null;
+  equipment_id: string | null;
+  status: string | null;
+  service_notes: string | null;
+  zwave_lr: boolean | null;
+  model: string | null;
+  ha_device_id: string | null;
+  library_device_id: string | null;
+  manufacturer: string | null;
+}
+
+export default async function DeviceDetailsPage(props: any) {
   const params = await props.params;
-  const siteid = params.siteid;
-  const ha_device_id = params.ha_device_id;
+  const siteid = params?.siteid;
+  const haDeviceId = params?.ha_device_id;
+
+  if (!siteid || !haDeviceId) {
+    return (
+      <div className="p-6 text-red-600">
+        Error: Missing site ID or HA device ID.
+      </div>
+    );
+  }
 
   const cookieStore = await cookies();
 
@@ -55,163 +54,142 @@ export default async function DevicePage(props: any) {
     }
   );
 
-  /* ------------------------------
-     1) Fetch device record
-  ------------------------------ */
-  const { data: device, error: deviceErr } = await supabase
+  const { data: device, error } = await supabase
     .from("a_devices")
     .select("*")
-    .eq("ha_device_id", ha_device_id)
     .eq("site_id", siteid)
-    .single();
+    .eq("ha_device_id", haDeviceId)
+    .maybeSingle<DeviceRow>();
 
-  if (!device || deviceErr) {
-    return (
-      <div className="p-6 text-red-600">
-        <h1 className="text-xl font-semibold">Device not found</h1>
-        <p>{deviceErr?.message}</p>
-      </div>
-    );
+  if (error) {
+    console.error("Device fetch error:", error);
   }
 
-  /* ------------------------------
-     2) Fetch LIVE entity signals
-  ------------------------------ */
-  const { data: entities } = await supabase
-    .from("view_entity_sync")
-    .select("*")
-    .eq("ha_device_id", ha_device_id)
-    .eq("site_id", siteid)
-    .order("entity_id");
-
-  /* ------------------------------
-     UI — Device Page
-  ------------------------------ */
-
-  return (
-    <div className="min-h-screen bg-gray-50 p-6 space-y-6">
-
-      {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-emerald-700">
-          {device.device_name || "Unnamed Device"}
+  if (!device) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <h1 className="text-2xl font-bold text-red-600 mb-2">
+          Device not found
         </h1>
-
+        <p className="text-red-700 text-sm mb-4">
+          We couldn&apos;t find a device in <code>a_devices</code> with
+          this HA Device ID.
+        </p>
+        <p className="text-sm text-gray-700 mb-6">
+          Site ID: <code>{siteid}</code>
+          <br />
+          HA Device ID: <code>{haDeviceId}</code>
+        </p>
         <Link
           href={`/sites/${siteid}/gateways`}
-          className="text-sm text-emerald-700 hover:underline"
+          className="inline-flex items-center rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
         >
           ← Back to Gateway Registry
         </Link>
       </div>
+    );
+  }
 
-      {/* DEVICE INFO */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Device Information</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <header className="flex items-center justify-between">
           <div>
-            <strong>Name:</strong> {device.device_name}
-          </div>
-          <div>
-            <strong>Manufacturer:</strong> {device.manufacturer}
-          </div>
-          <div>
-            <strong>Model:</strong> {device.model}
-          </div>
-          <div>
-            <strong>Protocol:</strong> {device.protocol}
-          </div>
-          <div>
-            <strong>Connection:</strong> {device.connection_type}
-          </div>
-          <div>
-            <strong>Z-Wave LR:</strong> {device.zwave_lr ? "Yes" : "No"}
-          </div>
-          <div>
-            <strong>Firmware:</strong> {device.firmware_version}
-          </div>
-          <div>
-            <strong>Serial #:</strong> {device.serial_number}
-          </div>
-          <div>
-            <strong>Status:</strong>{" "}
-            <span
-              className={
-                device.status === "active"
-                  ? "text-green-700 font-semibold"
-                  : device.status === "inactive"
-                  ? "text-yellow-700 font-semibold"
-                  : "text-red-700 font-semibold"
-              }
-            >
-              {device.status}
-            </span>
+            <h1 className="text-2xl font-bold">Device Details</h1>
+            <p className="text-sm text-gray-600">
+              {device.device_name} • {device.model || "Unknown model"}
+            </p>
           </div>
 
-          <div>
-            <strong>Equipment:</strong>{" "}
-            {device.equipment_id ? (
-              <Link
-                href={`/sites/${siteid}/equipment/${device.equipment_id}/individual-equipment`}
-                className="text-emerald-700 hover:underline"
-              >
-                View Equipment →
-              </Link>
-            ) : (
-              "Unassigned"
-            )}
+          <Link
+            href={`/sites/${siteid}/gateways`}
+            className="inline-flex items-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-emerald-700 shadow hover:bg-gray-100"
+          >
+            ← Back to Gateway Registry
+          </Link>
+        </header>
+
+        <section className="bg-white rounded-xl shadow p-6 grid gap-6 md:grid-cols-2">
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold mb-2">Device Identity</h2>
+            <p>
+              <span className="font-semibold">Device ID:</span>{" "}
+              <code className="text-xs">{device.device_id}</code>
+            </p>
+            <p>
+              <span className="font-semibold">HA Device ID:</span>{" "}
+              <code className="text-xs">
+                {device.ha_device_id ?? "—"}
+              </code>
+            </p>
+            <p>
+              <span className="font-semibold">Site ID:</span>{" "}
+              <code className="text-xs">{device.site_id}</code>
+            </p>
+            <p>
+              <span className="font-semibold">Equipment ID:</span>{" "}
+              <code className="text-xs">
+                {device.equipment_id ?? "Unassigned"}
+              </code>
+            </p>
+            <p>
+              <span className="font-semibold">Status:</span>{" "}
+              <span className="font-semibold">
+                {device.status ?? "unknown"}
+              </span>
+            </p>
+            <p>
+              <span className="font-semibold">Created At:</span>{" "}
+              {device.created_at
+                ? new Date(device.created_at).toLocaleString()
+                : "—"}
+            </p>
           </div>
 
-          <div>
-            <strong>Created:</strong>{" "}
-            {new Date(device.created_at).toLocaleString()}
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold mb-2">Technical Info</h2>
+            <p>
+              <span className="font-semibold">Protocol:</span>{" "}
+              {device.protocol ?? "—"}
+            </p>
+            <p>
+              <span className="font-semibold">Connection Type:</span>{" "}
+              {device.connection_type ?? "—"}
+            </p>
+            <p>
+              <span className="font-semibold">IP Address:</span>{" "}
+              {device.ip_address ?? "—"}
+            </p>
+            <p>
+              <span className="font-semibold">Manufacturer:</span>{" "}
+              {device.manufacturer ?? "—"}
+            </p>
+            <p>
+              <span className="font-semibold">Model:</span>{" "}
+              {device.model ?? "—"}
+            </p>
+            <p>
+              <span className="font-semibold">Serial Number:</span>{" "}
+              {device.serial_number ?? "—"}
+            </p>
+            <p>
+              <span className="font-semibold">Firmware Version:</span>{" "}
+              {device.firmware_version ?? "—"}
+            </p>
+            <p>
+              <span className="font-semibold">Z-Wave LR:</span>{" "}
+              {device.zwave_lr ? "Yes" : "No / Unknown"}
+            </p>
           </div>
-        </CardContent>
-      </Card>
+        </section>
 
-      {/* ENTITY LIST */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Live Entities (from HA)</CardTitle>
-        </CardHeader>
-
-        <CardContent>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-gray-500">
-                <th className="py-1">Entity ID</th>
-                <th className="py-1">Type</th>
-                <th className="py-1">Last Seen</th>
-                <th className="py-1">Value</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {(entities ?? []).map((e) => (
-                <tr key={e.entity_id} className="border-t">
-                  <td className="font-mono text-xs py-1">{e.entity_id}</td>
-                  <td className="py-1 capitalize">{e.sensor_type ?? "—"}</td>
-                  <td
-                    className={`py-1 ${
-                      isOffline(e.last_seen_at) ? "text-red-600" : ""
-                    }`}
-                  >
-                    {formatRelativeTime(e.last_seen_at)}
-                  </td>
-                  <td className="py-1">
-                    {e.unit_of_measurement
-                      ? `${e.last_state} ${e.unit_of_measurement}`
-                      : e.last_state ?? "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+        <section className="bg-white rounded-xl shadow p-6">
+          <h2 className="text-lg font-semibold mb-2">Service Notes</h2>
+          <p className="text-sm text-gray-700 whitespace-pre-wrap">
+            {device.service_notes ?? "No notes recorded yet."}
+          </p>
+        </section>
+      </div>
     </div>
   );
 }
