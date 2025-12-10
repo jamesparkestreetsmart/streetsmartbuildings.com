@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
+
 /* ---------------------------------------------
  Types
 --------------------------------------------- */
@@ -63,8 +64,7 @@ const DUMMY_EQUIPMENT_NAME = "Inventory Closet";
  Helpers
 --------------------------------------------- */
 const isOffline = (lastSeen: string | null) =>
-  !lastSeen ||
-  Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
+  !lastSeen || Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
 
 const formatRelativeTime = (date: string | null) => {
   if (!date) return "never";
@@ -133,7 +133,7 @@ export default function GatewayClientPage({ siteid }: Props) {
   }, [siteid]);
 
   /* ---------------------------------------------
-     Group by HA device (stable)
+     Group by HA device
   --------------------------------------------- */
   const devices = useMemo<DeviceGroup[]>(() => {
     const map = new Map<string, DeviceGroup>();
@@ -173,12 +173,18 @@ export default function GatewayClientPage({ siteid }: Props) {
   --------------------------------------------- */
   const updateDeviceEquipment = async (
     ha_device_id: string,
-    equipment_id: string
+    equipment_id: string | null
   ) => {
+    const safeEquipmentId = equipment_id === "" ? null : equipment_id;
+
     await fetch("/api/device-map", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ site_id: siteid, ha_device_id, equipment_id }),
+      body: JSON.stringify({
+        site_id: siteid,
+        ha_device_id,
+        equipment_id: safeEquipmentId,
+      }),
     });
 
     await fetchRegistry();
@@ -225,12 +231,13 @@ export default function GatewayClientPage({ siteid }: Props) {
             <CardHeader>
               <CardTitle className="flex justify-between items-center">
                 <div>
+                  {/* ✅ FIXED LINK */}
                   <Link
-  href={`/sites/${siteid}/devices/${device.ha_device_id}`}
-  className="font-semibold text-emerald-700 hover:underline"
->
-  {device.device_name}
-</Link>
+                    href={`/sites/${siteid}/devices/${device.ha_device_id}?returnTo=gateways`}
+                    className="font-semibold text-emerald-700 hover:underline"
+                  >
+                    {device.device_name}
+                  </Link>
 
                   <div className="text-xs text-gray-500">
                     {device.manufacturer} {device.model}
@@ -245,15 +252,7 @@ export default function GatewayClientPage({ siteid }: Props) {
                   }
                 >
                   {equipments.map((eq) => (
-                    <option
-                      key={eq.equipment_id}
-                      value={eq.equipment_id}
-                      className={
-                        eq.status === "active"
-                          ? "text-green-700"
-                          : "text-yellow-700 font-medium"
-                      }
-                    >
+                    <option key={eq.equipment_id} value={eq.equipment_id}>
                       {eq.equipment_name}
                     </option>
                   ))}
