@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
-import AddRecordNote from "@/components/records/AddRecordNote";
+import AddRecordNote from "@/components/AddRecordNote";
 
 export const dynamic = "force-dynamic";
 
@@ -338,7 +338,6 @@ export default async function IndividualEquipmentPage(props: any) {
             orgId={equipment.site_id /* replace w/ org_id once joined */}
             siteId={siteid}
             equipmentId={equipmentid}
-            onSuccess={() => location.reload()}
           />
 
           {recordList.length === 0 ? (
