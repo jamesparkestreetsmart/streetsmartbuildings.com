@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
   }
 
   const cookieStore = await cookies();
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -32,17 +33,55 @@ export async function POST(req: NextRequest) {
     }
   );
 
-  const { error } = await supabase
+  /**
+   * 1️⃣ Fetch existing device (for previous equipment_id)
+   */
+  const { data: existingDevice } = await supabase
     .from("a_devices")
-    .update({ equipment_id: equipment_id ?? null })
+    .select("device_id, equipment_id, org_id")
+    .eq("site_id", site_id)
+    .eq("ha_device_id", ha_device_id)
+    .maybeSingle();
+
+  /**
+   * 2️⃣ Update device mapping
+   */
+  const { error: updateError } = await supabase
+    .from("a_devices")
+    .update({
+      equipment_id: equipment_id ?? null,
+    })
     .eq("site_id", site_id)
     .eq("ha_device_id", ha_device_id);
 
-  if (error) {
+  if (updateError) {
     return NextResponse.json(
-      { error: error.message },
+      { error: updateError.message },
       { status: 500 }
     );
+  }
+
+  /**
+   * 3️⃣ Write audit record → b_records_log
+   */
+  if (existingDevice) {
+    await supabase.from("b_records_log").insert({
+      org_id: existingDevice.org_id ?? null,
+      site_id,
+      equipment_id: equipment_id ?? null,
+      device_id: existingDevice.device_id,
+      event_type: "configuration",
+      source: "system",
+      message: equipment_id
+        ? "Device mapped to equipment"
+        : "Device unmapped from equipment",
+      metadata: {
+        ha_device_id,
+        previous_equipment_id: existingDevice.equipment_id,
+        new_equipment_id: equipment_id ?? null,
+      },
+      created_by: "system",
+    });
   }
 
   return NextResponse.json({ success: true });
