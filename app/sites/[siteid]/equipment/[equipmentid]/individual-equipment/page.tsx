@@ -4,6 +4,10 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+/* =======================
+   Types
+======================= */
+
 interface Equipment {
   equipment_id: string;
   site_id: string;
@@ -52,6 +56,10 @@ interface RecordLog {
   device_id: string | null;
 }
 
+/* =======================
+   Helpers
+======================= */
+
 function formatDateTime(value: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleString();
@@ -66,6 +74,10 @@ function formatCategoryLabel(raw: string | null): string {
   if (v === "binary") return "Binary";
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : "Other";
 }
+
+/* =======================
+   Page
+======================= */
 
 export default async function IndividualEquipmentPage(props: any) {
   const params = await props.params;
@@ -110,7 +122,7 @@ export default async function IndividualEquipmentPage(props: any) {
 
   const deviceList = (devices || []) as Device[];
 
-  /* -------------------- Entities (from view_entity_sync) -------------------- */
+  /* -------------------- Entities (view_entity_sync) -------------------- */
   let entitiesByHaDevice: Record<string, EntityRow[]> = {};
 
   if (deviceList.length) {
@@ -139,7 +151,7 @@ export default async function IndividualEquipmentPage(props: any) {
     }
   }
 
-  /* -------------------- Records Log -------------------- */
+  /* -------------------- Activity Log -------------------- */
   const { data: records } = await supabase
     .from("b_records_log")
     .select("*")
@@ -153,20 +165,31 @@ export default async function IndividualEquipmentPage(props: any) {
     <div className="min-h-screen bg-gray-50">
       {/* HEADER */}
       <header className="bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 text-white p-6 shadow">
-        <div className="max-w-6xl mx-auto flex justify-between">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">{equipment.equipment_name}</h1>
+            <h1 className="text-2xl font-bold">
+              {equipment.equipment_name}
+            </h1>
             <p className="text-sm opacity-90">
               {equipment.equipment_group} • {equipment.equipment_type}
             </p>
           </div>
 
-          <Link
-            href={`/sites/${siteid}/equipment/${equipmentid}/edit`}
-            className="bg-white text-green-700 px-4 py-2 rounded font-semibold"
-          >
-            ✏️ Edit
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/sites/${siteid}`}
+              className="inline-flex items-center rounded-full bg-white/15 px-4 py-2 text-sm font-medium hover:bg-white/25 transition"
+            >
+              ← Back to Equipment List
+            </Link>
+
+            <Link
+              href={`/sites/${siteid}/equipment/${equipmentid}/edit`}
+              className="inline-flex items-center rounded-full bg-white text-green-700 px-4 py-2 text-sm font-semibold shadow hover:bg-gray-100 transition"
+            >
+              ✏️ Edit
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -175,15 +198,9 @@ export default async function IndividualEquipmentPage(props: any) {
         <section className="bg-white rounded-xl shadow p-6 grid md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <h2 className="text-lg font-semibold">Equipment Details</h2>
-            <p>
-              <strong>Group:</strong> {equipment.equipment_group || "—"}
-            </p>
-            <p>
-              <strong>Type:</strong> {equipment.equipment_type || "—"}
-            </p>
-            <p>
-              <strong>Space:</strong> {equipment.space_name || "—"}
-            </p>
+            <p><strong>Group:</strong> {equipment.equipment_group || "—"}</p>
+            <p><strong>Type:</strong> {equipment.equipment_type || "—"}</p>
+            <p><strong>Space:</strong> {equipment.space_name || "—"}</p>
             {equipment.description && (
               <p className="text-sm text-gray-700">
                 <strong>Description:</strong> {equipment.description}
@@ -193,21 +210,11 @@ export default async function IndividualEquipmentPage(props: any) {
 
           <div className="space-y-2">
             <h2 className="text-lg font-semibold">Technical Info</h2>
-            <p>
-              <strong>Manufacturer:</strong> {equipment.manufacturer || "—"}
-            </p>
-            <p>
-              <strong>Model:</strong> {equipment.model || "—"}
-            </p>
-            <p>
-              <strong>Serial:</strong> {equipment.serial_number || "—"}
-            </p>
-            <p>
-              <strong>Voltage:</strong> {equipment.voltage || "—"}
-            </p>
-            <p>
-              <strong>Amperage:</strong> {equipment.amperage || "—"}
-            </p>
+            <p><strong>Manufacturer:</strong> {equipment.manufacturer || "—"}</p>
+            <p><strong>Model:</strong> {equipment.model || "—"}</p>
+            <p><strong>Serial:</strong> {equipment.serial_number || "—"}</p>
+            <p><strong>Voltage:</strong> {equipment.voltage || "—"}</p>
+            <p><strong>Amperage:</strong> {equipment.amperage || "—"}</p>
             <p>
               <strong>Maintenance:</strong>{" "}
               {equipment.maintenance_interval_days
@@ -235,8 +242,7 @@ export default async function IndividualEquipmentPage(props: any) {
 
           {deviceList.length === 0 ? (
             <p className="text-sm text-gray-500">
-              No devices linked yet. Once HA devices are mapped to this
-              equipment, they’ll show here.
+              No devices linked yet. Once HA devices are mapped, they’ll show here.
             </p>
           ) : (
             deviceList.map((device) => {
@@ -256,10 +262,7 @@ export default async function IndividualEquipmentPage(props: any) {
               );
 
               return (
-                <div
-                  key={device.device_id}
-                  className="border rounded-lg p-4 mb-4"
-                >
+                <div key={device.device_id} className="border rounded-lg p-4 mb-4">
                   <div className="flex justify-between mb-2">
                     <div>
                       <p className="font-semibold">{device.device_name}</p>
@@ -292,14 +295,13 @@ export default async function IndividualEquipmentPage(props: any) {
                           <p className="text-xs font-semibold mb-2 uppercase text-gray-700">
                             {formatCategoryLabel(cat)}
                           </p>
+
                           {list.map((e) => (
                             <div
                               key={e.entity_id}
                               className="flex justify-between text-xs"
                             >
-                              <span className="font-mono">
-                                {e.entity_id}
-                              </span>
+                              <span className="font-mono">{e.entity_id}</span>
                               <span className="font-semibold">
                                 {e.last_state ?? "—"}
                                 {e.unit_of_measurement
@@ -327,7 +329,10 @@ export default async function IndividualEquipmentPage(props: any) {
           ) : (
             <ul className="space-y-3">
               {recordList.map((r) => (
-                <li key={r.id} className="border-l-4 border-emerald-500 pl-3">
+                <li
+                  key={r.id}
+                  className="border-l-4 border-emerald-500 pl-3"
+                >
                   <p className="text-sm font-medium">{r.message}</p>
                   <p className="text-xs text-gray-500">
                     {r.event_type} • {formatDateTime(r.created_at)}
