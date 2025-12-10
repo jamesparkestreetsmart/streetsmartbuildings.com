@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
+import AddRecordNote from "@/components/records/AddRecordNote";
 
 export const dynamic = "force-dynamic";
 
@@ -201,6 +202,7 @@ export default async function IndividualEquipmentPage(props: any) {
             <p><strong>Group:</strong> {equipment.equipment_group || "—"}</p>
             <p><strong>Type:</strong> {equipment.equipment_type || "—"}</p>
             <p><strong>Space:</strong> {equipment.space_name || "—"}</p>
+
             {equipment.description && (
               <p className="text-sm text-gray-700">
                 <strong>Description:</strong> {equipment.description}
@@ -215,12 +217,14 @@ export default async function IndividualEquipmentPage(props: any) {
             <p><strong>Serial:</strong> {equipment.serial_number || "—"}</p>
             <p><strong>Voltage:</strong> {equipment.voltage || "—"}</p>
             <p><strong>Amperage:</strong> {equipment.amperage || "—"}</p>
+
             <p>
               <strong>Maintenance:</strong>{" "}
               {equipment.maintenance_interval_days
                 ? `${equipment.maintenance_interval_days} days`
                 : "—"}
             </p>
+
             <p>
               <strong>Status:</strong>{" "}
               <span
@@ -262,7 +266,10 @@ export default async function IndividualEquipmentPage(props: any) {
               );
 
               return (
-                <div key={device.device_id} className="border rounded-lg p-4 mb-4">
+                <div
+                  key={device.device_id}
+                  className="border rounded-lg p-4 mb-4"
+                >
                   <div className="flex justify-between mb-2">
                     <div>
                       <p className="font-semibold">{device.device_name}</p>
@@ -321,11 +328,23 @@ export default async function IndividualEquipmentPage(props: any) {
         </section>
 
         {/* ACTIVITY LOG */}
-        <section className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">Activity Log</h2>
+        <section className="bg-white rounded-xl shadow p-6 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Activity Log</h2>
+            <span className="text-xs text-gray-500">Last 15 records</span>
+          </div>
+
+          <AddRecordNote
+            orgId={equipment.site_id /* replace w/ org_id once joined */}
+            siteId={siteid}
+            equipmentId={equipmentid}
+            onSuccess={() => location.reload()}
+          />
 
           {recordList.length === 0 ? (
-            <p className="text-sm text-gray-500">No activity recorded yet.</p>
+            <p className="text-sm text-gray-500">
+              No activity recorded yet.
+            </p>
           ) : (
             <ul className="space-y-3">
               {recordList.map((r) => (
@@ -333,9 +352,12 @@ export default async function IndividualEquipmentPage(props: any) {
                   key={r.id}
                   className="border-l-4 border-emerald-500 pl-3"
                 >
-                  <p className="text-sm font-medium">{r.message}</p>
+                  <p className="text-sm font-medium">
+                    {r.metadata?.note ?? r.message}
+                  </p>
                   <p className="text-xs text-gray-500">
-                    {r.event_type} • {formatDateTime(r.created_at)}
+                    {r.event_type} •{" "}
+                    {new Date(r.created_at).toLocaleString()}
                   </p>
                 </li>
               ))}
