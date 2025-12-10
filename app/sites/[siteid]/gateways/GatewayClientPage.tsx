@@ -4,7 +4,12 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 
@@ -64,7 +69,8 @@ const DUMMY_EQUIPMENT_NAME = "Inventory Closet";
  Helpers
 --------------------------------------------- */
 const isOffline = (lastSeen: string | null) =>
-  !lastSeen || Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
+  !lastSeen ||
+  Date.now() - new Date(lastSeen).getTime() > HOURS_24_MS;
 
 const formatRelativeTime = (date: string | null) => {
   if (!date) return "never";
@@ -92,12 +98,20 @@ export default function GatewayClientPage({ siteid }: Props) {
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /** Modal state */
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingChange, setPendingChange] = useState<{
+    ha_device_id: string;
+    previous_equipment_id: string | null;
+    new_equipment_id: string | null;
+  } | null>(null);
+  const [note, setNote] = useState("");
+
   /* ---------------------------------------------
      Fetch registry
   --------------------------------------------- */
   const fetchRegistry = async () => {
     setLoading(true);
-
     const { data } = await supabase
       .from("view_entity_sync")
       .select("*")
@@ -108,7 +122,7 @@ export default function GatewayClientPage({ siteid }: Props) {
   };
 
   /* ---------------------------------------------
-     Fetch equipments (dummy first)
+     Fetch equipments
   --------------------------------------------- */
   const fetchEquipments = async () => {
     const { data } = await supabase
@@ -157,40 +171,56 @@ export default function GatewayClientPage({ siteid }: Props) {
       map.get(r.ha_device_id)!.entities.push(r);
     });
 
-    const grouped = Array.from(map.values()).sort((a, b) =>
+    return Array.from(map.values()).sort((a, b) =>
       (a.device_name ?? "").localeCompare(b.device_name ?? "")
     );
-
-    grouped.forEach((d) =>
-      d.entities.sort((a, b) => a.entity_id.localeCompare(b.entity_id))
-    );
-
-    return grouped;
   }, [rows]);
 
   /* ---------------------------------------------
-     Update mapping
+     Handle select change (OPEN MODAL)
   --------------------------------------------- */
-  const updateDeviceEquipment = async (
-    ha_device_id: string,
-    equipment_id: string | null
+  const onSelectChange = (
+    device: DeviceGroup,
+    newEquipmentId: string
   ) => {
-    const safeEquipmentId = equipment_id === "" ? null : equipment_id;
+    setPendingChange({
+      ha_device_id: device.ha_device_id,
+      previous_equipment_id: device.equipment_id,
+      new_equipment_id: newEquipmentId || null,
+    });
+    setNote("");
+    setConfirmOpen(true);
+  };
+
+  /* ---------------------------------------------
+     Confirm mapping/unmapping
+  --------------------------------------------- */
+  const confirmChange = async () => {
+    if (!pendingChange) return;
 
     await fetch("/api/device-map", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         site_id: siteid,
-        ha_device_id,
-        equipment_id: safeEquipmentId,
+        ha_device_id: pendingChange.ha_device_id,
+        equipment_id: pendingChange.new_equipment_id,
+        note: note || null,
       }),
     });
+
+    setConfirmOpen(false);
+    setPendingChange(null);
+    setNote("");
 
     await fetchRegistry();
   };
 
-  const webhookUrl = "/api/ha/entity-sync";
+  const cancelChange = () => {
+    setConfirmOpen(false);
+    setPendingChange(null);
+    setNote("");
+  };
 
   /* ---------------------------------------------
      UI
@@ -204,53 +234,28 @@ export default function GatewayClientPage({ siteid }: Props) {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Home Assistant Sync Endpoint</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Input readOnly value={webhookUrl} className="font-mono text-xs mb-2" />
-          <Button onClick={() => navigator.clipboard.writeText(webhookUrl)}>
-            Copy Endpoint
-          </Button>
-        </CardContent>
-      </Card>
-
       {loading ? (
         <p>Loading…</p>
       ) : (
         devices.map((device) => (
-          <Card
-            key={device.ha_device_id}
-            className={
-              device.equipment_status === "active"
-                ? "border-l-4 border-green-500"
-                : "border-l-4 border-yellow-400"
-            }
-          >
+          <Card key={device.ha_device_id}>
             <CardHeader>
               <CardTitle className="flex justify-between items-center">
-                <div>
-                  {/* ✅ FIXED LINK */}
-                  <Link
-                    href={`/sites/${siteid}/devices/${device.ha_device_id}?returnTo=gateways`}
-                    className="font-semibold text-emerald-700 hover:underline"
-                  >
-                    {device.device_name}
-                  </Link>
-
-                  <div className="text-xs text-gray-500">
-                    {device.manufacturer} {device.model}
-                  </div>
-                </div>
+                <Link
+                  href={`/sites/${siteid}/devices/${device.ha_device_id}?returnTo=gateways`}
+                  className="font-semibold text-emerald-700 hover:underline"
+                >
+                  {device.device_name}
+                </Link>
 
                 <select
                   className="border rounded px-2 py-1 text-sm"
                   value={device.equipment_id ?? ""}
                   onChange={(e) =>
-                    updateDeviceEquipment(device.ha_device_id, e.target.value)
+                    onSelectChange(device, e.target.value)
                   }
                 >
+                  <option value="">— Unassigned —</option>
                   {equipments.map((eq) => (
                     <option key={eq.equipment_id} value={eq.equipment_id}>
                       {eq.equipment_name}
@@ -286,6 +291,34 @@ export default function GatewayClientPage({ siteid }: Props) {
             </CardContent>
           </Card>
         ))
+      )}
+
+      {/* CONFIRM MODAL */}
+      {confirmOpen && pendingChange && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md space-y-4">
+            <h2 className="text-lg font-semibold">
+              Confirm device mapping change
+            </h2>
+
+            <textarea
+              className="w-full border rounded p-2 text-sm"
+              rows={3}
+              placeholder="Optional note…"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={cancelChange}>
+                Cancel
+              </Button>
+              <Button onClick={confirmChange}>
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
