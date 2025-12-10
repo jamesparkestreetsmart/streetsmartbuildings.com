@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { site_id, ha_device_id, equipment_id } = body;
+  const { site_id, ha_device_id, equipment_id, note } = body;
 
   if (!site_id || !ha_device_id) {
     return NextResponse.json(
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   );
 
   /**
-   * 1️⃣ Fetch existing device (for previous equipment_id)
+   * 1️⃣ Fetch existing device (to check previous mapping)
    */
   const { data: existingDevice } = await supabase
     .from("a_devices")
@@ -43,42 +43,49 @@ export async function POST(req: NextRequest) {
     .eq("ha_device_id", ha_device_id)
     .maybeSingle();
 
+  const previousId = existingDevice?.equipment_id ?? null;
+  const newId = equipment_id ?? null;
+
   /**
-   * 2️⃣ Update device mapping
+   * 2️⃣ Update device mapping (even if unchanged – harmless)
    */
   const { error: updateError } = await supabase
     .from("a_devices")
-    .update({
-      equipment_id: equipment_id ?? null,
-    })
+    .update({ equipment_id: newId })
     .eq("site_id", site_id)
     .eq("ha_device_id", ha_device_id);
 
   if (updateError) {
-    return NextResponse.json(
-      { error: updateError.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
   /**
-   * 3️⃣ Write audit record → b_records_log
+   * 3️⃣ Only write log if mapping actually changed
    */
-  if (existingDevice) {
+  const mappingChanged = previousId !== newId;
+
+  if (existingDevice && mappingChanged) {
+    const baseMessage = newId
+      ? "Device mapped to equipment"
+      : "Device unmapped from equipment";
+
+    const finalMessage = note
+      ? `${baseMessage} — NOTE: ${note}`
+      : baseMessage;
+
     await supabase.from("b_records_log").insert({
       org_id: existingDevice.org_id ?? null,
       site_id,
-      equipment_id: equipment_id ?? null,
+      equipment_id: newId,
       device_id: existingDevice.device_id,
       event_type: "configuration",
       source: "system",
-      message: equipment_id
-        ? "Device mapped to equipment"
-        : "Device unmapped from equipment",
+      message: finalMessage,
       metadata: {
         ha_device_id,
-        previous_equipment_id: existingDevice.equipment_id,
-        new_equipment_id: equipment_id ?? null,
+        previous_equipment_id: previousId,
+        new_equipment_id: newId,
+        user_note: note ?? null
       },
       created_by: "system",
     });
