@@ -4,7 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import EquipmentTable from "@/components/equipment/EquipmentTable";
-import TabClientWrapper from "./tab-client-wrapper"; // NEW — client tab handler
+import TabClientWrapper from "./tab-client-wrapper";
 
 export const dynamic = "force-dynamic";
 
@@ -85,15 +85,23 @@ export default async function SitePage(props: any) {
     <div className="min-h-screen bg-gray-50">
       {/* HEADER */}
       <header className="w-full rounded-lg bg-gradient-to-r from-green-600 to-yellow-500 p-6 flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-        {/* LEFT — Site Info */}
+
+        {/* LEFT COLUMN — Site Info */}
         <div>
           <h1 className="text-3xl font-bold text-white">{site.site_name}</h1>
+
           <p className="text-white mt-1">
             {site.address_line1}
             {site.address_line2 ? `, ${site.address_line2}` : ""},{" "}
             {site.city}, {site.state} {site.postal_code}
           </p>
+
           <p className="text-white mt-1">{site.phone_number}</p>
+
+          {/* ⭐ TIMEZONE BADGE (Always Visible) */}
+          <p className="mt-2 inline-block bg-black/40 text-white text-xs font-semibold px-3 py-1 rounded-md">
+            {site.timezone || "CST"}
+          </p>
         </div>
 
         {/* WEATHER */}
