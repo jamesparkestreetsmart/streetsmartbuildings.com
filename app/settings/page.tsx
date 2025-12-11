@@ -1,4 +1,5 @@
 "use client";
+
 interface Organization {
   org_id: string;
   org_name: string;
@@ -31,6 +32,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import { Plus, Users, Building2, Pencil, Save, X } from "lucide-react";
 
+// Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -42,21 +44,20 @@ export default function SettingsPage() {
   const [org, setOrg] = useState<Organization | null>(null);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [editingOrg, setEditingOrg] = useState(false);
   const [orgDraft, setOrgDraft] = useState<Partial<Organization>>({});
+
   const [showAddUser, setShowAddUser] = useState(false);
   const [shakeForm, setShakeForm] = useState(false);
-  const [newUser, setNewUser] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    phone_number: "",
-    role: "",
-    permissions: "viewer",
-    status: "active",
-  });
 
-  // 🔍 Search + Sort
+  // ✨ NEW — Email-only invitation
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  // Search & Sort
   const [searchTerm, setSearchTerm] = useState("");
   const [sortKey, setSortKey] = useState("created_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -80,20 +81,19 @@ export default function SettingsPage() {
       setOrg(orgData);
       setOrgDraft(orgData);
     }
-
     if (userData) setUsers(userData);
 
     setLoading(false);
   };
 
   useEffect(() => {
-    (async () => {
-      await fetchData();
-    })();
+    fetchData();
   }, []);
 
+  // =================== SAVE ORG EDIT ===================
   const saveOrg = async () => {
     if (!org) return;
+
     const { error } = await supabase
       .from("a_organizations")
       .update({
@@ -108,56 +108,62 @@ export default function SettingsPage() {
       alert("Failed to update organization info.");
       console.error(error);
     } else {
-      // Merge draft into real org safely
-      setOrg({ ...org, ...orgDraft } as Organization); //Fixed
+      setOrg({ ...org, ...orgDraft } as Organization);
       setEditingOrg(false);
     }
   };
 
-  // =================== ADD USER ===================
+  // =================== ADD USER — NEW INVITE FLOW ===================
   const addUser = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    // Validation check
-    if (!newUser.email || !newUser.first_name || !newUser.last_name) {
+    setInviteError(null);
+    setInviteMessage(null);
+
+    const email = inviteEmail.trim();
+    if (!email) {
       setShakeForm(true);
-      setTimeout(() => setShakeForm(false), 500);
+      setTimeout(() => setShakeForm(false), 400);
       return;
     }
 
-    const { error } = await supabase.from("a_users").insert([
-      {
-        org_id: org?.org_id,
-        first_name: newUser.first_name,
-        last_name: newUser.last_name,
-        email: newUser.email,
-        phone_number: newUser.phone_number || null,
-        role: newUser.role || null,
-        permissions: newUser.permissions,
-        status: newUser.status,
-      },
-    ]);
+    if (!org) {
+      setInviteError("Organization not loaded.");
+      return;
+    }
 
-    if (error) {
-      console.error("Add user error:", error);
-      alert("Failed to add user.");
-    } else {
-      // Reset and close
-      setShowAddUser(false);
-      setNewUser({
-        first_name: "",
-        last_name: "",
-        email: "",
-        phone_number: "",
-        role: "",
-        permissions: "viewer",
-        status: "active",
+    setInviteLoading(true);
+
+    try {
+      const res = await fetch("/api/org-users/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          orgId: org.org_id,
+        }),
       });
-      fetchData();
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setInviteError(data.error || "Failed to add user.");
+      } else {
+        setInviteMessage(data.message || "User processed successfully.");
+        setInviteEmail("");
+
+        // Refresh user list for existing users added immediately
+        await fetchData();
+      }
+    } catch (err) {
+      console.error(err);
+      setInviteError("Unexpected server error.");
+    } finally {
+      setInviteLoading(false);
     }
   };
 
-  // =================== SORT + FILTER HELPERS ===================
+  // =================== SORTING ===================
   const handleSort = (key: string) => {
     if (sortKey === key) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
@@ -168,32 +174,30 @@ export default function SettingsPage() {
   };
 
   const filteredAndSortedUsers = users
-  .filter((u) => {
-    const search = searchTerm.toLowerCase();
-    return (
-      u.first_name.toLowerCase().includes(search) ||
-      u.last_name.toLowerCase().includes(search) ||
-      u.email.toLowerCase().includes(search) ||
-      (u.role ?? "").toLowerCase().includes(search)
-    );
-  })
-  .sort((a, b) => {
-    const aVal = a[sortKey as keyof UserRecord] ?? "";
-    const bVal = b[sortKey as keyof UserRecord] ?? "";
-    if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
-    if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
-    return 0;
-  });
+    .filter((u) => {
+      const s = searchTerm.toLowerCase();
+      return (
+        u.first_name.toLowerCase().includes(s) ||
+        u.last_name.toLowerCase().includes(s) ||
+        u.email.toLowerCase().includes(s) ||
+        (u.role ?? "").toLowerCase().includes(s)
+      );
+    })
+    .sort((a, b) => {
+      const aVal = a[sortKey as keyof UserRecord] ?? "";
+      const bVal = b[sortKey as keyof UserRecord] ?? "";
+      if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
 
-
-  // =================== LOADING STATE ===================
   if (loading)
     return <div className="p-6 text-gray-500 text-sm">Loading settings...</div>;
 
   // =================== MAIN RENDER ===================
   return (
     <div className="p-6 space-y-8">
-      {/* ================= ORGANIZATION INFO ================= */}
+      {/* ===== ORGANIZATION INFO ===== */}
       <div className="bg-white shadow rounded-xl border p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -206,10 +210,9 @@ export default function SettingsPage() {
               <>
                 <button
                   onClick={() => setEditingOrg(true)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-white rounded-md bg-gradient-to-r from-[#00a859] to-[#d4af37] hover:from-[#15b864] hover:to-[#e1bf4b]"
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-400"
                 >
-                  <Pencil className="w-4 h-4" />
-                  Edit
+                  <Pencil className="w-4 h-4" /> Edit
                 </button>
 
                 <button
@@ -223,26 +226,25 @@ export default function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={saveOrg}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-white rounded-md bg-emerald-600 hover:bg-emerald-700"
+                  className="px-3 py-1.5 text-sm text-white rounded-md bg-emerald-600"
                 >
-                  <Save className="w-4 h-4" />
-                  Save
+                  <Save className="w-4 h-4" /> Save
                 </button>
                 <button
                   onClick={() => {
-                    if (org) setOrgDraft(org as Organization)
+                    setOrgDraft(org as Organization);
                     setEditingOrg(false);
                   }}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md text-gray-600 border hover:bg-gray-100"
+                  className="px-3 py-1.5 text-sm rounded-md text-gray-600 border hover:bg-gray-100"
                 >
-                  <X className="w-4 h-4" />
-                  Cancel
+                  <X className="w-4 h-4" /> Cancel
                 </button>
               </div>
             )}
           </div>
         </div>
 
+        {/* ORG FIELDS */}
         {org ? (
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
@@ -250,7 +252,7 @@ export default function SettingsPage() {
               {editingOrg ? (
                 <input
                   type="text"
-                  value={orgDraft.org_name || ""}
+                  value={orgDraft.org_name ?? ""}
                   onChange={(e) =>
                     setOrgDraft({ ...orgDraft, org_name: e.target.value })
                   }
@@ -266,7 +268,7 @@ export default function SettingsPage() {
               {editingOrg ? (
                 <input
                   type="text"
-                  value={orgDraft.industry || ""}
+                  value={orgDraft.industry ?? ""}
                   onChange={(e) =>
                     setOrgDraft({ ...orgDraft, industry: e.target.value })
                   }
@@ -282,7 +284,7 @@ export default function SettingsPage() {
               {editingOrg ? (
                 <input
                   type="email"
-                  value={orgDraft.program_lead_email || ""}
+                  value={orgDraft.program_lead_email ?? ""}
                   onChange={(e) =>
                     setOrgDraft({
                       ...orgDraft,
@@ -301,7 +303,7 @@ export default function SettingsPage() {
               {editingOrg ? (
                 <input
                   type="text"
-                  value={orgDraft.billing_address || ""}
+                  value={orgDraft.billing_address ?? ""}
                   onChange={(e) =>
                     setOrgDraft({
                       ...orgDraft,
@@ -341,7 +343,7 @@ export default function SettingsPage() {
               placeholder="Search users..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-56 focus:ring-2 focus:ring-green-500"
             />
 
             <button
@@ -354,6 +356,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* USER TABLE */}
         <table className="w-full text-sm border-t border-gray-200">
           <thead className="bg-gray-100 text-gray-700">
             <tr>
@@ -378,12 +381,13 @@ export default function SettingsPage() {
               ))}
             </tr>
           </thead>
+
           <tbody>
             {filteredAndSortedUsers.length ? (
               filteredAndSortedUsers.map((u) => (
                 <tr
                   key={u.user_id}
-                  className="border-b hover:bg-gray-50 transition cursor-pointer"
+                  className="border-b hover:bg-gray-50 transition"
                 >
                   <td className="p-3">
                     {u.first_name} {u.last_name}
@@ -422,7 +426,7 @@ export default function SettingsPage() {
         </table>
       </div>
 
-      {/* ================= ADD USER MODAL ================= */}
+      {/* ================= INVITE USER MODAL ================= */}
       {showAddUser && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
           <div
@@ -430,76 +434,61 @@ export default function SettingsPage() {
               shakeForm ? "animate-shake" : ""
             }`}
           >
-            <h3 className="text-lg font-semibold mb-4">Add New User</h3>
+            <h3 className="text-lg font-semibold mb-4">
+              Invite / Add User
+            </h3>
 
-            <form onSubmit={addUser}>
-              <div className="space-y-3 text-sm">
-                {[
-                  { label: "First Name", key: "first_name" },
-                  { label: "Last Name", key: "last_name" },
-                  { label: "Email", key: "email" },
-                  { label: "Phone Number", key: "phone_number" },
-                  { label: "Role (Job Title)", key: "role" },
-                ].map((f) => (
-                  <div key={f.key}>
-                    <label className="block text-gray-600 mb-1">
-                      {f.label}
-                    </label>
-                    <input
-                      type="text"
-                      value={(newUser as Record<string, string>)[f.key]}
-                      onChange={(e) =>
-                        setNewUser({ ...newUser, [f.key]: e.target.value })
-                      }
-                      className="w-full border rounded-md p-2 text-sm"
-                    />
-                  </div>
-                ))}
+            <form onSubmit={addUser} className="space-y-4 text-sm">
+              <div>
+                <label className="block text-gray-600 mb-1">
+                  User Email<span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  className="w-full border rounded-md p-2 text-sm"
+                />
 
-                <div>
-                  <label className="block text-gray-600 mb-1">Permissions</label>
-                  <select
-                    value={newUser.permissions}
-                    onChange={(e) =>
-                      setNewUser({ ...newUser, permissions: e.target.value })
-                    }
-                    className="w-full border rounded-md p-2 text-sm"
-                  >
-                    <option value="viewer">Viewer</option>
-                    <option value="editor">Editor</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-gray-600 mb-1">Status</label>
-                  <select
-                    value={newUser.status}
-                    onChange={(e) =>
-                      setNewUser({ ...newUser, status: e.target.value })
-                    }
-                    className="w-full border rounded-md p-2 text-sm"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="suspended">Suspended</option>
-                  </select>
-                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  • Existing users get added to the organization immediately. <br />
+                  • New users receive an invite and must sign up with the org code.
+                </p>
               </div>
 
-              <div className="flex justify-end gap-3 mt-6">
+              {inviteError && (
+                <div className="bg-red-100 text-red-700 text-xs rounded-md px-3 py-2">
+                  {inviteError}
+                </div>
+              )}
+
+              {inviteMessage && (
+                <div className="bg-emerald-50 text-emerald-700 text-xs rounded-md px-3 py-2">
+                  {inviteMessage}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddUser(false)}
+                  onClick={() => {
+                    setShowAddUser(false);
+                    setInviteEmail("");
+                    setInviteMessage(null);
+                    setInviteError(null);
+                  }}
                   className="px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800"
                 >
                   Cancel
                 </button>
+
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-sm text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-400 hover:from-green-700 hover:to-yellow-500"
+                  disabled={inviteLoading}
+                  className="px-4 py-1.5 text-sm text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-400 disabled:opacity-60"
                 >
-                  Save User
+                  {inviteLoading ? "Processing..." : "Send Invite / Add"}
                 </button>
               </div>
             </form>
@@ -507,24 +496,14 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ====== Animation Style ====== */}
+      {/* Shake Animation */}
       <style jsx>{`
         @keyframes shake {
-          0% {
-            transform: translateX(0);
-          }
-          25% {
-            transform: translateX(-5px);
-          }
-          50% {
-            transform: translateX(5px);
-          }
-          75% {
-            transform: translateX(-5px);
-          }
-          100% {
-            transform: translateX(0);
-          }
+          0% { transform: translateX(0); }
+          25% { transform: translateX(-5px); }
+          50% { transform: translateX(5px); }
+          75% { transform: translateX(-5px); }
+          100% { transform: translateX(0); }
         }
         .animate-shake {
           animation: shake 0.3s ease;
