@@ -7,7 +7,7 @@ export default function BenchmarkPage() {
       <h1
         className="text-4xl font-extrabold bg-gradient-to-r from-[#00a859] to-[#e0b53f] bg-clip-text text-transparent mb-2 drop-shadow-[0_0_6px_rgba(224,181,63,0.45)]"
       >
-        Equipment Benchmarking
+        Organizational Level Benchmarking
       </h1>
 
       {/* Description */}
