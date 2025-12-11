@@ -1,82 +1,57 @@
-// components/store-hours/StoreHoursManager.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 
-interface StoreHoursRow {
-  store_hours_id: string;
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+
+const DAY_ORDER = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+];
+
+const DAY_LABEL: Record<string, string> = {
+  monday: "Monday",
+  tuesday: "Tuesday",
+  wednesday: "Wednesday",
+  thursday: "Thursday",
+  friday: "Friday",
+  saturday: "Saturday",
+  sunday: "Sunday",
+};
+
+type StoreHoursRow = {
+  store_hours_id: string | null; // will be null before insert
   site_id: string;
-  day_of_week: string; // 'monday'...'sunday'
-  open_time: string | null; // "HH:MM:SS" or null
+  day_of_week: string;
+  open_time: string | null; // "HH:MM:SS" from Supabase
   close_time: string | null;
-  is_closed: boolean | null;
-}
+  is_closed: boolean;
+};
 
 interface StoreHoursManagerProps {
   siteId: string;
 }
 
-const DAY_ORDER = [
-  { key: "monday", label: "Monday" },
-  { key: "tuesday", label: "Tuesday" },
-  { key: "wednesday", label: "Wednesday" },
-  { key: "thursday", label: "Thursday" },
-  { key: "friday", label: "Friday" },
-  { key: "saturday", label: "Saturday" },
-  { key: "sunday", label: "Sunday" },
-];
-
-function sortByDay(rows: StoreHoursRow[]): StoreHoursRow[] {
-  return [...rows].sort(
-    (a, b) =>
-      DAY_ORDER.findIndex((d) => d.key === a.day_of_week) -
-      DAY_ORDER.findIndex((d) => d.key === b.day_of_week)
-  );
-}
-
-// Convert "HH:MM:SS" from DB -> "HH:MM" for <input type="time">
-function dbTimeToInput(time: string | null): string {
-  if (!time) return "";
-  return time.slice(0, 5); // "HH:MM"
-}
-
-// Convert "HH:MM" -> "HH:MM:SS" for DB
-function inputToDbTime(value: string | null | undefined): string | null {
-  if (!value) return null;
-  return `${value}:00`;
-}
-
-// Format DB time string as 12-hour (e.g., "17:30:00" -> "5:30 PM")
-function formatTime12h(time: string | null): string {
-  if (!time) return "--";
-  const [hStr, mStr] = time.split(":");
-  const h = parseInt(hStr, 10);
-  if (Number.isNaN(h)) return "--";
-
-  const minutes = mStr ?? "00";
-  const suffix = h >= 12 ? "PM" : "AM";
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-
-  return `${hour12}:${minutes.padStart(2, "0")} ${suffix}`;
-}
-
 export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
   const [rows, setRows] = useState<StoreHoursRow[]>([]);
-  const [editRows, setEditRows] = useState<StoreHoursRow[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
 
-  const isEditing = editRows !== null;
-
+  // ======== INITIAL LOAD / AUTO-INITIALIZE ========
   useEffect(() => {
     if (!siteId) return;
     fetchHours();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId]);
 
   async function fetchHours() {
@@ -90,20 +65,22 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
 
     if (error) {
       console.error("Error loading store hours:", error);
-      setError("Failed to load store hours.");
+      setError("Failed to load store hours." + JSON.stringify(error));
       setLoading(false);
       return;
     }
 
     if (!data || data.length === 0) {
-      // Auto-create 7 rows if none exist
-      const defaults = DAY_ORDER.map((d) => ({
-        site_id: siteId,
-        day_of_week: d.key,
-        is_closed: false,
-        open_time: null,
-        close_time: null,
-      }));
+      // Auto-create 7 default rows (closed all day)
+      const defaults: Omit<StoreHoursRow, "store_hours_id">[] = DAY_ORDER.map(
+        (day) => ({
+          site_id: siteId,
+          day_of_week: day,
+          open_time: null,
+          close_time: null,
+          is_closed: true,
+        })
+      );
 
       const { data: inserted, error: insertError } = await supabase
         .from("b_store_hours")
@@ -111,226 +88,405 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
         .select("*");
 
       if (insertError) {
-        console.error("Error creating default store hours:", insertError);
+        console.error("Error initializing store hours:", insertError);
         setError("Failed to initialize store hours.");
         setLoading(false);
         return;
       }
 
-      setRows(sortByDay(inserted as StoreHoursRow[]));
-    } else {
-      setRows(sortByDay(data));
+      const normalized = normalizeRows(inserted as any);
+      setRows(normalized);
+      setLoading(false);
+      return;
     }
 
+    const normalizedExisting = normalizeRows(data as any);
+    setRows(normalizedExisting);
     setLoading(false);
   }
 
-  function handleStartEdit() {
-    setEditRows(rows.map((r) => ({ ...r })));
+  function normalizeRows(data: any[]): StoreHoursRow[] {
+    const byDay: Record<string, StoreHoursRow> = {};
+    data.forEach((row) => {
+      byDay[row.day_of_week] = {
+        store_hours_id: row.store_hours_id ?? row.id ?? null,
+        site_id: row.site_id,
+        day_of_week: row.day_of_week,
+        open_time: row.open_time,
+        close_time: row.close_time,
+        is_closed: !!row.is_closed,
+      };
+    });
+
+    return DAY_ORDER.map((day) => {
+      if (byDay[day]) return byDay[day];
+      // fallback (shouldn't happen once initialized)
+      return {
+        store_hours_id: null,
+        site_id: siteId,
+        day_of_week: day,
+        open_time: null,
+        close_time: null,
+        is_closed: true,
+      };
+    });
   }
 
-  function handleCancelEdit() {
-    setEditRows(null);
-    setError(null);
+  // ======== EDITING HELPERS ========
+  function handleClosedChange(idx: number, checked: boolean) {
+    setRows((prev) =>
+      prev.map((row, i) =>
+        i === idx
+          ? {
+              ...row,
+              is_closed: checked,
+              // optionally clear times when closed
+              open_time: checked ? null : row.open_time,
+              close_time: checked ? null : row.close_time,
+            }
+          : row
+      )
+    );
   }
 
   function handleTimeChange(
     idx: number,
     field: "open_time" | "close_time",
-    value: string
+    value: string | null
   ) {
-    if (!editRows) return;
-    const updated = [...editRows];
-    updated[idx] = {
-      ...updated[idx],
-      [field]: value ? inputToDbTime(value) : null,
-    };
-    setEditRows(updated);
+    setRows((prev) =>
+      prev.map((row, i) => (i === idx ? { ...row, [field]: value } : row))
+    );
   }
 
-  function handleClosedChange(idx: number, checked: boolean) {
-    if (!editRows) return;
-    const updated = [...editRows];
-    updated[idx] = {
-      ...updated[idx],
-      is_closed: checked,
-      // Optionally clear times when marking closed
-      open_time: checked ? null : updated[idx].open_time,
-      close_time: checked ? null : updated[idx].close_time,
-    };
-    setEditRows(updated);
+  // Simple validation: if not closed, must have both times and open < close
+  function validateRows(): string | null {
+    for (const row of rows) {
+      if (!row.is_closed) {
+        if (!row.open_time || !row.close_time) {
+          return `Please set both open and close times for ${DAY_LABEL[row.day_of_week]}.`;
+        }
+        const openMins = timeToMinutes(row.open_time);
+        const closeMins = timeToMinutes(row.close_time);
+        if (openMins >= closeMins) {
+          return `Open time must be before close time for ${DAY_LABEL[row.day_of_week]}.`;
+        }
+      }
+    }
+    return null;
   }
 
   async function handleSave() {
-    if (!editRows) return;
     setSaving(true);
     setError(null);
 
-    // Normalize payload: ensure null times when closed
-    const payload = editRows.map((r) => ({
-      store_hours_id: r.store_hours_id,
-      site_id: r.site_id,
-      day_of_week: r.day_of_week,
-      is_closed: !!r.is_closed,
-      open_time: r.is_closed ? null : r.open_time,
-      close_time: r.is_closed ? null : r.close_time,
-    }));
-
-    const { error } = await supabase.from("b_store_hours").upsert(payload);
-
-    if (error) {
-      console.error("Error saving store hours:", error);
-      setError("Failed to save changes.");
+    const validationError = validateRows();
+    if (validationError) {
+      setError(validationError);
       setSaving(false);
       return;
     }
 
-    setRows(sortByDay(payload as StoreHoursRow[]));
-    setEditRows(null);
+    // Split rows into updates and inserts (should mostly be updates)
+    const toUpdate = rows.filter((r) => r.store_hours_id !== null);
+    const toInsert = rows.filter((r) => r.store_hours_id === null);
+
+    if (toUpdate.length > 0) {
+      const { error: updateError } = await supabase.from("b_store_hours").upsert(
+        toUpdate.map((r) => ({
+          store_hours_id: r.store_hours_id,
+          site_id: r.site_id,
+          day_of_week: r.day_of_week,
+          open_time: r.open_time,
+          close_time: r.close_time,
+          is_closed: r.is_closed,
+        }))
+      );
+
+      if (updateError) {
+        console.error("Error saving store hours (update):", updateError);
+        setError("Failed to save store hours.");
+        setSaving(false);
+        return;
+      }
+    }
+
+    if (toInsert.length > 0) {
+      const { data: inserted, error: insertError } = await supabase
+        .from("b_store_hours")
+        .insert(
+          toInsert.map((r) => ({
+            site_id: r.site_id,
+            day_of_week: r.day_of_week,
+            open_time: r.open_time,
+            close_time: r.close_time,
+            is_closed: r.is_closed,
+          }))
+        )
+        .select("*");
+
+      if (insertError) {
+        console.error("Error saving store hours (insert):", insertError);
+        setError("Failed to save store hours.");
+        setSaving(false);
+        return;
+      }
+
+      // merge inserted IDs back into state
+      const insertedByDay: Record<string, any> = {};
+      (inserted || []).forEach((r: any) => {
+        insertedByDay[r.day_of_week] = r;
+      });
+
+      setRows((prev) =>
+        prev.map((row) =>
+          row.store_hours_id === null && insertedByDay[row.day_of_week]
+            ? {
+                ...row,
+                store_hours_id:
+                  insertedByDay[row.day_of_week].store_hours_id ??
+                  insertedByDay[row.day_of_week].id,
+              }
+            : row
+        )
+      );
+    }
+
     setSaving(false);
+    setIsEditing(false);
   }
 
-  const displayedRows = isEditing ? (editRows as StoreHoursRow[]) : rows;
+  function handleCancel() {
+    // reload from server to discard edits
+    fetchHours();
+    setIsEditing(false);
+  }
 
+  // ======== TIME UTILITIES ========
+  function timeToMinutes(value: string | null): number {
+    if (!value) return 0;
+    const [h, m] = value.split(":").map((x) => parseInt(x, 10));
+    return h * 60 + m;
+  }
+
+  function formatTime(value: string | null): string {
+    if (!value) return "—";
+    const [hStr, mStr] = value.split(":");
+    let h = parseInt(hStr, 10);
+    const m = mStr ?? "00";
+    const suffix = h >= 12 ? "PM" : "AM";
+    if (h === 0) h = 12;
+    else if (h > 12) h = h - 12;
+    return `${h}:${m.padStart(2, "0")} ${suffix}`;
+  }
+
+  function buildTimeString(hour12: number, minute: number, ampm: "AM" | "PM") {
+    let h = hour12 % 12;
+    if (ampm === "PM") h += 12;
+    const hh = h.toString().padStart(2, "0");
+    const mm = minute.toString().padStart(2, "0");
+    return `${hh}:${mm}:00`;
+  }
+
+  // ======== RENDER ========
   return (
-    <div className="p-4 bg-white rounded-lg shadow">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">Store Hours</h2>
+    <Card className="shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Store Hours</CardTitle>
 
-        <div className="flex items-center gap-2">
-          {!isEditing && (
-            <Button variant="outline" size="sm" onClick={handleStartEdit} disabled={loading}>
+        <div className="flex gap-2">
+          {isEditing ? (
+            <>
+              <Button size="sm" variant="outline" onClick={handleCancel} disabled={saving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={saving}>
+                {saving ? "Saving…" : "Save Hours"}
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => setIsEditing(true)}>
               Edit Hours
             </Button>
           )}
-
-          {isEditing && (
-            <>
-              <Button
-                size="sm"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                {saving ? "Saving…" : "Save"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCancelEdit}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-            </>
-          )}
         </div>
-      </div>
+      </CardHeader>
 
-      {error && (
-        <p className="text-sm text-red-600 mb-3">
-          {error}
-        </p>
-      )}
+      <CardContent>
+        {loading && <p className="text-sm text-gray-500 mb-2">Loading store hours…</p>}
+        {error && !loading && (
+          <p className="text-sm text-red-600 mb-2">{error}</p>
+        )}
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading store hours…</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left py-2 pr-4">Day</th>
-                <th className="text-left py-2 pr-4">Open</th>
-                <th className="text-left py-2 pr-4">Close</th>
-                <th className="text-left py-2">Closed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedRows.map((row, idx) => {
-                const dayMeta = DAY_ORDER.find((d) => d.key === row.day_of_week);
-                const label = dayMeta?.label ?? row.day_of_week;
-
-                const openInputValue = dbTimeToInput(row.open_time);
-                const closeInputValue = dbTimeToInput(row.close_time);
-
-                const disabled = !!row.is_closed;
-
-                return (
-                  <tr key={row.day_of_week} className="border-b last:border-0">
-                    <td className="py-2 pr-4 font-medium">{label}</td>
+        {!loading && (
+          <div className="overflow-x-auto border rounded-md">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-4 py-2 font-semibold">Day</th>
+                  <th className="text-left px-4 py-2 font-semibold">Open</th>
+                  <th className="text-left px-4 py-2 font-semibold">Close</th>
+                  <th className="text-left px-4 py-2 font-semibold">Closed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, idx) => (
+                  <tr key={row.day_of_week} className="border-t">
+                    <td className="px-4 py-2">{DAY_LABEL[row.day_of_week]}</td>
 
                     {/* OPEN TIME */}
-                    <td className="py-2 pr-4">
-                      {isEditing ? (
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="time"
-                            value={openInputValue}
-                            onChange={(e) =>
-                              handleTimeChange(idx, "open_time", e.target.value)
-                            }
-                            disabled={disabled}
-                            className="w-32"
-                          />
-                          <span className="text-xs text-muted-foreground w-16">
-                            {formatTime12h(row.open_time)}
-                          </span>
-                        </div>
+                    <td className="px-4 py-2">
+                      {isEditing && !row.is_closed ? (
+                        <TimePopover
+                          value={row.open_time}
+                          onChange={(val) => handleTimeChange(idx, "open_time", val)}
+                        />
                       ) : (
-                        <span>
-                          {row.is_closed
-                            ? "—"
-                            : formatTime12h(row.open_time)}
-                        </span>
+                        <span>{row.is_closed ? "—" : formatTime(row.open_time)}</span>
                       )}
                     </td>
 
                     {/* CLOSE TIME */}
-                    <td className="py-2 pr-4">
-                      {isEditing ? (
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="time"
-                            value={closeInputValue}
-                            onChange={(e) =>
-                              handleTimeChange(idx, "close_time", e.target.value)
-                            }
-                            disabled={disabled}
-                            className="w-32"
-                          />
-                          <span className="text-xs text-muted-foreground w-16">
-                            {formatTime12h(row.close_time)}
-                          </span>
-                        </div>
+                    <td className="px-4 py-2">
+                      {isEditing && !row.is_closed ? (
+                        <TimePopover
+                          value={row.close_time}
+                          onChange={(val) => handleTimeChange(idx, "close_time", val)}
+                        />
                       ) : (
-                        <span>
-                          {row.is_closed
-                            ? "—"
-                            : formatTime12h(row.close_time)}
-                        </span>
+                        <span>{row.is_closed ? "—" : formatTime(row.close_time)}</span>
                       )}
                     </td>
 
                     {/* CLOSED FLAG */}
-                    <td className="py-2">
+                    <td className="px-4 py-2">
                       {isEditing ? (
                         <Checkbox
-                          checked={!!row.is_closed}
-                          onCheckedChange={(checked) =>
-                            handleClosedChange(idx, Boolean(checked))
+                          checked={row.is_closed}
+                          onCheckedChange={(checked: boolean) =>
+                            handleClosedChange(idx, checked)
                           }
                         />
+                      ) : row.is_closed ? (
+                        <span>Yes</span>
                       ) : (
-                        <span>{row.is_closed ? "Yes" : "No"}</span>
+                        <span>No</span>
                       )}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
+
+  // ======== INLINE "POPOVER" TIME PICKER (Option B Style) ========
+  function TimePopover({
+    value,
+    onChange,
+  }: {
+    value: string | null;
+    onChange: (val: string | null) => void;
+  }) {
+    const [open, setOpen] = useState(false);
+
+    // derive h/m/ampm from value
+    let initialHour = 8;
+    let initialMinute = 0;
+    let initialAmpm: "AM" | "PM" = "AM";
+
+    if (value) {
+      const [hStr, mStr] = value.split(":");
+      let h = parseInt(hStr, 10);
+      const m = parseInt(mStr || "0", 10);
+      initialAmpm = h >= 12 ? "PM" : "AM";
+      if (h === 0) h = 12;
+      else if (h > 12) h -= 12;
+      initialHour = h;
+      initialMinute = m;
+    }
+
+    const [hour, setHour] = useState<number>(initialHour);
+    const [minute, setMinute] = useState<number>(initialMinute);
+    const [ampm, setAmpm] = useState<"AM" | "PM">(initialAmpm);
+
+    // Whenever the selection changes, push up immediately
+    useEffect(() => {
+      const t = buildTimeString(hour, minute, ampm);
+      onChange(t);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hour, minute, ampm]);
+
+    return (
+      <div className="relative inline-block">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="min-w-[110px] justify-between"
+          onClick={() => setOpen((prev) => !prev)}
+        >
+          {formatTime(value)}
+        </Button>
+
+        {open && (
+          <div className="absolute z-20 mt-2 rounded-md border bg-white shadow-lg p-3 flex gap-2 items-center">
+            {/* Hour */}
+            <Input
+              type="number"
+              min={1}
+              max={12}
+              value={hour}
+              onChange={(e) => {
+                const v = parseInt(e.target.value || "1", 10);
+                if (v >= 1 && v <= 12) setHour(v);
+              }}
+              className="w-14 text-center"
+            />
+
+            <span>:</span>
+
+            {/* Minute */}
+            <Input
+              type="number"
+              min={0}
+              max={59}
+              value={minute.toString().padStart(2, "0")}
+              onChange={(e) => {
+                let v = parseInt(e.target.value || "0", 10);
+                if (v < 0) v = 0;
+                if (v > 59) v = 59;
+                setMinute(v);
+              }}
+              className="w-14 text-center"
+            />
+
+            {/* AM/PM */}
+            <select
+              className="border rounded px-2 py-1 text-sm"
+              value={ampm}
+              onChange={(e) =>
+                setAmpm(e.target.value === "PM" ? "PM" : "AM")
+              }
+            >
+              <option value="AM">AM</option>
+              <option value="PM">PM</option>
+            </select>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setOpen(false)}
+            >
+              Done
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
 }
