@@ -28,10 +28,6 @@ interface Equipment {
   status: string;
 }
 
-interface Site {
-  timezone: string | null;
-}
-
 interface Device {
   device_id: string;
   equipment_id: string;
@@ -65,16 +61,9 @@ interface RecordLog {
    Helpers
 ======================= */
 
-function formatWithTimezone(value: string, timezone?: string | null) {
-  return new Date(value).toLocaleString("en-US", {
-    timeZone: timezone || "UTC",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+function formatDateTime(value: string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString();
 }
 
 function formatCategoryLabel(raw: string | null): string {
@@ -125,13 +114,6 @@ export default async function IndividualEquipmentPage(props: any) {
     return <div className="p-6 text-red-600">Equipment not found</div>;
   }
 
-  /* -------------------- Site (timezone) -------------------- */
-  const { data: site } = await supabase
-    .from("a_sites")
-    .select("timezone")
-    .eq("site_id", siteid)
-    .single<Site>();
-
   /* -------------------- Devices -------------------- */
   const { data: devices } = await supabase
     .from("a_devices")
@@ -141,7 +123,7 @@ export default async function IndividualEquipmentPage(props: any) {
 
   const deviceList = (devices || []) as Device[];
 
-  /* -------------------- Entities -------------------- */
+  /* -------------------- Entities (view_entity_sync) -------------------- */
   let entitiesByHaDevice: Record<string, EntityRow[]> = {};
 
   if (deviceList.length) {
@@ -158,15 +140,14 @@ export default async function IndividualEquipmentPage(props: any) {
         .in("ha_device_id", haIds);
 
       if (entities) {
-        entitiesByHaDevice = (entities as EntityRow[]).reduce(
-          (acc, e) => {
-            if (!e.ha_device_id) return acc;
-            acc[e.ha_device_id] ||= [];
-            acc[e.ha_device_id].push(e);
-            return acc;
-          },
-          {} as Record<string, EntityRow[]>
-        );
+        entitiesByHaDevice = (entities as EntityRow[]).reduce<
+          Record<string, EntityRow[]>
+        >((acc, e) => {
+          if (!e.ha_device_id) return acc;
+          if (!acc[e.ha_device_id]) acc[e.ha_device_id] = [];
+          acc[e.ha_device_id].push(e);
+          return acc;
+        }, {});
       }
     }
   }
@@ -185,25 +166,27 @@ export default async function IndividualEquipmentPage(props: any) {
     <div className="min-h-screen bg-gray-50">
       {/* HEADER */}
       <header className="bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 text-white p-6 shadow">
-        <div className="max-w-6xl mx-auto flex justify-between">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">{equipment.equipment_name}</h1>
+            <h1 className="text-2xl font-bold">
+              {equipment.equipment_name}
+            </h1>
             <p className="text-sm opacity-90">
               {equipment.equipment_group} • {equipment.equipment_type}
             </p>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex items-center gap-3">
             <Link
               href={`/sites/${siteid}`}
-              className="rounded-full bg-white/15 px-4 py-2 text-sm"
+              className="inline-flex items-center rounded-full bg-white/15 px-4 py-2 text-sm font-medium hover:bg-white/25 transition"
             >
               ← Back to Equipment List
             </Link>
 
             <Link
               href={`/sites/${siteid}/equipment/${equipmentid}/edit`}
-              className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-green-700"
+              className="inline-flex items-center rounded-full bg-white text-green-700 px-4 py-2 text-sm font-semibold shadow hover:bg-gray-100 transition"
             >
               ✏️ Edit
             </Link>
@@ -212,32 +195,168 @@ export default async function IndividualEquipmentPage(props: any) {
       </header>
 
       <main className="max-w-6xl mx-auto p-6 space-y-6">
+        {/* EQUIPMENT DETAILS */}
+        <section className="bg-white rounded-xl shadow p-6 grid md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold">Equipment Details</h2>
+            <p><strong>Group:</strong> {equipment.equipment_group || "—"}</p>
+            <p><strong>Type:</strong> {equipment.equipment_type || "—"}</p>
+            <p><strong>Space:</strong> {equipment.space_name || "—"}</p>
+
+            {equipment.description && (
+              <p className="text-sm text-gray-700">
+                <strong>Description:</strong> {equipment.description}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold">Technical Info</h2>
+            <p><strong>Manufacturer:</strong> {equipment.manufacturer || "—"}</p>
+            <p><strong>Model:</strong> {equipment.model || "—"}</p>
+            <p><strong>Serial:</strong> {equipment.serial_number || "—"}</p>
+            <p><strong>Voltage:</strong> {equipment.voltage || "—"}</p>
+            <p><strong>Amperage:</strong> {equipment.amperage || "—"}</p>
+
+            <p>
+              <strong>Maintenance:</strong>{" "}
+              {equipment.maintenance_interval_days
+                ? `${equipment.maintenance_interval_days} days`
+                : "—"}
+            </p>
+
+            <p>
+              <strong>Status:</strong>{" "}
+              <span
+                className={
+                  equipment.status === "active"
+                    ? "text-green-600 font-semibold"
+                    : "text-gray-600"
+                }
+              >
+                {equipment.status}
+              </span>
+            </p>
+          </div>
+        </section>
+
+        {/* DEVICES + ENTITIES */}
+        <section className="bg-white rounded-xl shadow p-6">
+          <h2 className="text-lg font-semibold mb-4">Devices</h2>
+
+          {deviceList.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No devices linked yet. Once HA devices are mapped, they’ll show here.
+            </p>
+          ) : (
+            deviceList.map((device) => {
+              const entities =
+                (device.ha_device_id &&
+                  entitiesByHaDevice[device.ha_device_id]) ||
+                [];
+
+              const grouped = entities.reduce<Record<string, EntityRow[]>>(
+                (acc, e) => {
+                  const key = e.sensor_type || "measurement";
+                  if (!acc[key]) acc[key] = [];
+                  acc[key].push(e);
+                  return acc;
+                },
+                {}
+              );
+
+              return (
+                <div
+                  key={device.device_id}
+                  className="border rounded-lg p-4 mb-4"
+                >
+                  <div className="flex justify-between mb-2">
+                    <div>
+                      <p className="font-semibold">{device.device_name}</p>
+                      <p className="text-xs text-gray-500">
+                        Last seen: {formatDateTime(device.last_seen_at)}
+                      </p>
+                    </div>
+
+                    {device.ha_device_id && (
+                      <Link
+                        href={`/sites/${siteid}/devices/${device.ha_device_id}?returnTo=equipment&equipmentId=${equipmentid}`}
+                        className="text-xs text-green-700 underline"
+                      >
+                        View device →
+                      </Link>
+                    )}
+                  </div>
+
+                  {entities.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      No entities synced yet for this device.
+                    </p>
+                  ) : (
+                    <div className="grid md:grid-cols-2 gap-3">
+                      {Object.entries(grouped).map(([cat, list]) => (
+                        <div
+                          key={cat}
+                          className="bg-gray-50 border rounded-lg p-3"
+                        >
+                          <p className="text-xs font-semibold mb-2 uppercase text-gray-700">
+                            {formatCategoryLabel(cat)}
+                          </p>
+
+                          {list.map((e) => (
+                            <div
+                              key={e.entity_id}
+                              className="flex justify-between text-xs"
+                            >
+                              <span className="font-mono">{e.entity_id}</span>
+                              <span className="font-semibold">
+                                {e.last_state ?? "—"}
+                                {e.unit_of_measurement
+                                  ? ` ${e.unit_of_measurement}`
+                                  : ""}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </section>
 
         {/* ACTIVITY LOG */}
         <section className="bg-white rounded-xl shadow p-6 space-y-4">
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <h2 className="text-lg font-semibold">Activity Log</h2>
             <span className="text-xs text-gray-500">Last 15 records</span>
           </div>
 
           <AddRecordNote
-            orgId={equipment.site_id /* org join later */}
+            orgId={equipment.site_id /* replace w/ org_id once joined */}
             siteId={siteid}
             equipmentId={equipmentid}
           />
 
           {recordList.length === 0 ? (
-            <p className="text-sm text-gray-500">No activity recorded yet.</p>
+            <p className="text-sm text-gray-500">
+              No activity recorded yet.
+            </p>
           ) : (
             <ul className="space-y-3">
               {recordList.map((r) => (
-                <li key={r.id} className="border-l-4 border-emerald-500 pl-3">
+                <li
+                  key={r.id}
+                  className="border-l-4 border-emerald-500 pl-3"
+                >
                   <p className="text-sm font-medium">
                     {r.metadata?.note ?? r.message}
                   </p>
                   <p className="text-xs text-gray-500">
                     {r.event_type} •{" "}
-                    {formatWithTimezone(r.created_at, site?.timezone)}
+                    {new Date(r.created_at).toLocaleString()}
                   </p>
                 </li>
               ))}
