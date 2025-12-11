@@ -33,9 +33,7 @@ export async function POST(req: NextRequest) {
     }
   );
 
-  /**
-   * 1️⃣ Fetch existing device (to check previous mapping)
-   */
+
   const { data: existingDevice } = await supabase
     .from("a_devices")
     .select("device_id, equipment_id, org_id")
@@ -46,50 +44,59 @@ export async function POST(req: NextRequest) {
   const previousId = existingDevice?.equipment_id ?? null;
   const newId = equipment_id ?? null;
 
-  /**
-   * 2️⃣ Update device mapping (even if unchanged – harmless)
-   */
-  const { error: updateError } = await supabase
+  await supabase
     .from("a_devices")
     .update({ equipment_id: newId })
     .eq("site_id", site_id)
     .eq("ha_device_id", ha_device_id);
 
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  if (!existingDevice || previousId === newId) {
+    return NextResponse.json({ success: true });
   }
 
-  /**
-   * 3️⃣ Only write log if mapping actually changed
-   */
-  const mappingChanged = previousId !== newId;
+  const records = [];
 
-  if (existingDevice && mappingChanged) {
-    const baseMessage = newId
-      ? "Device mapped to equipment"
-      : "Device unmapped from equipment";
+  if (previousId) {
+    records.push({
+      org_id: existingDevice.org_id,
+      site_id,
+      equipment_id: previousId,
+      device_id: existingDevice.device_id,
+      event_type: "configuration",
+      source: "system",
+      message: "Device unmapped from equipment",
+      metadata: {
+        ha_device_id,
+        previous_equipment_id: previousId,
+        new_equipment_id: newId,
+        user_note: note ?? null,
+      },
+      created_by: "system",
+    });
+  }
 
-    const finalMessage = note
-      ? `${baseMessage} — NOTE: ${note}`
-      : baseMessage;
-
-    await supabase.from("b_records_log").insert({
-      org_id: existingDevice.org_id ?? null,
+  if (newId) {
+    records.push({
+      org_id: existingDevice.org_id,
       site_id,
       equipment_id: newId,
       device_id: existingDevice.device_id,
       event_type: "configuration",
       source: "system",
-      message: finalMessage,
+      message: note
+        ? `Device mapped to equipment — NOTE: ${note}`
+        : "Device mapped to equipment",
       metadata: {
         ha_device_id,
         previous_equipment_id: previousId,
         new_equipment_id: newId,
-        user_note: note ?? null
+        user_note: note ?? null,
       },
       created_by: "system",
     });
   }
+
+  await supabase.from("b_records_log").insert(records);
 
   return NextResponse.json({ success: true });
 }
