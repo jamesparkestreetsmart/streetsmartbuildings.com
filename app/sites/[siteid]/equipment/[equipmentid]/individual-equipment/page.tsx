@@ -61,9 +61,13 @@ interface RecordLog {
    Helpers
 ======================= */
 
-function formatDateTime(value: string | null) {
+function formatDateTime(value: string | null, tz: string) {
   if (!value) return "—";
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString("en-US", {
+    timeZone: tz,
+    dateStyle: "short",
+    timeStyle: "short",
+  });
 }
 
 function formatCategoryLabel(raw: string | null): string {
@@ -103,6 +107,15 @@ export default async function IndividualEquipmentPage(props: any) {
     }
   );
 
+  /* -------------------- Load Site (for timezone) -------------------- */
+  const { data: site } = await supabase
+    .from("a_sites")
+    .select("timezone")
+    .eq("site_id", siteid)
+    .single();
+
+  const siteTimezone = site?.timezone || "America/Chicago";
+
   /* -------------------- Equipment -------------------- */
   const { data: equipment } = await supabase
     .from("a_equipments")
@@ -123,7 +136,7 @@ export default async function IndividualEquipmentPage(props: any) {
 
   const deviceList = (devices || []) as Device[];
 
-  /* -------------------- Entities (view_entity_sync) -------------------- */
+  /* -------------------- Entities -------------------- */
   let entitiesByHaDevice: Record<string, EntityRow[]> = {};
 
   if (deviceList.length) {
@@ -168,9 +181,7 @@ export default async function IndividualEquipmentPage(props: any) {
       <header className="bg-gradient-to-r from-green-600 via-green-500 to-yellow-400 text-white p-6 shadow">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">
-              {equipment.equipment_name}
-            </h1>
+            <h1 className="text-2xl font-bold">{equipment.equipment_name}</h1>
             <p className="text-sm opacity-90">
               {equipment.equipment_group} • {equipment.equipment_type}
             </p>
@@ -194,8 +205,9 @@ export default async function IndividualEquipmentPage(props: any) {
         </div>
       </header>
 
+      {/* MAIN */}
       <main className="max-w-6xl mx-auto p-6 space-y-6">
-        {/* EQUIPMENT DETAILS */}
+        {/* -------------------- EQUIPMENT DETAILS -------------------- */}
         <section className="bg-white rounded-xl shadow p-6 grid md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <h2 className="text-lg font-semibold">Equipment Details</h2>
@@ -240,7 +252,7 @@ export default async function IndividualEquipmentPage(props: any) {
           </div>
         </section>
 
-        {/* DEVICES + ENTITIES */}
+        {/* -------------------- DEVICES + ENTITIES -------------------- */}
         <section className="bg-white rounded-xl shadow p-6">
           <h2 className="text-lg font-semibold mb-4">Devices</h2>
 
@@ -266,15 +278,12 @@ export default async function IndividualEquipmentPage(props: any) {
               );
 
               return (
-                <div
-                  key={device.device_id}
-                  className="border rounded-lg p-4 mb-4"
-                >
+                <div key={device.device_id} className="border rounded-lg p-4 mb-4">
                   <div className="flex justify-between mb-2">
                     <div>
                       <p className="font-semibold">{device.device_name}</p>
                       <p className="text-xs text-gray-500">
-                        Last seen: {formatDateTime(device.last_seen_at)}
+                        Last seen: {formatDateTime(device.last_seen_at, siteTimezone)}
                       </p>
                     </div>
 
@@ -327,7 +336,7 @@ export default async function IndividualEquipmentPage(props: any) {
           )}
         </section>
 
-        {/* ACTIVITY LOG */}
+        {/* -------------------- ACTIVITY LOG -------------------- */}
         <section className="bg-white rounded-xl shadow p-6 space-y-4">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-semibold">Activity Log</h2>
@@ -335,28 +344,23 @@ export default async function IndividualEquipmentPage(props: any) {
           </div>
 
           <AddRecordNote
-            orgId={equipment.site_id /* replace w/ org_id once joined */}
+            orgId={equipment.site_id}
             siteId={siteid}
             equipmentId={equipmentid}
           />
 
           {recordList.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No activity recorded yet.
-            </p>
+            <p className="text-sm text-gray-500">No activity recorded yet.</p>
           ) : (
             <ul className="space-y-3">
               {recordList.map((r) => (
-                <li
-                  key={r.id}
-                  className="border-l-4 border-emerald-500 pl-3"
-                >
+                <li key={r.id} className="border-l-4 border-emerald-500 pl-3">
                   <p className="text-sm font-medium">
                     {r.metadata?.note ?? r.message}
                   </p>
                   <p className="text-xs text-gray-500">
                     {r.event_type} •{" "}
-                    {new Date(r.created_at).toLocaleString()}
+                    {formatDateTime(r.created_at, siteTimezone)}
                   </p>
                 </li>
               ))}
