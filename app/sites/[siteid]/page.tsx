@@ -4,20 +4,16 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import EquipmentTable from "@/components/equipment/EquipmentTable";
+import TabClientWrapper from "./tab-client-wrapper"; // NEW — client tab handler
 
 export const dynamic = "force-dynamic";
 
 export default async function SitePage(props: any) {
   const params = await props.params;
-  // FIX — do not expect a Promise, Next 15+ passes plain object
   const id = params?.siteid;
 
   if (!id) {
-    return (
-      <div className="p-6 text-red-600">
-        Error loading site: missing site ID.
-      </div>
-    );
+    return <div className="p-6 text-red-600">Error loading site: missing site ID.</div>;
   }
 
   const cookieStore = await cookies();
@@ -49,7 +45,7 @@ export default async function SitePage(props: any) {
   }
 
   /** ============================
-   *        WEATHER LOOKUP
+   *  WEATHER LOOKUP
    * ============================ */
   let weatherSummary = "Weather data unavailable";
 
@@ -75,9 +71,7 @@ export default async function SitePage(props: any) {
 
       if (tempC !== undefined && wind !== undefined) {
         const tempF = (tempC * 9) / 5 + 32;
-        weatherSummary = `🌤️ ${tempF.toFixed(1)}°F • Wind ${wind.toFixed(
-          1
-        )} mph`;
+        weatherSummary = `🌤️ ${tempF.toFixed(1)}°F • Wind ${wind.toFixed(1)} mph`;
       }
     }
   } catch (err) {
@@ -128,9 +122,9 @@ export default async function SitePage(props: any) {
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
+      {/* MAIN CONTENT — TABS */}
       <main className="p-6">
-        <EquipmentTable siteId={id} />
+        <TabClientWrapper siteId={id} />
       </main>
     </div>
   );
