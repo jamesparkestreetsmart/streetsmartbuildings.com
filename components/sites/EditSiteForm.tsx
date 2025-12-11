@@ -11,6 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 
+import { TIMEZONE_OPTIONS } from "@/lib/timezones"; // ✅ FIXED — correct import location
+
 interface EditSiteFormProps {
   site: any; // From server-side
 }
@@ -30,7 +32,7 @@ export default function EditSiteForm({ site }: EditSiteFormProps) {
     site_email: site.site_email ?? "",
     phone_number: site.phone_number ?? "",
     status: site.status ?? "",
-    timezone: site.timezone ?? "",
+    timezone: site.timezone ?? "America/Chicago", // ✅ Default CST
     address_line1: site.address_line1 ?? "",
     address_line2: site.address_line2 ?? "",
     city: site.city ?? "",
@@ -72,7 +74,7 @@ export default function EditSiteForm({ site }: EditSiteFormProps) {
         site_email: form.site_email.trim() || null,
         phone_number: form.phone_number.trim() || null,
         status: form.status || null,
-        timezone: form.timezone || null,
+        timezone: form.timezone || null, // ✅ Correct
         address_line1: form.address_line1 || null,
         address_line2: form.address_line2 || null,
         city: form.city || null,
@@ -193,14 +195,24 @@ export default function EditSiteForm({ site }: EditSiteFormProps) {
               </Select>
             </div>
 
+            {/* ✅ REPLACED TIMEZONE FIELD */}
             <div>
               <Label htmlFor="timezone">Timezone</Label>
-              <Input
-                id="timezone"
-                value={form.timezone}
-                onChange={handleChange("timezone")}
-                placeholder="America/Chicago"
-              />
+              <Select
+                value={form.timezone || "America/Chicago"}
+                onValueChange={handleSelectChange("timezone")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select timezone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIMEZONE_OPTIONS.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
