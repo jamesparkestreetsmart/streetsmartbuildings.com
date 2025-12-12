@@ -48,11 +48,9 @@ export default function SignupPage() {
       }
 
       setSuccessMessage("Account created. Redirecting…");
+      setTimeout(() => router.push("/live"), 800);
 
-      setTimeout(() => {
-        router.push("/live");
-      }, 800);
-    } catch (err) {
+    } catch {
       setError("Unexpected error. Please try again.");
     } finally {
       setLoading(false);
@@ -62,7 +60,7 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen bg-gradient-to-r from-green-700 to-yellow-500 flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col md:flex-row">
-        
+
         {/* Left Panel */}
         <div className="hidden md:flex md:flex-col md:justify-between bg-gradient-to-b from-green-700 to-emerald-500 text-white p-6 w-1/2">
           <div>
@@ -75,7 +73,7 @@ export default function SignupPage() {
 
         {/* Right Panel */}
         <div className="w-full md:w-1/2 p-6">
-          <h2 className="text-xl font-semibold mb-1 text-center text-gray-900">
+          <h2 className="text-xl font-semibold mb-4 text-center text-gray-900">
             Create Your Account
           </h2>
 
@@ -85,10 +83,73 @@ export default function SignupPage() {
             </div>
           )}
 
+          {successMessage && (
+            <div className="mb-3 rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">
+              {successMessage}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-3">
-            {/* name, email, password, org code, prefs */}
-            ...
+
+            <div className="flex gap-3">
+              <input
+                className="border p-2 rounded w-1/2"
+                placeholder="First Name"
+                value={form.first_name}
+                onChange={(e) => handleChange("first_name", e.target.value)}
+                required
+              />
+              <input
+                className="border p-2 rounded w-1/2"
+                placeholder="Last Name"
+                value={form.last_name}
+                onChange={(e) => handleChange("last_name", e.target.value)}
+                required
+              />
+            </div>
+
+            <input
+              className="border p-2 rounded w-full"
+              placeholder="Email"
+              value={form.email}
+              onChange={(e) => handleChange("email", e.target.value)}
+              required
+            />
+
+            <input
+              type="password"
+              className="border p-2 rounded w-full"
+              placeholder="Password"
+              value={form.password}
+              onChange={(e) => handleChange("password", e.target.value)}
+              required
+              minLength={8}
+            />
+
+            <input
+              className="border p-2 rounded w-full tracking-[0.25em] uppercase"
+              placeholder="Org Code"
+              value={form.org_code}
+              onChange={(e) => handleChange("org_code", e.target.value)}
+              maxLength={4}
+              required
+            />
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-green-700 hover:bg-green-800 text-white py-2 rounded font-semibold disabled:opacity-50"
+            >
+              {loading ? "Creating account..." : "Create Account"}
+            </button>
           </form>
+
+          <p className="text-center text-sm mt-4">
+            Already have an account?{" "}
+            <a href="/" className="text-green-700 font-semibold hover:underline">
+              Log in
+            </a>
+          </p>
         </div>
       </div>
     </div>
