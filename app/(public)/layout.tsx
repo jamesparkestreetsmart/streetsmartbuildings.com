@@ -1,12 +1,10 @@
 // app/(public)/layout.tsx
-
-import "@/app/globals.css";
+import "../globals.css"; // <-- THIS WAS MISSING
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      {/* BODY styles only provide *outer* background. The signup page has its own gradient. */}
-      <body className="min-h-screen bg-gray-50 antialiased">
+      <body className="min-h-screen bg-white">
         {children}
       </body>
     </html>

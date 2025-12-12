@@ -10,6 +10,7 @@ export default function SignupPage() {
     first_name: "",
     last_name: "",
     email: "",
+    phone_number: "",
     password: "",
     org_code: "",
     time_format: "12h",
@@ -21,7 +22,7 @@ export default function SignupPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const handleChange = (field: keyof typeof form, value: string) => {
-    setForm(prev => ({
+    setForm((prev) => ({
       ...prev,
       [field]: field === "org_code" ? value.toUpperCase() : value,
     }));
@@ -29,9 +30,9 @@ export default function SignupPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     setError(null);
     setSuccessMessage(null);
-    setLoading(true);
 
     try {
       const res = await fetch("/api/signup", {
@@ -59,21 +60,31 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-r from-green-700 to-yellow-500 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col md:flex-row">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col md:flex-row">
 
-        {/* Left Panel */}
-        <div className="hidden md:flex md:flex-col md:justify-between bg-gradient-to-b from-green-700 to-emerald-500 text-white p-6 w-1/2">
+        {/* LEFT SIDE — BRANDING */}
+        <div className="hidden md:flex flex-col justify-between bg-gradient-to-b from-green-700 to-emerald-600 text-white p-8 w-1/2">
           <div>
-            <h1 className="text-2xl font-bold mb-2">Street Smart Buildings</h1>
-            <p className="text-sm text-emerald-100">
+            <h1 className="text-3xl font-bold">Street Smart Buildings</h1>
+            <p className="mt-2 text-sm text-emerald-100">
               Remote facility management powered by Eagle Eyes.
             </p>
           </div>
+
+          <ul className="text-sm text-emerald-100 space-y-2 mt-8">
+            <li>• Predictive failures via energy signatures</li>
+            <li>• Real-time monitoring & alerts</li>
+            <li>• Multi-site QSR intelligence</li>
+          </ul>
+
+          <p className="mt-8 text-xs text-emerald-200">
+            You need <span className="font-semibold">Eagle Eyes</span> — we'll bring the ladder.
+          </p>
         </div>
 
-        {/* Right Panel */}
-        <div className="w-full md:w-1/2 p-6">
-          <h2 className="text-xl font-semibold mb-4 text-center text-gray-900">
+        {/* RIGHT SIDE — SIGNUP FORM */}
+        <div className="w-full md:w-1/2 p-8">
+          <h2 className="text-xl font-semibold text-center text-gray-900 mb-4">
             Create Your Account
           </h2>
 
@@ -89,8 +100,9 @@ export default function SignupPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-3">
+          <form onSubmit={handleSubmit} className="space-y-4">
 
+            {/* NAME ROW */}
             <div className="flex gap-3">
               <input
                 className="border p-2 rounded w-1/2"
@@ -108,14 +120,25 @@ export default function SignupPage() {
               />
             </div>
 
+            {/* EMAIL */}
             <input
               className="border p-2 rounded w-full"
               placeholder="Email"
+              type="email"
               value={form.email}
               onChange={(e) => handleChange("email", e.target.value)}
               required
             />
 
+            {/* PHONE NUMBER */}
+            <input
+              className="border p-2 rounded w-full"
+              placeholder="Phone Number (optional)"
+              value={form.phone_number}
+              onChange={(e) => handleChange("phone_number", e.target.value)}
+            />
+
+            {/* PASSWORD */}
             <input
               type="password"
               className="border p-2 rounded w-full"
@@ -126,15 +149,38 @@ export default function SignupPage() {
               minLength={8}
             />
 
+            {/* ORG CODE */}
             <input
               className="border p-2 rounded w-full tracking-[0.25em] uppercase"
-              placeholder="Org Code"
+              placeholder="4-Letter Org Code"
               value={form.org_code}
               onChange={(e) => handleChange("org_code", e.target.value)}
               maxLength={4}
               required
             />
 
+            {/* PREFERENCES ROW */}
+            <div className="flex gap-3">
+              <select
+                className="border p-2 rounded w-1/2"
+                value={form.time_format}
+                onChange={(e) => handleChange("time_format", e.target.value)}
+              >
+                <option value="12h">12-Hour Time</option>
+                <option value="24h">24-Hour Time</option>
+              </select>
+
+              <select
+                className="border p-2 rounded w-1/2"
+                value={form.units}
+                onChange={(e) => handleChange("units", e.target.value)}
+              >
+                <option value="imperial">Imperial (°F)</option>
+                <option value="metric">Metric (°C)</option>
+              </select>
+            </div>
+
+            {/* SUBMIT */}
             <button
               type="submit"
               disabled={loading}
