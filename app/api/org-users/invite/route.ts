@@ -1,133 +1,183 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+// app/api/org-users/invite/route.ts
 
-// Admin client – uses SERVICE_ROLE for server-side DB writes
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // set in Vercel / .env, NEVER exposed to client
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  }
-);
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+
+function createSupabaseServerClient() {
+  const cookieStorePromise = cookies(); // <-- NOT awaited yet
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        async get(name: string) {
+          const cookieStore = await cookieStorePromise;
+          return cookieStore.get(name)?.value;
+        },
+        async set(name: string, value: string, options: any) {
+          const cookieStore = await cookieStorePromise;
+          cookieStore.set({ name, value, ...options });
+        },
+        async remove(name: string, options: any) {
+          const cookieStore = await cookieStorePromise;
+          cookieStore.set({ name, value: "", ...options });
+        },
+      },
+    }
+  );
+}
+
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const rawEmail: string = body.email;
-    const orgId: string = body.orgId;
-    const createdBy: string | null = body.createdBy ?? null; // optional, can be current user's user_id
+    const emailRaw = body?.email;
+    const orgId = body?.orgId;
 
-    if (!rawEmail || !orgId) {
+    if (!emailRaw || !orgId) {
       return NextResponse.json(
-        { error: "Missing email or orgId" },
+        { error: "Missing email or orgId." },
         { status: 400 }
       );
     }
 
-    const email = rawEmail.trim().toLowerCase();
+    const email = String(emailRaw).trim().toLowerCase();
+    const supabase = createSupabaseServerClient();
 
-    // 1) Check if user already exists in a_users
-    const { data: existingUser, error: userError } = await supabaseAdmin
+    // 1) Load org to get org_identifier (4-letter code)
+    const { data: org, error: orgError } = await supabase
+      .from("a_organizations")
+      .select("org_id, org_identifier")
+      .eq("org_id", orgId)
+      .single();
+
+    if (orgError || !org) {
+      console.error("Org lookup error:", orgError);
+      return NextResponse.json(
+        { error: "Organization not found." },
+        { status: 400 }
+      );
+    }
+
+    if (!org.org_identifier) {
+      return NextResponse.json(
+        { error: "Organization identifier not configured." },
+        { status: 400 }
+      );
+    }
+
+    const orgIdentifier = org.org_identifier as string;
+
+    // 2) Check if user already exists in a_users
+    const { data: existingUser, error: userError } = await supabase
       .from("a_users")
       .select("*")
       .eq("email", email)
       .maybeSingle();
 
     if (userError) {
-      console.error("Error checking a_users:", userError);
+      console.error("User lookup error:", userError);
       return NextResponse.json(
-        { error: "Failed to look up user" },
+        { error: "Failed to look up user." },
         { status: 500 }
       );
     }
 
+    // 👉 Case A: Existing user → ensure membership
     if (existingUser) {
-      // 2) If they exist, create membership if it doesn't already exist
+      const userId = existingUser.user_id as string;
+
+      // Check if membership already exists
       const { data: existingMembership, error: membershipError } =
-        await supabaseAdmin
+        await supabase
           .from("library_users_org_memberships")
-          .select("membership_id")
-          .eq("user_id", existingUser.user_id)
+          .select("*")
+          .eq("user_id", userId)
           .eq("org_id", orgId)
           .maybeSingle();
 
       if (membershipError) {
-        console.error("Error checking membership:", membershipError);
+        console.error("Membership lookup error:", membershipError);
         return NextResponse.json(
-          { error: "Failed to check membership" },
+          { error: "Failed to check membership." },
           { status: 500 }
         );
       }
 
       if (existingMembership) {
-        return NextResponse.json(
-          {
-            status: "already_member",
-            message: "User is already a member of this organization.",
-          },
-          { status: 200 }
-        );
+        return NextResponse.json({
+          ok: true,
+          type: "already_member",
+          message: "User is already a member of this organization.",
+        });
       }
 
-      const { error: insertMembershipError } = await supabaseAdmin
+      // Insert membership using existing user's role/permissions or defaults
+      const role = existingUser.role ?? "member";
+      const permissions = existingUser.permissions ?? "viewer";
+
+      const { error: insertMembershipError } = await supabase
         .from("library_users_org_memberships")
         .insert({
-          user_id: existingUser.user_id,
+          user_id: userId,
           org_id: orgId,
-          role: existingUser.role ?? "user",
-          permissions: existingUser.permissions ?? "viewer",
-          status: "active",
-          created_by: createdBy,
+          role,
+          permissions,
         });
 
       if (insertMembershipError) {
-        console.error("Error inserting membership:", insertMembershipError);
+        console.error("Insert membership error:", insertMembershipError);
         return NextResponse.json(
-          { error: "Failed to add user to organization" },
+          { error: "Failed to add existing user to organization." },
           { status: 500 }
         );
       }
 
-      // TODO: send “Welcome to {Org}” email here if you want
-      return NextResponse.json(
-        {
-          status: "added_existing_user",
-          message: "Existing user added to organization.",
-        },
-        { status: 200 }
-      );
+      return NextResponse.json({
+        ok: true,
+        type: "existing_user_added",
+        message: "Existing user has been added to this organization.",
+      });
     }
 
-    // 3) If user does NOT exist -> create invite in a_org_invites
-    //    Use org defaults + your four-letter org_identifier
-
-    const { data: orgRow, error: orgError } = await supabaseAdmin
-      .from("a_organizations")
-      .select("org_identifier")
+    // 👉 Case B: New user → create/ensure invite row
+    const { data: activeInvite, error: inviteLookupError } = await supabase
+      .from("a_org_invites")
+      .select("*")
       .eq("org_id", orgId)
-      .single();
+      .eq("status", "active")
+      .eq("invite_email", email)
+      .eq("org_identifier", orgIdentifier)
+      .order("created_at", { ascending: false })
+      .maybeSingle();
 
-    if (orgError || !orgRow) {
-      console.error("Error getting organization:", orgError);
+    if (inviteLookupError) {
+      console.error("Invite lookup error:", inviteLookupError);
       return NextResponse.json(
-        { error: "Organization not found" },
+        { error: "Failed to check existing invites." },
         { status: 500 }
       );
     }
 
-    const orgIdentifier = (orgRow.org_identifier || "").toUpperCase();
+    if (activeInvite) {
+      return NextResponse.json({
+        ok: true,
+        type: "invite_exists",
+        message:
+          "An active invite already exists for this email. Ask the user to sign up with the org code.",
+      });
+    }
 
-    const { error: inviteError } = await supabaseAdmin
+    const { error: insertInviteError } = await supabase
       .from("a_org_invites")
       .insert({
         org_id: orgId,
         invite_email: email,
         email_domain: null,
         label: "Direct invite from Settings",
-        default_role: "user", // you can later make this configurable
+        default_role: "user",
         default_permissions: "viewer",
         default_time_format: "12h",
         default_units: "imperial",
@@ -136,28 +186,24 @@ export async function POST(req: Request) {
         max_uses: 1,
       });
 
-    if (inviteError) {
-      console.error("Error creating invite:", inviteError);
+    if (insertInviteError) {
+      console.error("Insert invite error:", insertInviteError);
       return NextResponse.json(
-        { error: "Failed to create invite" },
+        { error: "Failed to create invite." },
         { status: 500 }
       );
     }
 
-    // TODO: send “You’ve been invited to {Org} – sign up at streetsmartbuildings.com/signup” email
-
-    return NextResponse.json(
-      {
-        status: "invite_created",
-        message:
-          "Invite created. When this email signs up with the correct org code, they’ll be onboarded automatically.",
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      ok: true,
+      type: "invite_created",
+      message:
+        "Invite created. Ask the user to sign up using their email and org code.",
+    });
   } catch (err) {
-    console.error("Unexpected error in /api/org-users/invite:", err);
+    console.error("Unhandled invite error:", err);
     return NextResponse.json(
-      { error: "Unexpected server error" },
+      { error: "Unexpected server error." },
       { status: 500 }
     );
   }

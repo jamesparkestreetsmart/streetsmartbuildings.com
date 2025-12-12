@@ -1,117 +1,78 @@
+// app/api/signup/route.ts
+
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
-interface SignupRequestBody {
-  first_name: string;
-  last_name: string;
-  email: string;
-  password: string;
-  org_code: string;
-  time_format: "12h" | "24h";
-  units: "imperial" | "metric";
+function createSupabaseServerClient() {
+  const cookieStorePromise = cookies(); // <-- NOT awaited yet
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        async get(name: string) {
+          const cookieStore = await cookieStorePromise;
+          return cookieStore.get(name)?.value;
+        },
+        async set(name: string, value: string, options: any) {
+          const cookieStore = await cookieStorePromise;
+          cookieStore.set({ name, value, ...options });
+        },
+        async remove(name: string, options: any) {
+          const cookieStore = await cookieStorePromise;
+          cookieStore.set({ name, value: "", ...options });
+        },
+      },
+    }
+  );
 }
 
-interface OrgInvite {
-  invite_id: string;
-  org_id: string;
-  invite_email: string | null;
-  email_domain: string | null;
-  label: string | null;
-  default_role: string | null;
-  default_permissions: string | null;
-  default_time_format: string | null;
-  default_units: string | null;
-  org_identifier: string;
-  status: "active" | "inactive";
-  max_uses: number | null;
-  used_count: number;
-  created_at: string;
-  expires_at: string | null;
-}
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as SignupRequestBody;
+    const body = await req.json();
 
-    const {
-      first_name,
-      last_name,
-      email,
-      password,
-      org_code,
-      time_format,
-      units,
-    } = body;
+    const first_name = String(body?.first_name ?? "").trim();
+    const last_name = String(body?.last_name ?? "").trim();
+    const emailRaw = String(body?.email ?? "");
+    const password = String(body?.password ?? "");
+    const orgCodeRaw = String(body?.org_code ?? "");
+    const time_format = String(body?.time_format ?? "12h");
+    const units = String(body?.units ?? "imperial");
 
-    // Basic validation
-    if (
-      !first_name?.trim() ||
-      !last_name?.trim() ||
-      !email?.trim() ||
-      !password?.trim() ||
-      !org_code?.trim()
-    ) {
+    const email = emailRaw.trim().toLowerCase();
+    const orgCode = orgCodeRaw.trim().toUpperCase();
+
+    if (!first_name || !last_name || !email || !password || !orgCode) {
       return NextResponse.json(
-        { error: "All fields are required." },
+        { error: "Missing required fields." },
         { status: 400 }
       );
     }
 
-    const emailLower = email.trim().toLowerCase();
-    const orgCodeUpper = org_code.trim().toUpperCase();
-    const emailDomain = emailLower.split("@")[1];
-
-    const cookieStore = await cookies();
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-        },
-      }
-    );
-
-    // 1) Make sure this email is not already a user
-    const { data: existingUser, error: existingUserError } = await supabase
-      .from("a_users")
-      .select("user_id")
-      .eq("email", emailLower)
-      .maybeSingle();
-
-    if (existingUserError) {
-      console.error("Error checking existing user:", existingUserError);
+    if (password.length < 8) {
       return NextResponse.json(
-        { error: "Server error checking existing users." },
-        { status: 500 }
-      );
-    }
-
-    if (existingUser) {
-      return NextResponse.json(
-        {
-          error:
-            "This email already has an account. Please log in instead of signing up.",
-        },
+        { error: "Password must be at least 8 characters." },
         { status: 400 }
       );
     }
 
-    // 2) Look up active org_invites that match org_identifier
-    const { data: invites, error: invitesError } = await supabase
+    const supabase = createSupabaseServerClient();
+
+    // 1) Validate invite: must be active and match email + org code
+    const { data: invites, error: inviteError } = await supabase
       .from("a_org_invites")
       .select("*")
       .eq("status", "active")
-      .eq("org_identifier", orgCodeUpper);
+      .eq("org_identifier", orgCode)
+      .eq("invite_email", email);
 
-    if (invitesError) {
-      console.error("Error fetching org invites:", invitesError);
+    if (inviteError) {
+      console.error("Invite lookup error:", inviteError);
       return NextResponse.json(
-        { error: "Server error looking up organization invites." },
+        { error: "Failed to validate invite." },
         { status: 500 }
       );
     }
@@ -120,142 +81,110 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "No active enrollment found for this organization code. Please contact your program lead.",
+            "No active invite found for this email and organization code. Please contact your project lead.",
         },
         { status: 400 }
       );
     }
 
-    // 3) Filter invites by email / domain match
-    const matchingInvites = (invites as OrgInvite[]).filter((inv) => {
-      // Specific email match
-      if (inv.invite_email) {
-        if (inv.invite_email.toLowerCase() === emailLower) {
-          return true;
-        }
-      }
-
-      // Domain match
-      if (inv.email_domain && emailDomain) {
-        if (emailDomain.toLowerCase() === inv.email_domain.toLowerCase()) {
-          return true;
-        }
-      }
-
-      return false;
-    });
-
-    if (!matchingInvites.length) {
-      return NextResponse.json(
-        {
-          error:
-            "This email is not registered for this organization's enrollment. Please check your email and org code.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // 4) Pick most recent matching invite
-    const validInvite = matchingInvites.sort(
-      (a, b) =>
+    // Use most recent invite if multiple
+    const invite = invites.sort(
+      (a: any, b: any) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )[0];
 
-    // Optional: if max_uses is set, enforce it
-    if (
-      validInvite.max_uses !== null &&
-      validInvite.used_count >= validInvite.max_uses
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "This enrollment link has reached its maximum number of signups. Please contact your program lead.",
-        },
-        { status: 400 }
-      );
-    }
+    const orgId = invite.org_id as string;
+    const defaultRole = invite.default_role ?? "user";
+    const defaultPermissions = invite.default_permissions ?? "viewer";
+    const defaultTimeFormat = time_format || invite.default_time_format || "12h";
+    const defaultUnits = units || invite.default_units || "imperial";
 
-    // Optional: if expires_at is set, enforce that too
-    if (validInvite.expires_at) {
-      const now = new Date();
-      const expiresAt = new Date(validInvite.expires_at);
-      if (now > expiresAt) {
-        return NextResponse.json(
-          {
-            error:
-              "This enrollment period has expired. Please contact your program lead.",
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // 5) Create Supabase Auth user
+    // 2) Create Supabase Auth user
     const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: emailLower,
+      email,
       password,
     });
 
-    if (authError || !authData.user) {
-      console.error("Supabase Auth signUp error:", authError);
+    if (authError || !authData?.user) {
+      console.error("Auth signUp error:", authError);
       return NextResponse.json(
-        { error: "Unable to create account. Please try again." },
+        { error: "Unable to create account. Email may already be in use." },
         { status: 400 }
       );
     }
 
-    const authUserId = authData.user.id;
+    const authUserId = authData.user.id as string;
 
-    // 6) Insert into a_users
-    const { error: userInsertError } = await supabase.from("a_users").insert({
-      user_id: authUserId,
-      org_id: validInvite.org_id,
-      first_name: first_name.trim(),
-      last_name: last_name.trim(),
-      email: emailLower,
-      phone_number: null,
-      role: validInvite.default_role ?? "user",
-      permissions: validInvite.default_permissions ?? "viewer",
-      status: "active",
-      time_format,
-      units,
-      last_activity_at: null,
-      created_at: new Date().toISOString(),
-    });
+    // 3) Insert into a_users
+    const { error: userInsertError } = await supabase
+      .from("a_users")
+      .insert({
+        user_id: authUserId,
+        org_id: orgId,
+        first_name,
+        last_name,
+        email,
+        phone_number: null,
+        role: defaultRole,
+        permissions: defaultPermissions,
+        status: "active",
+        last_activity_at: new Date().toISOString(),
+        time_format: defaultTimeFormat,
+        units: defaultUnits,
+      });
 
     if (userInsertError) {
-      console.error("Error inserting into a_users:", userInsertError);
+      console.error("a_users insert error:", userInsertError);
       return NextResponse.json(
-        { error: "Account created in auth but failed to save profile." },
+        { error: "Failed to save user profile." },
         { status: 500 }
       );
     }
 
-    // 7) Update invite used_count (but keep status = 'active' unless you choose otherwise)
-    const newUsedCount = validInvite.used_count + 1;
-    const updates: Partial<OrgInvite> = {
-      used_count: newUsedCount,
-    };
+    // 4) Insert into library_users_org_memberships
+    const { error: membershipError } = await supabase
+      .from("library_users_org_memberships")
+      .insert({
+        user_id: authUserId,
+        org_id: orgId,
+        role: defaultRole,
+        permissions: defaultPermissions,
+      });
 
-    if (
-      validInvite.max_uses !== null &&
-      newUsedCount >= validInvite.max_uses
-    ) {
-      // If you've configured max_uses, we can auto-close enrollment
-      updates.status = "inactive" as any;
+    if (membershipError) {
+      console.error("Membership insert error:", membershipError);
+      // Not fatal to login, but we surface it so you can fix quickly
+      return NextResponse.json(
+        { error: "Account created, but failed to link organization." },
+        { status: 500 }
+      );
+    }
+
+    // 5) Update invite usage
+    const newUsedCount = (invite.used_count ?? 0) + 1;
+    let newStatus = invite.status;
+    if (invite.max_uses && newUsedCount >= invite.max_uses) {
+      newStatus = "inactive";
     }
 
     await supabase
       .from("a_org_invites")
-      .update(updates)
-      .eq("invite_id", validInvite.invite_id);
+      .update({
+        used_count: newUsedCount,
+        status: newStatus,
+      })
+      .eq("invite_id", invite.invite_id);
 
-    // 8) Done
-    return NextResponse.json({ success: true });
+    // At this point, Supabase has set the auth cookie for this user.
+    // The frontend will redirect them to /live.
+    return NextResponse.json({
+      success: true,
+      redirectTo: "/live",
+    });
   } catch (err) {
-    console.error("Unexpected signup error:", err);
+    console.error("Unhandled signup error:", err);
     return NextResponse.json(
-      { error: "Unexpected server error. Please try again." },
+      { error: "Unexpected server error." },
       { status: 500 }
     );
   }
