@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
 export async function POST(req: Request) {
   try {
@@ -9,36 +10,73 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const supabase = createClient(
+    /**
+     * 1️⃣ Cookies MUST be awaited in App Router
+     */
+    const cookieStore = await cookies();
+
+    /**
+     * 2️⃣ User-scoped client (auth only)
+     */
+    const supabaseUser = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+        },
+      }
     );
 
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseUser.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = user.id;
+
+    /**
+     * 3️⃣ Service-role client (writes only)
+     * NOTE: options object is REQUIRED
+     */
+    const supabaseAdmin = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get() {
+            return undefined;
+          },
+        },
+      }
+    );
+
+    /**
+     * 4️⃣ Update store hours
+     * Trigger handles change log
+     */
     for (const row of rows) {
-      // Update canonical table
-      const { error: updateError } = await supabase
+      const { error } = await supabaseAdmin
         .from("b_store_hours")
         .update({
-          is_closed: row.is_closed,
           open_time: row.open_time,
           close_time: row.close_time,
+          is_closed: row.is_closed,
+          last_updated_by: userId,
+          last_updated_at: new Date(),
         })
         .eq("store_hours_id", row.store_hours_id);
 
-      if (updateError) throw updateError;
-
-      // Audit log (this is what RLS was blocking before)
-      const { error: logError } = await supabase
-        .from("b_store_hours_change_log")
-        .insert({
-          site_id,
-          day_of_week: row.day_of_week,
-          open_time: row.open_time,
-          close_time: row.close_time,
-          is_closed: row.is_closed,
-        });
-
-      if (logError) throw logError;
+      if (error) {
+        console.error("Store hours update failed:", error);
+        throw error;
+      }
     }
 
     return NextResponse.json({ success: true });
