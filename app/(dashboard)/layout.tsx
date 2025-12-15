@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Sidebar from "@/components/Sidebar";
 import ActivityTracker from "@/components/activitytracker";
 import { getCurrentUserId } from "@/lib/auth";
+import LogoutButton from "@/components/LogoutButton"; // <-- NEW
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,9 +34,22 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-100 text-gray-900`}
       >
         {userId && <ActivityTracker userId={userId} />}
+
         <div className="flex h-screen w-screen overflow-hidden">
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto p-4">{children}</main>
+          {/* LEFT SIDEBAR AREA */}
+          <div className="flex flex-col h-full">
+            <Sidebar />
+
+            {/* Logout Button (client component) */}
+            <div className="p-4">
+              <LogoutButton />
+            </div>
+          </div>
+
+          {/* MAIN VIEW */}
+          <main className="flex-1 overflow-y-auto p-4">
+            {children}
+          </main>
         </div>
       </body>
     </html>
