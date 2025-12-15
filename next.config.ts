@@ -1,18 +1,14 @@
-import type { NextConfig } from "next"
-import dotenv from "dotenv"
+import type { NextConfig } from "next";
+import dotenv from "dotenv";
 
 // ✅ Explicitly load .env.local
-dotenv.config({ path: ".env.local" })
+dotenv.config({ path: ".env.local" });
 
-console.log("🔍 Loaded env from .env.local")
-console.log("URL:", process.env.NEXT_PUBLIC_SUPABASE_URL)
-console.log("Key present:", !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+console.log("🔍 Loaded env from .env.local");
+console.log("URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
+console.log("Key present:", !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
-const nextConfig: NextConfig = {
-  eslint: {
-    // ✅ Prevent ESLint from failing production builds
-    ignoreDuringBuilds: true,
-  },
-}
+// ✅ Removed deprecated eslint block
+const nextConfig: NextConfig = {};
 
-export default nextConfig
+export default nextConfig;
