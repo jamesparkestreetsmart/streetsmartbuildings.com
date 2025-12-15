@@ -31,24 +31,21 @@ const DAY_ORDER = [
 function sortByDayOrder(rows: StoreHoursRow[]): StoreHoursRow[] {
   return [...rows].sort(
     (a, b) =>
-      DAY_ORDER.indexOf(a.day_of_week) - DAY_ORDER.indexOf(b.day_of_week)
+      DAY_ORDER.indexOf(a.day_of_week) -
+      DAY_ORDER.indexOf(b.day_of_week)
   );
 }
 
-// Convert "HH:MM:SS" -> "HH:MM" for <input type="time">
 function toTimeInputValue(time: string | null): string {
   if (!time) return "";
   return time.slice(0, 5);
 }
 
-// Convert "HH:MM" -> "HH:MM:SS" or null
 function fromTimeInputValue(value: string): string | null {
   if (!value) return null;
-  // Postgres accepts "HH:MM", so no need to append seconds
   return value;
 }
 
-// "13:30:00" -> "1:30 PM" for display mode
 function formatDisplayTime(time: string | null): string {
   if (!time) return "—";
   const [hStr, mStr] = time.split(":");
@@ -71,7 +68,6 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
 
   const isEditing = editRows !== null;
 
-  // Initial load
   useEffect(() => {
     if (!siteId) return;
     fetchHours();
@@ -96,7 +92,6 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
     }
 
     if (!data || data.length === 0) {
-      // Auto-create 7 default rows (OPEN, no times) for safety
       const defaults = DAY_ORDER.map((d) => ({
         site_id: siteId,
         day_of_week: d,
@@ -138,10 +133,7 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
     setSuccess(null);
   }
 
-  function updateEditRow(
-    idx: number,
-    patch: Partial<StoreHoursRow>
-  ): void {
+  function updateEditRow(idx: number, patch: Partial<StoreHoursRow>) {
     setEditRows((prev) => {
       if (!prev) return prev;
       const copy = [...prev];
@@ -155,25 +147,24 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
     field: "open_time" | "close_time",
     value: string
   ) {
-    const converted = fromTimeInputValue(value);
-    updateEditRow(idx, { [field]: converted } as Partial<StoreHoursRow>);
+    updateEditRow(idx, {
+      [field]: fromTimeInputValue(value),
+    });
   }
 
   function handleClosedChange(idx: number, checked: boolean) {
     if (checked) {
-      // If closed, clear times
       updateEditRow(idx, {
         is_closed: true,
         open_time: null,
         close_time: null,
       });
     } else {
-      updateEditRow(idx, {
-        is_closed: false,
-      });
+      updateEditRow(idx, { is_closed: false });
     }
   }
 
+  // ✅ FIXED BLOCK
   async function handleSave() {
     if (!editRows) return;
 
@@ -181,13 +172,12 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
     setError(null);
     setSuccess(null);
 
-    // Client-side validation to avoid trigger errors where possible
     for (const row of editRows) {
       const closed = !!row.is_closed;
       const hasOpen = !!row.open_time;
       const hasClose = !!row.close_time;
 
-      if (!closed && (hasOpen !== hasClose)) {
+      if (!closed && hasOpen !== hasClose) {
         setError(
           `Both open and close times are required when store is open (problem on ${row.day_of_week}).`
         );
@@ -196,31 +186,34 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
       }
     }
 
-    // Persist each row
     try {
-      for (const row of editRows) {
-        const { error: updateError } = await supabase
-          .from("b_store_hours")
-          .update({
+      const res = await fetch("/api/store-hours", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId,
+          rows: editRows.map((row) => ({
+            store_hours_id: row.store_hours_id,
+            day_of_week: row.day_of_week,
             is_closed: row.is_closed ?? false,
             open_time: row.is_closed ? null : row.open_time,
             close_time: row.is_closed ? null : row.close_time,
-          })
-          .eq("store_hours_id", row.store_hours_id);
+          })),
+        }),
+      });
 
-        if (updateError) {
-          console.error("Update error:", updateError);
-          setError(
-            `Failed to save hours for ${row.day_of_week}. Please try again.`
-          );
-          setSaving(false);
-          return;
-        }
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Failed to save store hours.");
+        return;
       }
 
       setRows(sortByDayOrder(editRows));
       setEditRows(null);
       setSuccess("Store hours saved.");
+    } catch (err) {
+      console.error("Store hours save failed:", err);
+      setError("Unexpected error saving store hours.");
     } finally {
       setSaving(false);
     }
@@ -235,20 +228,15 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
 
         {isEditing ? (
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              type="button"
-              onClick={handleCancelEditing}
-              disabled={saving}
-            >
+            <Button variant="outline" onClick={handleCancelEditing} disabled={saving}>
               Cancel
             </Button>
-            <Button type="button" onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving}>
               {saving ? "Saving…" : "Save Hours"}
             </Button>
           </div>
         ) : (
-          <Button type="button" onClick={handleStartEditing} disabled={loading}>
+          <Button onClick={handleStartEditing} disabled={loading}>
             Edit Hours
           </Button>
         )}
@@ -288,56 +276,46 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
             {!loading &&
               displayedRows.map((row, idx) => {
                 const closed = !!row.is_closed;
-                const openInput = toTimeInputValue(row.open_time);
-                const closeInput = toTimeInputValue(row.close_time);
 
                 return (
                   <tr key={row.store_hours_id} className="border-t">
-                    <td className="py-2 px-3 capitalize">
-                      {row.day_of_week}
-                    </td>
-
-                    {/* OPEN TIME */}
+                    <td className="py-2 px-3 capitalize">{row.day_of_week}</td>
                     <td className="py-2 px-3">
                       {isEditing ? (
                         <input
                           type="time"
-                          className="border rounded px-2 py-1 text-sm"
-                          value={openInput}
+                          value={toTimeInputValue(row.open_time)}
                           onChange={(e) =>
                             handleTimeChange(idx, "open_time", e.target.value)
                           }
                           disabled={closed}
+                          className="border rounded px-2 py-1 text-sm"
                         />
                       ) : (
-                        <span>{formatDisplayTime(row.open_time)}</span>
+                        formatDisplayTime(row.open_time)
                       )}
                     </td>
-
-                    {/* CLOSE TIME */}
                     <td className="py-2 px-3">
                       {isEditing ? (
                         <input
                           type="time"
-                          className="border rounded px-2 py-1 text-sm"
-                          value={closeInput}
+                          value={toTimeInputValue(row.close_time)}
                           onChange={(e) =>
                             handleTimeChange(idx, "close_time", e.target.value)
                           }
                           disabled={closed}
+                          className="border rounded px-2 py-1 text-sm"
                         />
                       ) : (
-                        <span>{formatDisplayTime(row.close_time)}</span>
+                        formatDisplayTime(row.close_time)
                       )}
                     </td>
-
-                    {/* CLOSED FLAG */}
                     <td className="py-2 px-3">
                       {isEditing ? (
                         <Checkbox
                           checked={closed}
-                          onCheckedChange={(checked) =>
-                            handleClosedChange(idx, Boolean(checked))
+                          onCheckedChange={(c) =>
+                            handleClosedChange(idx, Boolean(c))
                           }
                         />
                       ) : (
@@ -347,17 +325,6 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
                   </tr>
                 );
               })}
-
-            {!loading && displayedRows.length === 0 && (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="py-4 px-3 text-center text-gray-500"
-                >
-                  No store hours configured.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
