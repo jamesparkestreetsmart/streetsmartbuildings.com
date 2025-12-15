@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
   const ip_address = req.headers.get("x-forwarded-for") ?? null;
