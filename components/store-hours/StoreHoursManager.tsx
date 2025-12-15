@@ -1,3 +1,5 @@
+// file: components/store-hours/StoreHoursManager.tsx
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -164,7 +166,9 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
     }
   }
 
-  // ✅ FIXED BLOCK
+  // -----------------------------
+  // SAVE HANDLER (UPDATED)
+  // -----------------------------
   async function handleSave() {
     if (!editRows) return;
 
@@ -172,6 +176,7 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
     setError(null);
     setSuccess(null);
 
+    // Validate rows
     for (const row of editRows) {
       const closed = !!row.is_closed;
       const hasOpen = !!row.open_time;
@@ -187,12 +192,43 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
     }
 
     try {
+      // 1️⃣ Get Supabase auth user
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !authUser) {
+        setError("You must be logged in to save store hours.");
+        setSaving(false);
+        return;
+      }
+
+      // 2️⃣ Resolve application user (a_users)
+      const { data: appUser, error: appUserError } = await supabase
+        .from("a_users")
+        .select("id")
+        // ⚠️ Adjust ONE of these based on your schema
+        // .eq("id", authUser.id)
+        .eq("auth_user_id", authUser.id)
+        .single();
+
+      if (appUserError || !appUser) {
+        setError("Application user not found.");
+        setSaving(false);
+        return;
+      }
+
+      const changed_by = appUser.id;
+
+      // 3️⃣ Send request
       const res = await fetch("/api/store-hours", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           site_id: siteId,
+          changed_by,
           rows: editRows.map((row) => ({
             store_hours_id: row.store_hours_id,
             day_of_week: row.day_of_week,
@@ -229,7 +265,11 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
 
         {isEditing ? (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleCancelEditing} disabled={saving}>
+            <Button
+              variant="outline"
+              onClick={handleCancelEditing}
+              disabled={saving}
+            >
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={saving}>
@@ -268,7 +308,10 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={4} className="py-4 px-3 text-center text-gray-500">
+                <td
+                  colSpan={4}
+                  className="py-4 px-3 text-center text-gray-500"
+                >
                   Loading store hours…
                 </td>
               </tr>
@@ -280,14 +323,20 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
 
                 return (
                   <tr key={row.store_hours_id} className="border-t">
-                    <td className="py-2 px-3 capitalize">{row.day_of_week}</td>
+                    <td className="py-2 px-3 capitalize">
+                      {row.day_of_week}
+                    </td>
                     <td className="py-2 px-3">
                       {isEditing ? (
                         <input
                           type="time"
                           value={toTimeInputValue(row.open_time)}
                           onChange={(e) =>
-                            handleTimeChange(idx, "open_time", e.target.value)
+                            handleTimeChange(
+                              idx,
+                              "open_time",
+                              e.target.value
+                            )
                           }
                           disabled={closed}
                           className="border rounded px-2 py-1 text-sm"
@@ -302,7 +351,11 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
                           type="time"
                           value={toTimeInputValue(row.close_time)}
                           onChange={(e) =>
-                            handleTimeChange(idx, "close_time", e.target.value)
+                            handleTimeChange(
+                              idx,
+                              "close_time",
+                              e.target.value
+                            )
                           }
                           disabled={closed}
                           className="border rounded px-2 py-1 text-sm"
