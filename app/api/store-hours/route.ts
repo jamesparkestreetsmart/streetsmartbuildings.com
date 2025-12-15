@@ -11,10 +11,14 @@ export async function POST(req: Request) {
 
     // TEMPORARY FALLBACKS (until frontend sends these explicitly)
     const org_id =
-      body.org_id ?? "00000000-0000-0000-0000-000000000000";
+        typeof body.org_id === "string" && body.org_id.length > 0
+        ? body.org_id
+        : "00000000-0000-0000-0000-000000000000";
 
     const changed_by =
-      body.changed_by ?? "00000000-0000-0000-0000-000000000000";
+        typeof body.changed_by === "string" && body.changed_by.length > 0
+        ? body.changed_by
+        : "00000000-0000-0000-0000-000000000000";
 
     // Only validate what the frontend actually guarantees today
     if (!site_id || !Array.isArray(rows)) {
