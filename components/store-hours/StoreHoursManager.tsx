@@ -190,6 +190,7 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
       const res = await fetch("/api/store-hours", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           site_id: siteId,
           rows: editRows.map((row) => ({
