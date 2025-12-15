@@ -204,22 +204,9 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
         return;
       }
 
-      // 2️⃣ Resolve application user (a_users)
-      const { data: appUser, error: appUserError } = await supabase
-        .from("a_users")
-        .select("id")
-        // ⚠️ Adjust ONE of these based on your schema
-        // .eq("id", authUser.id)
-        .eq("auth_user_id", authUser.id)
-        .single();
+      // 2️⃣ Resolve authentication user 
 
-      if (appUserError || !appUser) {
-        setError("Application user not found.");
-        setSaving(false);
-        return;
-      }
-
-      const changed_by = appUser.id;
+      const changed_by = authUser.id;
 
       // 3️⃣ Send request
       const res = await fetch("/api/store-hours", {
