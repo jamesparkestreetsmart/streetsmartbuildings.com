@@ -6,14 +6,18 @@ import { createServerClient } from "@supabase/ssr";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { site_id, org_id, changed_by, rows } = body;
 
-    if (
-      !site_id ||
-      !org_id ||
-      !changed_by ||
-      !Array.isArray(rows)
-    ) {
+    const { site_id, rows } = body;
+
+    // TEMPORARY FALLBACKS (until frontend sends these explicitly)
+    const org_id =
+      body.org_id ?? "00000000-0000-0000-0000-000000000000";
+
+    const changed_by =
+      body.changed_by ?? "00000000-0000-0000-0000-000000000000";
+
+    // Only validate what the frontend actually guarantees today
+    if (!site_id || !Array.isArray(rows)) {
       return NextResponse.json(
         { error: "Invalid payload" },
         { status: 400 }
@@ -22,7 +26,7 @@ export async function POST(req: Request) {
 
     /**
      * Server-authoritative Supabase client
-     * Cookies intentionally disabled
+     * Uses service role, no cookies, no auth session
      */
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,6 +48,10 @@ export async function POST(req: Request) {
         close_time,
         is_closed,
       } = row;
+
+      if (!store_hours_id || !day_of_week) {
+        throw new Error("Invalid row payload");
+      }
 
       /**
        * Fetch existing row for diffing
@@ -76,7 +84,7 @@ export async function POST(req: Request) {
       }
 
       /**
-       * Audit log
+       * Audit log (source of truth)
        */
       await supabase.from("b_store_hours_change_log").insert({
         store_hours_id,
