@@ -11,13 +11,13 @@ export async function POST(req: Request) {
 
     // TEMPORARY FALLBACKS (until frontend sends these explicitly)
     const org_id =
-        typeof body.org_id === "string" && body.org_id.length > 0
-        ? body.org_id
+      typeof body.org_id === "string" && body.org_id.trim().length > 0
+        ? body.org_id.trim()
         : "00000000-0000-0000-0000-000000000000";
 
     const changed_by =
-        typeof body.changed_by === "string" && body.changed_by.length > 0
-        ? body.changed_by
+      typeof body.changed_by === "string" && body.changed_by.trim().length > 0
+        ? body.changed_by.trim()
         : "00000000-0000-0000-0000-000000000000";
 
     // Only validate what the frontend actually guarantees today
@@ -71,7 +71,20 @@ export async function POST(req: Request) {
       }
 
       /**
-       * Update canonical table
+       * Detect real change
+       */
+      const hasChange =
+        existing.open_time !== open_time ||
+        existing.close_time !== close_time ||
+        existing.is_closed !== is_closed;
+
+      // ✅ Skip unchanged rows (no update, no audit log)
+      if (!hasChange) {
+        continue;
+      }
+
+      /**
+       * Update canonical table (only when changed)
        */
       const { error: updateError } = await supabase
         .from("b_store_hours")
@@ -88,7 +101,7 @@ export async function POST(req: Request) {
       }
 
       /**
-       * Audit log (source of truth)
+       * Audit log (source of truth — only for changed rows)
        */
       await supabase.from("b_store_hours_change_log").insert({
         store_hours_id,
