@@ -204,7 +204,7 @@ export default function StoreHoursManager({ siteId }: StoreHoursManagerProps) {
         return;
       }
 
-      // 2️⃣ Resolve authentication user 
+      // 2️⃣ Attribution (cannonical user id)
 
       const changed_by = authUser.id;
 
