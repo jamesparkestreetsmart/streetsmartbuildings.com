@@ -4,24 +4,19 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function POST(req: Request) {
-  try {
+    console.log("Store hours API version: 2025-12-16-org-fix")
+    try {
     const body = await req.json();
+    const { site_id, changed_by, rows } = body;
 
-    const { site_id, rows } = body;
-
-    // TEMPORARY FALLBACKS (until frontend sends these explicitly)
-    const org_id =
-      typeof body.org_id === "string" && body.org_id.trim().length > 0
-        ? body.org_id.trim()
-        : "00000000-0000-0000-0000-000000000000";
-
-    const changed_by =
-      typeof body.changed_by === "string" && body.changed_by.trim().length > 0
-        ? body.changed_by.trim()
-        : "00000000-0000-0000-0000-000000000000";
-
-    // Only validate what the frontend actually guarantees today
-    if (!site_id || !Array.isArray(rows)) {
+    // -------------------------------
+    // Basic payload validation
+    // -------------------------------
+    if (
+      typeof site_id !== "string" ||
+      typeof changed_by !== "string" ||
+      !Array.isArray(rows)
+    ) {
       return NextResponse.json(
         { error: "Invalid payload" },
         { status: 400 }
@@ -44,6 +39,52 @@ export async function POST(req: Request) {
       }
     );
 
+    // -------------------------------
+    // Derive org_id from site (trusted)
+    // -------------------------------
+    const { data: site, error: siteError } = await supabase
+      .from("a_sites")
+      .select("org_id")
+      .eq("site_id", site_id)
+      .single();
+
+    if (siteError || !site) {
+      return NextResponse.json(
+        { error: "Unable to resolve org for site" },
+        { status: 400 }
+      );
+    }
+
+    const org_id = site.org_id;
+
+    // -------------------------------
+    // Enforce org membership / permission
+    // -------------------------------
+    const { data: membership } = await supabase
+      .from("library_users_org_memberships")
+      .select("role")
+      .eq("user_id", changed_by)
+      .eq("org_id", org_id)
+      .single();
+
+    if (!membership) {
+      return NextResponse.json(
+        { error: "Forbidden" },
+        { status: 403 }
+      );
+    }
+
+    // Optional: tighten roles later
+    // if (!["admin", "editor"].includes(membership.role)) {
+    //   return NextResponse.json(
+    //     { error: "Insufficient permissions" },
+    //     { status: 403 }
+    //   );
+    // }
+
+    // -------------------------------
+    // Process store hours updates
+    // -------------------------------
     for (const row of rows) {
       const {
         store_hours_id,
@@ -78,13 +119,13 @@ export async function POST(req: Request) {
         existing.close_time !== close_time ||
         existing.is_closed !== is_closed;
 
-      // ✅ Skip unchanged rows (no update, no audit log)
+      // Skip unchanged rows
       if (!hasChange) {
         continue;
       }
 
       /**
-       * Update canonical table (only when changed)
+       * Update canonical table
        */
       const { error: updateError } = await supabase
         .from("b_store_hours")
@@ -101,7 +142,7 @@ export async function POST(req: Request) {
       }
 
       /**
-       * Audit log (source of truth — only for changed rows)
+       * Audit log (source of truth)
        */
       await supabase.from("b_store_hours_change_log").insert({
         store_hours_id,
@@ -119,7 +160,7 @@ export async function POST(req: Request) {
         is_closed_new: is_closed,
 
         action: "update",
-        changed_by,
+        changed_by, // a_users.id
       });
     }
 
