@@ -1,11 +1,11 @@
-// file: app/api/store-hours/exceptions/route.ts
+// file: app/api/store-hours/exceptions.ts
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-/* -----------------------------
-   Date helpers
------------------------------ */
+/* ======================================================
+   Types
+====================================================== */
 
 type Weekday =
   | "sunday"
@@ -26,90 +26,150 @@ const WEEKDAY_INDEX: Record<Weekday, number> = {
   saturday: 6,
 };
 
-/**
- * Recurrence rule shapes
- */
-type FixedDateRule = {
-  month: number;
-  day: number;
-};
-
-type NthWeekdayRule = {
-  month: number;
-  weekday: Weekday;
-  occurrence: number;
-};
-
-type LastWeekdayRule = {
-  month: number;
-  weekday: Weekday;
-};
-
 type RecurrenceRule =
-  | FixedDateRule
-  | NthWeekdayRule
-  | LastWeekdayRule;
-
-type RecurrenceType =
-  | "fixed_date"
-  | "nth_weekday_of_month"
-  | "last_weekday_of_month";
-
-function resolveExceptionDate(
-  recurrenceType: RecurrenceType,
-  rule: RecurrenceRule,
-  year: number
-): Date {
-  if (recurrenceType === "fixed_date") {
-    if (!("day" in rule)) {
-      throw new Error("Invalid fixed_date rule");
+  | {
+      month: number;
+      day: number;
     }
-    return new Date(year, rule.month - 1, rule.day);
+  | {
+      month: number;
+      weekday: Weekday;
+      occurrence: number;
+    }
+  | {
+      interval_months: number;
+      anchor_date: string; // YYYY-MM-DD
+    };
+
+type ExceptionOccurrence = {
+  exception_id: string;
+  name: string;
+  resolved_date: string;
+  day_of_week: string;
+
+  open_time: string | null;
+  close_time: string | null;
+  is_closed: boolean;
+
+  source_rule: {
+    is_recurring: boolean;
+    recurrence_rule: RecurrenceRule | null;
+    effective_from_date: string;
+  };
+
+  ui_state: {
+    is_past: boolean;
+    is_editable: boolean;
+    requires_forward_only_edit: boolean;
+  };
+};
+
+/* ======================================================
+   Date helpers
+====================================================== */
+
+function nthWeekdayOfMonth(
+  year: number,
+  month: number,
+  weekday: Weekday,
+  occurrence: number
+): Date | null {
+  const target = WEEKDAY_INDEX[weekday];
+  let count = 0;
+
+  for (let d = 1; d <= 31; d++) {
+    const date = new Date(year, month - 1, d);
+    if (date.getMonth() !== month - 1) break;
+
+    if (date.getDay() === target) {
+      count++;
+      if (count === occurrence) return date;
+    }
   }
 
-  if (recurrenceType === "nth_weekday_of_month") {
-    if (!("weekday" in rule) || !("occurrence" in rule)) {
-      throw new Error("Invalid nth_weekday_of_month rule");
-    }
-
-    const target = WEEKDAY_INDEX[rule.weekday];
-    let count = 0;
-
-    for (let d = 1; d <= 31; d++) {
-      const date = new Date(year, rule.month - 1, d);
-      if (date.getMonth() !== rule.month - 1) break;
-
-      if (date.getDay() === target) {
-        count++;
-        if (count === rule.occurrence) return date;
-      }
-    }
-  }
-
-  if (recurrenceType === "last_weekday_of_month") {
-    if (!("weekday" in rule)) {
-      throw new Error("Invalid last_weekday_of_month rule");
-    }
-
-    const target = WEEKDAY_INDEX[rule.weekday];
-    let last: Date | null = null;
-
-    for (let d = 1; d <= 31; d++) {
-      const date = new Date(year, rule.month - 1, d);
-      if (date.getMonth() !== rule.month - 1) break;
-
-      if (date.getDay() === target) last = date;
-    }
-
-    if (last) return last;
-  }
-
-  throw new Error("Unable to resolve exception date");
+  return null;
 }
 
-/* -----------------------------
+function expandExceptionIntoOccurrences(
+  ex: any,
+  year: number
+): Date[] {
+  // -----------------------------------
+  // One-time exception
+  // -----------------------------------
+  if (!ex.is_recurring) {
+    const d = new Date(ex.exception_date);
+    return d.getFullYear() === year ? [d] : [];
+  }
+
+  // -----------------------------------
+  // Recurring (backward-compatible yearly)
+  // -----------------------------------
+  if (!ex.recurrence_rule) {
+    const base = new Date(ex.exception_date);
+    return [new Date(year, base.getMonth(), base.getDate())];
+  }
+
+  const rule = ex.recurrence_rule as RecurrenceRule;
+
+  // -----------------------------------
+  // Interval-based recurrence
+  // -----------------------------------
+  if (
+    "interval_months" in rule &&
+    "anchor_date" in rule
+  ) {
+    const results: Date[] = [];
+    let current = new Date(rule.anchor_date);
+
+    // Move forward until we reach target year
+    while (current.getFullYear() < year) {
+      current.setMonth(
+        current.getMonth() + rule.interval_months
+      );
+    }
+
+    // Collect all occurrences in the year
+    while (current.getFullYear() === year) {
+      results.push(new Date(current));
+      current.setMonth(
+        current.getMonth() + rule.interval_months
+      );
+    }
+
+    return results;
+  }
+
+  // -----------------------------------
+  // Yearly fixed date
+  // -----------------------------------
+  if ("month" in rule && "day" in rule) {
+    return [new Date(year, rule.month - 1, rule.day)];
+  }
+
+  // -----------------------------------
+  // Yearly nth weekday (Thanksgiving)
+  // -----------------------------------
+  if (
+    "month" in rule &&
+    "weekday" in rule &&
+    "occurrence" in rule
+  ) {
+    const d = nthWeekdayOfMonth(
+      year,
+      rule.month,
+      rule.weekday,
+      rule.occurrence
+    );
+    return d ? [d] : [];
+  }
+
+  return [];
+}
+
+/* ======================================================
    GET handler
------------------------------ */
+====================================================== */
 
 export async function GET(req: NextRequest) {
   try {
@@ -127,89 +187,67 @@ export async function GET(req: NextRequest) {
       { cookies: { get: () => undefined } }
     );
 
-    const { data: site } = await supabase
-      .from("a_sites")
-      .select("org_id")
-      .eq("site_id", site_id)
-      .single();
-
-    if (!site) {
-      return NextResponse.json(
-        { error: "Site not found" },
-        { status: 404 }
-      );
-    }
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const currentYear = today.getFullYear();
-    const lastYear = currentYear - 1;
-
     const { data: exceptions } = await supabase
       .from("b_store_hours_exceptions")
       .select("*")
       .eq("site_id", site_id);
 
-    function project(year: number) {
+    const today = new Date();
+    const todayMidnight = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+
+    const currentYear = today.getFullYear();
+    const lastYear = currentYear - 1;
+
+    function project(year: number): ExceptionOccurrence[] {
       return (exceptions ?? [])
-        .map((ex) => {
-          let resolvedDate: Date | null = null;
+        .flatMap((ex) => {
+          const dates = expandExceptionIntoOccurrences(ex, year);
 
-          if (ex.is_recurring) {
-            resolvedDate = resolveExceptionDate(
-              ex.recurrence_type as RecurrenceType,
-              ex.recurrence_rule as RecurrenceRule,
-              year
-            );
-          } else {
-            const d = new Date(ex.exception_date);
-            if (d.getFullYear() !== year) return null;
-            resolvedDate = d;
-          }
+          return dates
+            .filter((date) => {
+              return (
+                date >= new Date(ex.effective_from_date)
+              );
+            })
+            .map((date) => {
+              const isPast = date < todayMidnight;
 
-          // 🔐 REQUIRED NARROWING
-          if (!resolvedDate) return null;
+              return {
+                exception_id: ex.exception_id,
+                name: ex.name,
+                resolved_date: date
+                  .toISOString()
+                  .slice(0, 10),
+                day_of_week: date.toLocaleDateString(
+                  "en-US",
+                  { weekday: "long" }
+                ),
 
-          // 🔑 Forward-only rule enforcement
-          if (resolvedDate < new Date(ex.effective_from_date)) {
-            return null;
-          }
+                open_time: ex.open_time,
+                close_time: ex.close_time,
+                is_closed: ex.is_closed,
 
-          const isPast = resolvedDate < today;
+                source_rule: {
+                  is_recurring: ex.is_recurring,
+                  recurrence_rule: ex.recurrence_rule,
+                  effective_from_date:
+                    ex.effective_from_date,
+                },
 
-          return {
-            exception_id: ex.exception_id,
-            name: ex.name,
-            resolved_date: resolvedDate.toISOString().slice(0, 10),
-            day_of_week: resolvedDate.toLocaleDateString("en-US", {
-              weekday: "long",
-            }),
-
-            status: ex.is_closed ? "closed" : "special_hours",
-            open_time: ex.open_time,
-            close_time: ex.close_time,
-
-            is_recurring: ex.is_recurring,
-            recurrence_type: ex.recurrence_type ?? null,
-            source_year: year,
-
-            ui_state: {
-              is_past: isPast,
-              is_editable: !isPast,
-              is_deletable: !isPast && !ex.is_recurring,
-              requires_forward_only_edit: !isPast && ex.is_recurring,
-            },
-          };
-        })
-        .filter(Boolean);
+                ui_state: {
+                  is_past: isPast,
+                  is_editable: !isPast,
+                  requires_forward_only_edit:
+                    ex.is_recurring && !isPast,
+                },
+              };
+            });
+        });
     }
-
-    const { data: changeLog } = await supabase
-      .from("b_store_hours_change_log")
-      .select("log_id, changed_at, action, changed_by")
-      .eq("site_id", site_id)
-      .order("changed_at", { ascending: false })
-      .limit(20);
 
     return NextResponse.json({
       meta: {
@@ -223,10 +261,6 @@ export async function GET(req: NextRequest) {
       last_year: {
         year: lastYear,
         exceptions: project(lastYear),
-      },
-      change_log: {
-        limit: 20,
-        rows: changeLog ?? [],
       },
     });
   } catch (err: any) {
