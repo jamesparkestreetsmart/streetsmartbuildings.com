@@ -9,15 +9,25 @@ export function useStoreHoursExceptions(siteId: string) {
     if (!siteId) return;
 
     setLoading(true);
+    setError(null); // ✅ clear stale errors
 
     fetch(`/api/store-hours/exceptions?site_id=${siteId}`)
       .then((res) => {
-        if (!res.ok) throw new Error("Failed to load store hours exceptions");
+        if (!res.ok) {
+          throw new Error("Failed to load store hours exceptions");
+        }
         return res.json();
       })
-      .then(setData)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .then((json) => {
+        setData(json);
+      })
+      .catch((err) => {
+        console.error("Exception load error:", err);
+        setError(err.message);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [siteId]);
 
   return { data, loading, error };
