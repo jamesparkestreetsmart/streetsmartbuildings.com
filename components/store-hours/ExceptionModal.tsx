@@ -55,8 +55,16 @@ const HOLIDAY_PRESETS: HolidayPreset[] = [
     rule: { type: "fixed_date", month: 12, day: 25 },
   },
   {
+    label: "Christmas Eve (Dec 24)",
+    rule: { type: "fixed_date", month: 12, day: 24 },
+  },
+  {
     label: "New Year’s Day (Jan 1)",
     rule: { type: "fixed_date", month: 1, day: 1 },
+  },
+  {
+    label: "New Year’s Eve (Dec 31)",
+    rule: { type: "fixed_date", month: 12, day: 31 },
   },
   {
     label: "Independence Day (July 4)",
@@ -71,6 +79,7 @@ const HOLIDAY_PRESETS: HolidayPreset[] = [
     rule: { type: "nth_weekday", month: 9, weekday: "monday", nth: 1 },
   },
 ];
+
 
 /* ------------------------------
    Component
