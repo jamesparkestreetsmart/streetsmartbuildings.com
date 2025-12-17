@@ -27,24 +27,21 @@ const WEEKDAY_INDEX: Record<Weekday, number> = {
 type RecurrenceRule =
   | { month: number; day: number }
   | { month: number; weekday: Weekday; occurrence: number }
-  | { interval_months: number; anchor_date: string }; // YYYY-MM-DD
+  | { interval_months: number; anchor_date: string };
 
 type ExceptionOccurrence = {
   exception_id: string;
   name: string;
   resolved_date: string;
   day_of_week: string;
-
   open_time: string | null;
   close_time: string | null;
   is_closed: boolean;
-
   source_rule: {
     is_recurring: boolean;
     recurrence_rule: RecurrenceRule | null;
     effective_from_date: string;
   };
-
   ui_state: {
     is_past: boolean;
     is_editable: boolean;
@@ -68,7 +65,6 @@ function nthWeekdayOfMonth(
   for (let d = 1; d <= 31; d++) {
     const date = new Date(year, month - 1, d);
     if (date.getMonth() !== month - 1) break;
-
     if (date.getDay() === target) {
       count++;
       if (count === occurrence) return date;
@@ -78,13 +74,11 @@ function nthWeekdayOfMonth(
 }
 
 function expandExceptionIntoOccurrences(ex: any, year: number): Date[] {
-  // One-time exception
   if (!ex.is_recurring) {
     const d = new Date(ex.exception_date);
     return d.getFullYear() === year ? [d] : [];
   }
 
-  // Backward-compatible yearly fixed date
   if (!ex.recurrence_rule) {
     const base = new Date(ex.exception_date);
     return [new Date(year, base.getMonth(), base.getDate())];
@@ -92,7 +86,6 @@ function expandExceptionIntoOccurrences(ex: any, year: number): Date[] {
 
   const rule = ex.recurrence_rule as RecurrenceRule;
 
-  // Interval-based recurrence
   if ("interval_months" in rule) {
     const results: Date[] = [];
     let current = new Date(rule.anchor_date);
@@ -109,12 +102,10 @@ function expandExceptionIntoOccurrences(ex: any, year: number): Date[] {
     return results;
   }
 
-  // Fixed yearly date
   if ("day" in rule) {
     return [new Date(year, rule.month - 1, rule.day)];
   }
 
-  // Nth weekday (Thanksgiving-style)
   if ("weekday" in rule) {
     const d = nthWeekdayOfMonth(
       year,
@@ -126,6 +117,24 @@ function expandExceptionIntoOccurrences(ex: any, year: number): Date[] {
   }
 
   return [];
+}
+
+/* ======================================================
+   OPTIONS — REQUIRED FOR BROWSER POST (FIXES 405)
+====================================================== */
+
+export async function OPTIONS() {
+  return NextResponse.json(
+    {},
+    {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+    }
+  );
 }
 
 /* ======================================================
@@ -165,12 +174,9 @@ export async function GET(req: NextRequest) {
     const project = (year: number): ExceptionOccurrence[] =>
       (exceptions ?? []).flatMap((ex) =>
         expandExceptionIntoOccurrences(ex, year)
-          .filter(
-            (d) => d >= new Date(ex.effective_from_date)
-          )
+          .filter((d) => d >= new Date(ex.effective_from_date))
           .map((date) => {
             const isPast = date < todayMidnight;
-
             return {
               exception_id: ex.exception_id,
               name: ex.name,
@@ -189,25 +195,87 @@ export async function GET(req: NextRequest) {
               ui_state: {
                 is_past: isPast,
                 is_editable: !isPast,
-                requires_forward_only_edit:
-                  ex.is_recurring && !isPast,
+                requires_forward_only_edit: ex.is_recurring && !isPast,
               },
             };
           })
       );
 
     return NextResponse.json({
-      this_year: {
-        year: currentYear,
-        exceptions: project(currentYear),
-      },
-      last_year: {
-        year: lastYear,
-        exceptions: project(lastYear),
-      },
+      this_year: { year: currentYear, exceptions: project(currentYear) },
+      last_year: { year: lastYear, exceptions: project(lastYear) },
     });
   } catch (err: any) {
     console.error("Exceptions API error:", err);
+    return NextResponse.json(
+      { error: err.message ?? "Server error" },
+      { status: 500 }
+    );
+  }
+}
+
+/* ======================================================
+   POST handler — create exception
+====================================================== */
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+
+    const {
+      site_id,
+      name,
+      is_closed,
+      open_time,
+      close_time,
+      is_recurring,
+      exception_date,
+      recurrence_rule,
+      effective_from_date,
+    } = body;
+
+    if (!site_id) {
+      return NextResponse.json({ error: "Missing site_id" }, { status: 400 });
+    }
+
+    if (!name) {
+      return NextResponse.json(
+        { error: "Missing exception name" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { cookies: { get: () => undefined } }
+    );
+
+    const { error } = await supabase
+      .from("b_store_hours_exceptions")
+      .insert({
+        site_id,
+        name,
+        is_closed,
+        open_time,
+        close_time,
+        is_recurring,
+        exception_date: is_recurring ? null : exception_date,
+        recurrence_rule: is_recurring ? recurrence_rule : null,
+        effective_from_date,
+      });
+
+    if (error) {
+      console.error("Insert exception error:", error);
+      return NextResponse.json(
+        { error: "Failed to create exception" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error("POST /exceptions error:", err);
     return NextResponse.json(
       { error: err.message ?? "Server error" },
       { status: 500 }
