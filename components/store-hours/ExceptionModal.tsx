@@ -12,7 +12,6 @@ export type ExceptionModalMode =
 
 type ExceptionType = "one-time" | "recurring";
 type HoursType = "closed" | "special";
-type EditScope = "this-only" | "this-and-forward";
 
 interface ExceptionModalProps {
   open: boolean;
@@ -46,19 +45,15 @@ export default function ExceptionModal({
     useState<ExceptionType>("one-time");
   const [hoursType, setHoursType] =
     useState<HoursType>("closed");
-  const [editScope, setEditScope] =
-    useState<EditScope>("this-only");
 
   /* -------------------------
      FORM FIELDS
   ------------------------- */
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
-  const [holidayRule, setHolidayRule] = useState<string>("");
-
+  const [holidayRule, setHolidayRule] = useState("");
   const [openTime, setOpenTime] = useState("");
   const [closeTime, setCloseTime] = useState("");
-
   const [error, setError] = useState<string | null>(null);
 
   /* -------------------------
@@ -123,45 +118,46 @@ export default function ExceptionModal({
   async function handleSave() {
     if (!validate()) return;
 
+    const today = new Date().toISOString().slice(0, 10);
+
+    const basePayload = {
+      site_id: siteId, // ✅ ALWAYS INCLUDED
+      name,
+      is_closed: hoursType === "closed",
+      open_time: hoursType === "special" ? openTime : null,
+      close_time: hoursType === "special" ? closeTime : null,
+      effective_from_date: today,
+    };
+
     try {
-      const today = new Date().toISOString().slice(0, 10);
-
-      const payload: any = {
-        site_id: siteId,
-        name,
-        is_closed: hoursType === "closed",
-        open_time: hoursType === "special" ? openTime : null,
-        close_time: hoursType === "special" ? closeTime : null,
-        effective_from_date: today,
-      };
-
       // ONE-TIME
       if (exceptionType === "one-time") {
-        payload.is_recurring = false;
-        payload.exception_date = date;
+        const payload = {
+          ...basePayload,
+          is_recurring: false,
+          exception_date: date,
+        };
 
-        if (mode === "edit-one-time" && initialData?.exception_id) {
-          await fetch(
-            `/api/store-hours/exceptions/${initialData.exception_id}`,
-            {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-            }
-          );
-        } else {
-          await fetch("/api/store-hours/exceptions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-        }
+        const url =
+          mode === "edit-one-time" && initialData?.exception_id
+            ? `/api/store-hours/exceptions/${initialData.exception_id}`
+            : "/api/store-hours/exceptions";
+
+        await fetch(url, {
+          method:
+            mode === "edit-one-time" ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
       }
 
-      // RECURRING (ALWAYS INSERT)
+      // RECURRING (ALWAYS INSERT NEW ROW)
       if (exceptionType === "recurring") {
-        payload.is_recurring = true;
-        payload.recurrence_rule = { type: holidayRule };
+        const payload = {
+          ...basePayload,
+          is_recurring: true,
+          recurrence_rule: { type: holidayRule },
+        };
 
         await fetch("/api/store-hours/exceptions", {
           method: "POST",
@@ -193,7 +189,6 @@ export default function ExceptionModal({
           <button onClick={onClose}>✕</button>
         </div>
 
-        {/* ERROR */}
         {error && (
           <div className="mb-4 rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
             {error}
@@ -201,7 +196,7 @@ export default function ExceptionModal({
         )}
 
         {/* NAME */}
-        <section className="mb-5">
+        <div className="mb-5">
           <label className="block font-semibold mb-2">Name</label>
           <input
             className="border rounded px-3 py-2 w-full"
@@ -209,10 +204,10 @@ export default function ExceptionModal({
             onChange={(e) => setName(e.target.value)}
             placeholder="Holiday / Special Event"
           />
-        </section>
+        </div>
 
-        {/* EXCEPTION TYPE */}
-        <section className="mb-5">
+        {/* TYPE */}
+        <div className="mb-5">
           <label className="block font-semibold mb-2">
             Exception type
           </label>
@@ -234,30 +229,38 @@ export default function ExceptionModal({
               Recurring rule
             </label>
           </div>
-        </section>
+        </div>
 
-        {/* DATE / RULE */}
         {exceptionType === "one-time" && (
-          <section className="mb-5">
+          <div className="mb-5">
             <label className="block font-semibold mb-2">Date</label>
             <input
               type="date"
+              className="border rounded px-3 py-2 w-full"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="border rounded px-3 py-2 w-full"
             />
-          </section>
+          </div>
         )}
 
         {exceptionType === "recurring" && (
-          <section className="mb-5">
+          <div className="mb-5">
             <label className="block font-semibold mb-2">
               Recurring rule
             </label>
             <select
               className="border rounded px-3 py-2 w-full"
               value={holidayRule}
-              onChange={(e) => setHolidayRule(e.target.value)}
+              onChange={(e) => {
+                const rule = e.target.value;
+                setHolidayRule(rule);
+                const preset = HOLIDAY_PRESETS.find(
+                  (h) => h.value === rule
+                );
+                if (preset && !name) {
+                  setName(preset.label); // ✅ autofill name
+                }
+              }}
             >
               <option value="">Select rule…</option>
               {HOLIDAY_PRESETS.map((h) => (
@@ -266,11 +269,11 @@ export default function ExceptionModal({
                 </option>
               ))}
             </select>
-          </section>
+          </div>
         )}
 
         {/* HOURS */}
-        <section className="mb-6">
+        <div className="mb-6">
           <label className="block font-semibold mb-2">Hours</label>
           <div className="space-y-2">
             <label className="flex items-center gap-2">
@@ -307,9 +310,8 @@ export default function ExceptionModal({
               />
             </div>
           )}
-        </section>
+        </div>
 
-        {/* ACTIONS */}
         <div className="flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>
             Cancel
