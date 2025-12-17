@@ -1,24 +1,35 @@
-// components/store-hours/ExceptionModal.tsx
-
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+
+/* ======================================================
+   Public Types (required elsewhere)
+====================================================== */
 
 export type ExceptionModalMode =
   | "create"
   | "edit-one-time"
   | "edit-recurring-forward";
 
-type ExceptionType = "one-time" | "recurring";
-type HoursType = "closed" | "special";
+/* ======================================================
+   Internal Types
+====================================================== */
 
-type HolidayPreset = {
-  label: string;
-  value: string;
-  recurrence_rule: any; // jsonb payload we store
-  default_is_closed?: boolean;
-};
+type Scope = "one-time" | "recurring";
+type HoursType = "closed" | "special";
+type RecurrenceKind = "fixed_date" | "nth_weekday";
+
+type Weekday =
+  | "sunday"
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday";
+
+type NthOption = -1 | 1 | 2 | 3 | 4;
 
 interface ExceptionModalProps {
   open: boolean;
@@ -29,38 +40,9 @@ interface ExceptionModalProps {
   onSaved: () => void;
 }
 
-const HOLIDAY_PRESETS: HolidayPreset[] = [
-  {
-    label: "Christmas Eve",
-    value: "christmas_eve",
-    recurrence_rule: { type: "fixed_date", month: 12, day: 24 },
-    default_is_closed: false,
-  },
-  {
-    label: "Christmas Day",
-    value: "christmas_day",
-    recurrence_rule: { type: "fixed_date", month: 12, day: 25 },
-    default_is_closed: true,
-  },
-  {
-    label: "New Year’s Eve",
-    value: "new_years_eve",
-    recurrence_rule: { type: "fixed_date", month: 12, day: 31 },
-    default_is_closed: false,
-  },
-  {
-    label: "New Year’s Day",
-    value: "new_years_day",
-    recurrence_rule: { type: "fixed_date", month: 1, day: 1 },
-    default_is_closed: true,
-  },
-  {
-    label: "Thanksgiving (4th Thursday of Nov)",
-    value: "thanksgiving",
-    recurrence_rule: { type: "nth_weekday_of_month", month: 11, weekday: "thursday", nth: 4 },
-    default_is_closed: true,
-  },
-];
+/* ======================================================
+   Helpers
+====================================================== */
 
 function todayYYYYMMDD() {
   return new Date().toISOString().slice(0, 10);
@@ -74,6 +56,10 @@ async function safeJson(res: Response) {
   }
 }
 
+/* ======================================================
+   Component
+====================================================== */
+
 export default function ExceptionModal({
   open,
   siteId,
@@ -82,111 +68,94 @@ export default function ExceptionModal({
   onClose,
   onSaved,
 }: ExceptionModalProps) {
-  // -------------------------
-  // STATE
-  // -------------------------
-  const [exceptionType, setExceptionType] = useState<ExceptionType>("one-time");
+  /* -------------------------
+     Core State
+  ------------------------- */
+  const [scope, setScope] = useState<Scope>("one-time");
   const [hoursType, setHoursType] = useState<HoursType>("closed");
-
-  const [presetValue, setPresetValue] = useState<string>("");
-
   const [name, setName] = useState("");
-  const [nameTouched, setNameTouched] = useState(false);
 
+  /* One-time */
   const [date, setDate] = useState("");
-  const [recurrenceRule, setRecurrenceRule] = useState<any | null>(null);
 
+  /* Recurring */
+  const [recurrenceKind, setRecurrenceKind] =
+    useState<RecurrenceKind>("fixed_date");
+
+  const [fixedMonth, setFixedMonth] = useState<number | "">("");
+  const [fixedDay, setFixedDay] = useState<number | "">("");
+
+  const [nth, setNth] = useState<NthOption>(-1);
+  const [weekday, setWeekday] = useState<Weekday>("thursday");
+  const [nthMonth, setNthMonth] = useState<number | "">("");
+
+  /* Hours */
   const [openTime, setOpenTime] = useState("");
   const [closeTime, setCloseTime] = useState("");
 
+  /* UI */
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const selectedPreset = useMemo(
-    () => HOLIDAY_PRESETS.find((p) => p.value === presetValue) ?? null,
-    [presetValue]
-  );
-
-  // -------------------------
-  // INIT / EDIT PREFILL
-  // -------------------------
+  /* ======================================================
+     Init
+  ====================================================== */
   useEffect(() => {
     if (!open) return;
 
-    // reset transient errors on open
     setError(null);
+    setSaving(false);
 
-    // If editing, prefill from initialData
-    if (initialData) {
-      setName(initialData.name ?? "");
-      setNameTouched(true); // editing implies user-controlled title
-
-      const closed = !!initialData.is_closed;
-      setHoursType(closed ? "closed" : "special");
-      setOpenTime(initialData.open_time ?? "");
-      setCloseTime(initialData.close_time ?? "");
-
-      if (initialData.is_recurring) {
-        setExceptionType("recurring");
-        setDate("");
-        setRecurrenceRule(initialData.recurrence_rule ?? null);
-        setPresetValue(""); // optional: we don't try to reverse-map into preset
-      } else {
-        setExceptionType("one-time");
-        setDate(initialData.exception_date ?? "");
-        setRecurrenceRule(null);
-        setPresetValue("");
-      }
-
-      return;
+    if (!initialData) {
+      setScope("one-time");
+      setName("");
+      setDate("");
+      setRecurrenceKind("fixed_date");
+      setFixedMonth("");
+      setFixedDay("");
+      setNth(-1);
+      setWeekday("thursday");
+      setNthMonth("");
+      setHoursType("closed");
+      setOpenTime("");
+      setCloseTime("");
     }
-
-    // Create mode defaults
-    setExceptionType("one-time");
-    setHoursType("closed");
-    setPresetValue("");
-    setName("");
-    setNameTouched(false);
-    setDate("");
-    setRecurrenceRule(null);
-    setOpenTime("");
-    setCloseTime("");
   }, [open, initialData]);
 
-  // -------------------------
-  // PRESET CHANGE → SET RULE + AUTO TITLE (until user edits)
-  // -------------------------
-  useEffect(() => {
-    if (!selectedPreset) return;
+  /* ======================================================
+     Recurrence Builder
+  ====================================================== */
+  function buildRecurrenceRule() {
+    if (scope !== "recurring") return null;
 
-    // selecting a preset implies recurring
-    setExceptionType("recurring");
-    setRecurrenceRule(selectedPreset.recurrence_rule ?? null);
-
-    // optionally set default hours behavior
-    const presetClosed = !!selectedPreset.default_is_closed;
-    setHoursType(presetClosed ? "closed" : hoursType);
-
-    // ✅ Auto-title should keep updating as long as user hasn't manually edited title
-    if (!nameTouched) {
-      setName(selectedPreset.label);
+    if (recurrenceKind === "fixed_date") {
+      if (!fixedMonth || !fixedDay) return null;
+      return {
+        type: "fixed_date",
+        month: fixedMonth,
+        day: fixedDay,
+      };
     }
-  }, [selectedPreset]); // intentionally omit nameTouched/hoursType to avoid loops
 
-  // If user switches exceptionType manually, let presets disengage
-  useEffect(() => {
-    if (exceptionType === "one-time") {
-      setPresetValue("");
-      setRecurrenceRule(null);
+    if (recurrenceKind === "nth_weekday") {
+      if (!nthMonth) return null;
+      return {
+        type: "nth_weekday_of_month",
+        month: nthMonth,
+        weekday,
+        occurrence: nth,
+      };
     }
-  }, [exceptionType]);
 
-  // -------------------------
-  // VALIDATION
-  // -------------------------
+    return null;
+  }
+
+  /* ======================================================
+     Validation
+  ====================================================== */
   function validate(): boolean {
-    if (!siteId || typeof siteId !== "string") {
-      setError("Missing site id (siteId prop not provided).");
+    if (!siteId) {
+      setError("Missing site id.");
       return false;
     }
 
@@ -195,13 +164,13 @@ export default function ExceptionModal({
       return false;
     }
 
-    if (exceptionType === "one-time" && !date) {
+    if (scope === "one-time" && !date) {
       setError("Please select a date.");
       return false;
     }
 
-    if (exceptionType === "recurring" && !recurrenceRule) {
-      setError("Please select a recurring rule.");
+    if (scope === "recurring" && !buildRecurrenceRule()) {
+      setError("Please complete the recurrence pattern.");
       return false;
     }
 
@@ -220,54 +189,44 @@ export default function ExceptionModal({
     return true;
   }
 
-  // -------------------------
-  // SAVE
-  // -------------------------
+  /* ======================================================
+     Save
+  ====================================================== */
   async function handleSave() {
     if (saving) return;
     if (!validate()) return;
 
     setSaving(true);
-    setError(null);
 
-    const payload: any = {
-      site_id: siteId, // ✅ ALWAYS from prop, never from form state
+    const payload = {
+      site_id: siteId,
       name: name.trim(),
       is_closed: hoursType === "closed",
       open_time: hoursType === "special" ? openTime : null,
       close_time: hoursType === "special" ? closeTime : null,
-      is_recurring: exceptionType === "recurring",
+      is_recurring: scope === "recurring",
+      exception_date: scope === "one-time" ? date : null,
+      recurrence_rule: buildRecurrenceRule(),
       effective_from_date: todayYYYYMMDD(),
-      recurrence_rule: exceptionType === "recurring" ? recurrenceRule : null,
-      exception_date: exceptionType === "one-time" ? date : null,
     };
 
-    // Decide endpoint/method
-    // (If you have PATCH routes per id, wire them here. For now, POST create is safest.)
-    const url = "/api/store-hours/exceptions";
-    const method = "POST";
-
     try {
-      const res = await fetch(url, {
-        method,
+      const res = await fetch("/api/store-hours/exceptions", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         const j = await safeJson(res);
-        const msg =
-          (j && (j.error || j.message)) ||
-          `Failed to save exception (HTTP ${res.status})`;
-        setError(msg);
+        setError(j?.error || `Failed to save exception (${res.status})`);
         setSaving(false);
         return;
       }
 
       onSaved();
-    } catch (e: any) {
-      console.error("Save exception error:", e);
-      setError(e?.message ?? "Failed to save exception.");
+    } catch (e) {
+      setError("Failed to save exception.");
     } finally {
       setSaving(false);
     }
@@ -275,167 +234,205 @@ export default function ExceptionModal({
 
   if (!open) return null;
 
+  /* ======================================================
+     Render
+  ====================================================== */
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg w-full max-w-lg p-6">
-        {/* HEADER */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex justify-between mb-4">
           <h2 className="text-lg font-semibold">
-            {mode === "create" ? "Add Store Hours Exception" : "Edit Store Hours Exception"}
+            {mode === "create"
+              ? "Add Store Hours Exception"
+              : "Edit Store Hours Exception"}
           </h2>
-          <button onClick={onClose} className="text-gray-600 hover:text-black">
-            ✕
-          </button>
+          <button onClick={onClose}>✕</button>
         </div>
 
         {error && (
-          <div className="mb-4 rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          <div className="mb-4 bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
             {error}
           </div>
         )}
 
-        {/* PRESET (create only, recurring convenience) */}
-        {mode === "create" && (
-          <div className="mb-5">
-            <label className="block font-semibold mb-2">
-              Preset (optional)
-            </label>
-            <select
-              className="border rounded px-3 py-2 w-full"
-              value={presetValue}
-              onChange={(e) => {
-                const v = e.target.value;
-                setPresetValue(v);
-
-                // If user changes preset, we want title to “jump” to the new preset unless they manually edited it.
-                // If they previously followed presets and then changed presets, that is not a manual title edit.
-                // So: when preset changes, we DO NOT mark nameTouched = true.
-                // Also: if they had manually edited title and want to reattach to presets, they can clear the title.
-                if (!v) {
-                  // preset cleared: allow next preset to control title again (unless user types)
-                  setNameTouched(false);
-                }
-              }}
-            >
-              <option value="">Select preset…</option>
-              {HOLIDAY_PRESETS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* NAME */}
+        {/* Scope */}
         <div className="mb-5">
-          <label className="block font-semibold mb-2">Name</label>
-          <input
-            className="border rounded px-3 py-2 w-full"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setNameTouched(true); // ✅ user took control
-            }}
-            placeholder="Holiday / Special Event"
-          />
-          {!nameTouched && presetValue && (
-            <p className="text-xs text-gray-500 mt-1">
-              Title is linked to the preset. If you edit the title, it won’t auto-change.
-            </p>
-          )}
-        </div>
-
-        {/* TYPE */}
-        <div className="mb-5">
-          <label className="block font-semibold mb-2">Exception type</label>
-          <div className="space-y-2">
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                checked={exceptionType === "one-time"}
-                onChange={() => {
-                  setExceptionType("one-time");
-                  setPresetValue("");
-                  setRecurrenceRule(null);
-                }}
-              />
-              One-time date
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                checked={exceptionType === "recurring"}
-                onChange={() => {
-                  setExceptionType("recurring");
-                  // if no preset selected, user will pick a rule next
-                }}
-              />
-              Recurring rule
-            </label>
-          </div>
-        </div>
-
-        {/* ONE-TIME DATE */}
-        {exceptionType === "one-time" && (
-          <div className="mb-5">
-            <label className="block font-semibold mb-2">Date</label>
+          <label className="font-semibold block mb-2">Exception scope</label>
+          <label className="block">
             <input
-              type="date"
-              className="border rounded px-3 py-2 w-full"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-        )}
+              type="radio"
+              checked={scope === "one-time"}
+              onChange={() => setScope("one-time")}
+            />{" "}
+            One-time
+          </label>
+          <label className="block">
+            <input
+              type="radio"
+              checked={scope === "recurring"}
+              onChange={() => setScope("recurring")}
+            />{" "}
+            Recurring
+          </label>
+        </div>
 
-        {/* RECURRING RULE (non-preset manual selection) */}
-        {exceptionType === "recurring" && mode === "create" && (
-          <div className="mb-5">
-            <label className="block font-semibold mb-2">Recurring rule</label>
-            <div className="text-sm text-gray-600">
-              {recurrenceRule
-                ? "Rule selected (stored in recurrence_rule)."
-                : "Select a preset above, or wire a custom rule builder next."}
+        {/* One-time */}
+        {scope === "one-time" && (
+          <div>
+            <div className="mb-5">
+              <label className="font-semibold block mb-2">Date</label>
+              <input
+                type="date"
+                className="border rounded px-3 py-2 w-full"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
+            </div>
+            <div className="mb-5">
+              <label className="font-semibold block mb-2">Title</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             </div>
           </div>
         )}
 
-        {/* HOURS */}
-        <div className="mb-6">
-          <label className="block font-semibold mb-2">Hours</label>
-          <div className="space-y-2">
-            <label className="flex items-center gap-2">
+        {/* Recurring */}
+        {scope === "recurring" && (
+          <div>
+            <div className="mb-5">
+              <label className="font-semibold block mb-2">
+                Recurrence pattern
+              </label>
+              <label className="block">
+                <input
+                  type="radio"
+                  checked={recurrenceKind === "fixed_date"}
+                  onChange={() => setRecurrenceKind("fixed_date")}
+                />{" "}
+                Fixed date
+              </label>
+              <label className="block">
+                <input
+                  type="radio"
+                  checked={recurrenceKind === "nth_weekday"}
+                  onChange={() => setRecurrenceKind("nth_weekday")}
+                />{" "}
+                Nth weekday
+              </label>
+            </div>
+
+            {recurrenceKind === "fixed_date" && (
+              <div className="mb-5 grid grid-cols-2 gap-3">
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  placeholder="Month"
+                  className="border rounded px-3 py-2"
+                  value={fixedMonth}
+                  onChange={(e) =>
+                    setFixedMonth(e.target.value ? +e.target.value : "")
+                  }
+                />
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  placeholder="Day"
+                  className="border rounded px-3 py-2"
+                  value={fixedDay}
+                  onChange={(e) =>
+                    setFixedDay(e.target.value ? +e.target.value : "")
+                  }
+                />
+              </div>
+            )}
+
+            {recurrenceKind === "nth_weekday" && (
+              <div className="mb-5 grid grid-cols-3 gap-3">
+                <select
+                  className="border rounded px-3 py-2"
+                  value={nth}
+                  onChange={(e) => setNth(+e.target.value as NthOption)}
+                >
+                  <option value={-1}>Last</option>
+                  <option value={1}>First</option>
+                  <option value={2}>Second</option>
+                  <option value={3}>Third</option>
+                  <option value={4}>Fourth</option>
+                </select>
+                <select
+                  className="border rounded px-3 py-2"
+                  value={weekday}
+                  onChange={(e) => setWeekday(e.target.value as Weekday)}
+                >
+                  <option value="monday">Monday</option>
+                  <option value="tuesday">Tuesday</option>
+                  <option value="wednesday">Wednesday</option>
+                  <option value="thursday">Thursday</option>
+                  <option value="friday">Friday</option>
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  placeholder="Month"
+                  className="border rounded px-3 py-2"
+                  value={nthMonth}
+                  onChange={(e) =>
+                    setNthMonth(e.target.value ? +e.target.value : "")
+                  }
+                />
+              </div>
+            )}
+
+            <div className="mb-5">
+              <label className="font-semibold block mb-2">Title</label>
               <input
-                type="radio"
-                checked={hoursType === "closed"}
-                onChange={() => setHoursType("closed")}
+                className="border rounded px-3 py-2 w-full"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
               />
-              Closed all day
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                checked={hoursType === "special"}
-                onChange={() => setHoursType("special")}
-              />
-              Special hours
-            </label>
+            </div>
           </div>
+        )}
+
+        {/* Hours */}
+        <div className="mb-6">
+          <label className="font-semibold block mb-2">Hours</label>
+          <label className="block">
+            <input
+              type="radio"
+              checked={hoursType === "closed"}
+              onChange={() => setHoursType("closed")}
+            />{" "}
+            Closed all day
+          </label>
+          <label className="block">
+            <input
+              type="radio"
+              checked={hoursType === "special"}
+              onChange={() => setHoursType("special")}
+            />{" "}
+            Special hours
+          </label>
 
           {hoursType === "special" && (
             <div className="mt-3 grid grid-cols-2 gap-3">
               <input
                 type="time"
+                className="border rounded px-3 py-2"
                 value={openTime}
                 onChange={(e) => setOpenTime(e.target.value)}
-                className="border rounded px-3 py-2"
               />
               <input
                 type="time"
+                className="border rounded px-3 py-2"
                 value={closeTime}
                 onChange={(e) => setCloseTime(e.target.value)}
-                className="border rounded px-3 py-2"
               />
             </div>
           )}
