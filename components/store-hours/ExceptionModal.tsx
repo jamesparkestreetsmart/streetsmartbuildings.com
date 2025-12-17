@@ -44,10 +44,8 @@ export default function ExceptionModal({
   ------------------------- */
   const [exceptionType, setExceptionType] =
     useState<ExceptionType>("one-time");
-
   const [hoursType, setHoursType] =
     useState<HoursType>("closed");
-
   const [editScope, setEditScope] =
     useState<EditScope>("this-only");
 
@@ -56,10 +54,12 @@ export default function ExceptionModal({
   ------------------------- */
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
-  const [holidayRule, setHolidayRule] = useState<string | null>(null);
+  const [holidayRule, setHolidayRule] = useState<string>("");
 
   const [openTime, setOpenTime] = useState("");
   const [closeTime, setCloseTime] = useState("");
+
+  const [error, setError] = useState<string | null>(null);
 
   /* -------------------------
      INIT FROM EDIT DATA
@@ -74,7 +74,7 @@ export default function ExceptionModal({
 
     if (initialData.is_recurring) {
       setExceptionType("recurring");
-      setHolidayRule(initialData.recurrence_rule?.type ?? null);
+      setHolidayRule(initialData.recurrence_rule?.type ?? "");
     } else {
       setExceptionType("one-time");
       setDate(initialData.exception_date ?? "");
@@ -84,79 +84,98 @@ export default function ExceptionModal({
   if (!open) return null;
 
   /* -------------------------
-     SAVE HANDLER (UI-READY)
+     VALIDATION
+  ------------------------- */
+  function validate(): boolean {
+    if (!name.trim()) {
+      setError("Exception name is required.");
+      return false;
+    }
+
+    if (exceptionType === "one-time" && !date) {
+      setError("Please select a date.");
+      return false;
+    }
+
+    if (exceptionType === "recurring" && !holidayRule) {
+      setError("Please select a recurring rule.");
+      return false;
+    }
+
+    if (hoursType === "special") {
+      if (!openTime || !closeTime) {
+        setError("Both open and close times are required.");
+        return false;
+      }
+      if (openTime >= closeTime) {
+        setError("Open time must be before close time.");
+        return false;
+      }
+    }
+
+    setError(null);
+    return true;
+  }
+
+  /* -------------------------
+     SAVE HANDLER
   ------------------------- */
   async function handleSave() {
+    if (!validate()) return;
+
     try {
-        const today = new Date().toISOString().slice(0, 10);
+      const today = new Date().toISOString().slice(0, 10);
 
-        const payload: any = {
-            site_id: siteId,
-            name,
-            is_closed: hoursType === "closed",
-            open_time: hoursType === "special" ? openTime : null,
-            close_time: hoursType === "special" ? closeTime : null,
-            effective_from_date: today,
-        };
+      const payload: any = {
+        site_id: siteId,
+        name,
+        is_closed: hoursType === "closed",
+        open_time: hoursType === "special" ? openTime : null,
+        close_time: hoursType === "special" ? closeTime : null,
+        effective_from_date: today,
+      };
 
-    // -----------------------------
-    // ONE-TIME EXCEPTION
-    // -----------------------------
-        if (exceptionType === "one-time") {
-            payload.is_recurring = false;
-            payload.exception_date = date;
+      // ONE-TIME
+      if (exceptionType === "one-time") {
+        payload.is_recurring = false;
+        payload.exception_date = date;
 
-            if (mode === "edit-one-time" && initialData?.exception_id) {
-        // UPDATE existing row
-                const res = await fetch(
-                    `/api/store-hours/exceptions/${initialData.exception_id}`,
-                    {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload),
-                    }
-                );
-
-                if (!res.ok) throw new Error("Failed to update exception");
-            } else {
-        // CREATE new one-time exception
-                const res = await fetch("/api/store-hours/exceptions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload),
-                });
-
-                if (!res.ok) throw new Error("Failed to create exception");
+        if (mode === "edit-one-time" && initialData?.exception_id) {
+          await fetch(
+            `/api/store-hours/exceptions/${initialData.exception_id}`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
             }
+          );
+        } else {
+          await fetch("/api/store-hours/exceptions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
         }
+      }
 
-    // -----------------------------
-    // RECURRING EXCEPTION
-    // -----------------------------
-        if (exceptionType === "recurring") {
-            payload.is_recurring = true;
-            payload.recurrence_rule = {
-                type: holidayRule, // e.g. christmas_eve, thanksgiving
-            };
+      // RECURRING (ALWAYS INSERT)
+      if (exceptionType === "recurring") {
+        payload.is_recurring = true;
+        payload.recurrence_rule = { type: holidayRule };
 
-      // 🔒 ALWAYS INSERT for recurring edits
-      // (edit-forward creates a new effective row)
-            const res = await fetch("/api/store-hours/exceptions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
+        await fetch("/api/store-hours/exceptions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
 
-            if (!res.ok) throw new Error("Failed to save recurring exception");
-        }
-
-        onSaved();
+      onSaved();
     } catch (err) {
-        console.error(err);
-        alert("Failed to save exception");
+      console.error("Exception save failed:", err);
+      setError("Failed to save exception.");
     }
-}
-
+  }
 
   /* -------------------------
      RENDER
@@ -174,12 +193,29 @@ export default function ExceptionModal({
           <button onClick={onClose}>✕</button>
         </div>
 
-        {/* 1️⃣ EXCEPTION TYPE */}
+        {/* ERROR */}
+        {error && (
+          <div className="mb-4 rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* NAME */}
+        <section className="mb-5">
+          <label className="block font-semibold mb-2">Name</label>
+          <input
+            className="border rounded px-3 py-2 w-full"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Holiday / Special Event"
+          />
+        </section>
+
+        {/* EXCEPTION TYPE */}
         <section className="mb-5">
           <label className="block font-semibold mb-2">
-            What kind of exception is this?
+            Exception type
           </label>
-
           <div className="space-y-2">
             <label className="flex items-center gap-2">
               <input
@@ -189,7 +225,6 @@ export default function ExceptionModal({
               />
               One-time date
             </label>
-
             <label className="flex items-center gap-2">
               <input
                 type="radio"
@@ -201,7 +236,7 @@ export default function ExceptionModal({
           </div>
         </section>
 
-        {/* 2️⃣ DATE / RULE */}
+        {/* DATE / RULE */}
         {exceptionType === "one-time" && (
           <section className="mb-5">
             <label className="block font-semibold mb-2">Date</label>
@@ -217,15 +252,14 @@ export default function ExceptionModal({
         {exceptionType === "recurring" && (
           <section className="mb-5">
             <label className="block font-semibold mb-2">
-              Choose recurring rule
+              Recurring rule
             </label>
-
             <select
               className="border rounded px-3 py-2 w-full"
-              value={holidayRule ?? ""}
+              value={holidayRule}
               onChange={(e) => setHolidayRule(e.target.value)}
             >
-              <option value="">Select a rule…</option>
+              <option value="">Select rule…</option>
               {HOLIDAY_PRESETS.map((h) => (
                 <option key={h.value} value={h.value}>
                   {h.label}
@@ -235,12 +269,9 @@ export default function ExceptionModal({
           </section>
         )}
 
-        {/* 3️⃣ HOURS */}
-        <section className="mb-5">
-          <label className="block font-semibold mb-2">
-            Hours for this exception
-          </label>
-
+        {/* HOURS */}
+        <section className="mb-6">
+          <label className="block font-semibold mb-2">Hours</label>
           <div className="space-y-2">
             <label className="flex items-center gap-2">
               <input
@@ -250,7 +281,6 @@ export default function ExceptionModal({
               />
               Closed all day
             </label>
-
             <label className="flex items-center gap-2">
               <input
                 type="radio"
@@ -278,35 +308,6 @@ export default function ExceptionModal({
             </div>
           )}
         </section>
-
-        {/* 4️⃣ EDIT SCOPE (EDIT ONLY) */}
-        {mode !== "create" && exceptionType === "recurring" && (
-          <section className="mb-6">
-            <label className="block font-semibold mb-2">
-              How should this edit apply?
-            </label>
-
-            <div className="space-y-2">
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  checked={editScope === "this-only"}
-                  onChange={() => setEditScope("this-only")}
-                />
-                This date only
-              </label>
-
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  checked={editScope === "this-and-forward"}
-                  onChange={() => setEditScope("this-and-forward")}
-                />
-                This and all future occurrences
-              </label>
-            </div>
-          </section>
-        )}
 
         {/* ACTIONS */}
         <div className="flex justify-end gap-3">
