@@ -1,342 +1,323 @@
+// components/store-hours/ExceptionModal.tsx
+
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-
-/* ======================================================
-   Types
-====================================================== */
 
 export type ExceptionModalMode =
   | "create"
   | "edit-one-time"
   | "edit-recurring-forward";
 
-// DB-shaped row (what your API writes)
-type DbExceptionRow = {
-  exception_id: string;
-  name: string;
-  is_closed: boolean;
-  open_time: string | null;
-  close_time: string | null;
-  is_recurring: boolean;
-  recurrence_rule: any | null;
-  exception_date: string; // YYYY-MM-DD
-  effective_from_date: string; // YYYY-MM-DD
-};
+/* ------------------------------
+   Types
+-------------------------------- */
 
-// UI-shaped row (what ExceptionTable renders)
-type UiExceptionRow = {
-  exception_id: string;
-  name: string;
-  is_closed: boolean;
-  open_time: string | null;
-  close_time: string | null;
+export type UIExceptionRow = {
+  exception_id?: string;
+  name?: string;
+  is_closed?: boolean;
+  open_time?: string | null;
+  close_time?: string | null;
 
-  resolved_date: string; // YYYY-MM-DD
-  day_of_week?: string;
-
-  source_rule?: {
-    is_recurring: boolean;
-  };
-
-  ui_state?: {
-    is_past: boolean;
-  };
-
-  // these may or may not be present depending on your hook
-  recurrence_rule?: any | null;
+  // recurrence
   is_recurring?: boolean;
-  exception_date?: string;
-  effective_from_date?: string;
+  recurrence_rule?: any | null;
+  exception_date?: string | null;
+  effective_from_date?: string | null;
 };
 
 export type ExceptionModalProps = {
   open: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-
   siteId: string;
   mode: ExceptionModalMode;
-
-  // ✅ allow either shape, plus null/undefined for create mode
-  initialData?: DbExceptionRow | UiExceptionRow | null;
+  initialData: UIExceptionRow | null;
+  onClose: () => void;
+  onSaved: () => void;
 };
 
-/* ======================================================
+/* ------------------------------
+   Holiday presets (UI helpers)
+-------------------------------- */
+
+type HolidayPreset = {
+  label: string;
+  rule: any;
+};
+
+const HOLIDAY_PRESETS: HolidayPreset[] = [
+  {
+    label: "Thanksgiving (4th Thursday of November)",
+    rule: { type: "nth_weekday", month: 11, weekday: "thursday", nth: 4 },
+  },
+  {
+    label: "Christmas Day (Dec 25)",
+    rule: { type: "fixed_date", month: 12, day: 25 },
+  },
+  {
+    label: "New Year’s Day (Jan 1)",
+    rule: { type: "fixed_date", month: 1, day: 1 },
+  },
+  {
+    label: "Independence Day (July 4)",
+    rule: { type: "fixed_date", month: 7, day: 4 },
+  },
+  {
+    label: "Memorial Day (Last Monday of May)",
+    rule: { type: "last_weekday", month: 5, weekday: "monday" },
+  },
+  {
+    label: "Labor Day (First Monday of September)",
+    rule: { type: "nth_weekday", month: 9, weekday: "monday", nth: 1 },
+  },
+];
+
+/* ------------------------------
    Component
-====================================================== */
+-------------------------------- */
 
 export default function ExceptionModal({
   open,
-  onClose,
-  onSaved,
   siteId,
   mode,
   initialData,
+  onClose,
+  onSaved,
 }: ExceptionModalProps) {
-  /* ----------------------------------
-     State
-  ---------------------------------- */
+  /* ------------------------------
+     Local state
+  -------------------------------- */
+
+  const [exceptionType, setExceptionType] = useState<
+    "one-time" | "recurring"
+  >("one-time");
 
   const [name, setName] = useState("");
+  const [exceptionDate, setExceptionDate] = useState("");
   const [isClosed, setIsClosed] = useState(true);
   const [openTime, setOpenTime] = useState<string | null>(null);
   const [closeTime, setCloseTime] = useState<string | null>(null);
 
-  const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceRule, setRecurrenceRule] = useState<any | null>(null);
-
-  const [exceptionDate, setExceptionDate] = useState("");
-  const [effectiveFromDate, setEffectiveFromDate] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const isEditing = mode !== "create";
 
-  const isEditMode =
-    mode === "edit-one-time" ||
-    mode === "edit-recurring-forward";
-
-  // Safety guard — avoid weird UI if something calls edit without data
-  if (isEditMode && !initialData) return null;
-
-  /* ----------------------------------
-     Normalize initialData → form state
-  ---------------------------------- */
+  /* ------------------------------
+     Init from existing data
+  -------------------------------- */
 
   useEffect(() => {
-    if (!open) return;
+    if (!initialData) return;
 
-    if (initialData) {
-      // shared fields
-      setName(initialData.name);
-      setIsClosed(initialData.is_closed);
-      setOpenTime(initialData.open_time);
-      setCloseTime(initialData.close_time);
+    setName(initialData.name ?? "");
+    setIsClosed(initialData.is_closed ?? true);
+    setOpenTime(initialData.open_time ?? null);
+    setCloseTime(initialData.close_time ?? null);
 
-      // recurrence flag can come from either shape
-      const recurring =
-        (initialData as any).is_recurring ??
-        (initialData as any).source_rule?.is_recurring ??
-        false;
-
-      setIsRecurring(Boolean(recurring));
-
-      // recurrence rule may exist on either shape
-      setRecurrenceRule((initialData as any).recurrence_rule ?? null);
-
-      // For one-time exceptions:
-      // - DB shape uses exception_date
-      // - UI shape uses resolved_date
-      const date =
-        (initialData as any).exception_date ??
-        (initialData as any).resolved_date ??
-        "";
-
-      setExceptionDate(date);
-
-      // effective_from_date may be missing on UI rows; default to today
-      const eff =
-        (initialData as any).effective_from_date ??
-        new Date().toISOString().slice(0, 10);
-
-      setEffectiveFromDate(eff);
+    if (initialData.is_recurring) {
+      setExceptionType("recurring");
+      setRecurrenceRule(initialData.recurrence_rule ?? null);
     } else {
-      // create mode defaults
-      setName("");
-      setIsClosed(true);
-      setOpenTime(null);
-      setCloseTime(null);
-      setIsRecurring(false);
-      setRecurrenceRule(null);
-      setExceptionDate("");
-      setEffectiveFromDate(new Date().toISOString().slice(0, 10));
+      setExceptionType("one-time");
+      setExceptionDate(initialData.exception_date ?? "");
     }
-  }, [open, initialData]);
+  }, [initialData]);
 
-  /* ----------------------------------
-     Payload builder
-  ---------------------------------- */
+  if (!open) return null;
 
-  function buildPayload() {
-    return {
+  /* ------------------------------
+     Save handler
+  -------------------------------- */
+
+  async function handleSave() {
+    setSaving(true);
+
+    const payload: any = {
       site_id: siteId,
       name,
       is_closed: isClosed,
       open_time: isClosed ? null : openTime,
       close_time: isClosed ? null : closeTime,
-      is_recurring: isRecurring,
-      recurrence_rule: isRecurring ? recurrenceRule : null,
-
-      // For recurring: you may store a representative date; we keep it stable.
-      exception_date: isRecurring
-        ? exceptionDate || effectiveFromDate
-        : exceptionDate,
-
-      // Forward edit: user picks effectiveFromDate
-      effective_from_date: effectiveFromDate,
     };
-  }
 
-  /* ----------------------------------
-     Save handler
-  ---------------------------------- */
-
-  async function handleSave() {
-    setSaving(true);
-    setError(null);
-
-    try {
-      const payload = buildPayload();
-
-      let res: Response;
-
-      if (mode === "edit-one-time" && initialData) {
-        res = await fetch(
-          `/api/store-hours/exceptions/${(initialData as any).exception_id}`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          }
-        );
-      } else {
-        res = await fetch("/api/store-hours/exceptions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-      }
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Save failed");
-      }
-
-      onSaved();
-      onClose();
-    } catch (e: any) {
-      setError(e.message ?? "Failed to save exception");
-    } finally {
-      setSaving(false);
+    if (exceptionType === "one-time") {
+      payload.is_recurring = false;
+      payload.exception_date = exceptionDate;
+    } else {
+      payload.is_recurring = true;
+      payload.recurrence_rule = recurrenceRule;
+      payload.effective_from_date = new Date().toISOString().slice(0, 10);
     }
+
+    await fetch("/api/store-hours/exceptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    setSaving(false);
+    onSaved();
   }
 
-  /* ----------------------------------
+  /* ------------------------------
      Render
-  ---------------------------------- */
+  -------------------------------- */
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            {mode === "create" && "Add Store Hours Exception"}
-            {mode === "edit-one-time" && "Edit Exception"}
-            {mode === "edit-recurring-forward" &&
-              "Edit Recurring Exception (Forward Only)"}
-          </DialogTitle>
-        </DialogHeader>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
+        <h2 className="text-lg font-semibold mb-4">
+          {exceptionType === "one-time"
+            ? "Add One-Time Exception"
+            : "Add Recurring Exception"}
+        </h2>
 
-        <div className="space-y-4">
-          {/* Name */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium">Name</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+        {/* NAME */}
+        <div className="mb-4">
+          <label className="text-sm font-medium">Name</label>
+          <input
+            className="w-full border rounded px-3 py-2 mt-1"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Thanksgiving"
+          />
+        </div>
+
+        {/* TYPE */}
+        {!isEditing && (
+          <div className="mb-6">
+            <label className="text-sm font-medium block mb-2">
+              Exception type
+            </label>
+            <div className="flex gap-4">
+              <label>
+                <input
+                  type="radio"
+                  checked={exceptionType === "one-time"}
+                  onChange={() => setExceptionType("one-time")}
+                />{" "}
+                One-time date
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  checked={exceptionType === "recurring"}
+                  onChange={() => setExceptionType("recurring")}
+                />{" "}
+                Recurring rule
+              </label>
+            </div>
           </div>
+        )}
 
-          {/* Closed vs special */}
-          <div className="flex gap-6">
-            <label className="flex items-center gap-2">
+        {/* ONE-TIME */}
+        {exceptionType === "one-time" && (
+          <div className="mb-6">
+            <label className="text-sm font-medium">Date</label>
+            <input
+              type="date"
+              className="w-full border rounded px-3 py-2 mt-1"
+              value={exceptionDate}
+              onChange={(e) => setExceptionDate(e.target.value)}
+            />
+          </div>
+        )}
+
+        {/* RECURRING */}
+        {exceptionType === "recurring" && (
+          <div className="mb-6 space-y-4">
+            <div>
+              <label className="text-sm font-medium">
+                Holiday preset (optional)
+              </label>
+              <select
+                className="w-full border rounded px-3 py-2 mt-1"
+                value={selectedPreset}
+                onChange={(e) => {
+                  const preset = HOLIDAY_PRESETS.find(
+                    (p) => p.label === e.target.value
+                  );
+                  setSelectedPreset(e.target.value);
+                  setRecurrenceRule(preset?.rule ?? null);
+                }}
+              >
+                <option value="">— Custom rule —</option>
+                {HOLIDAY_PRESETS.map((p) => (
+                  <option key={p.label} value={p.label}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="text-xs text-gray-500">
+              This rule applies going forward only. Past dates are preserved.
+            </div>
+          </div>
+        )}
+
+        {/* HOURS */}
+        <div className="mb-6">
+          <label className="text-sm font-medium block mb-2">
+            Store hours
+          </label>
+
+          <div className="flex gap-4 mb-2">
+            <label>
               <input
                 type="radio"
                 checked={isClosed}
                 onChange={() => setIsClosed(true)}
-              />
+              />{" "}
               Closed all day
             </label>
-
-            <label className="flex items-center gap-2">
+            <label>
               <input
                 type="radio"
                 checked={!isClosed}
                 onChange={() => setIsClosed(false)}
-              />
+              />{" "}
               Special hours
             </label>
           </div>
 
           {!isClosed && (
-            <div className="flex gap-2">
-              <Input
+            <div className="flex gap-3">
+              <input
                 type="time"
+                className="border rounded px-2 py-1"
                 value={openTime ?? ""}
                 onChange={(e) => setOpenTime(e.target.value)}
               />
-              <Input
+              <input
                 type="time"
+                className="border rounded px-2 py-1"
                 value={closeTime ?? ""}
                 onChange={(e) => setCloseTime(e.target.value)}
               />
             </div>
           )}
-
-          {/* Recurrence */}
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={isRecurring}
-              onChange={(e) => setIsRecurring(e.target.checked)}
-            />
-            Repeats
-          </label>
-
-          {!isRecurring && (
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Date</label>
-              <Input
-                type="date"
-                value={exceptionDate}
-                onChange={(e) => setExceptionDate(e.target.value)}
-              />
-            </div>
-          )}
-
-          {mode === "edit-recurring-forward" && (
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Effective starting</label>
-              <Input
-                type="date"
-                value={effectiveFromDate}
-                onChange={(e) => setEffectiveFromDate(e.target.value)}
-              />
-            </div>
-          )}
-
-          {error && <p className="text-red-600 text-sm">{error}</p>}
         </div>
 
-        <div className="flex justify-end gap-2 mt-6">
-          <Button variant="ghost" onClick={onClose}>
+        {/* ACTIONS */}
+        <div className="flex justify-end gap-3">
+          <button
+            className="px-3 py-1.5 text-sm"
+            onClick={onClose}
+          >
             Cancel
-          </Button>
-
-          <Button
+          </button>
+          <button
+            className="px-4 py-1.5 bg-green-600 text-white rounded text-sm font-semibold"
             onClick={handleSave}
             disabled={saving}
-            className="bg-green-600 hover:bg-green-700 text-white"
           >
-            {mode === "edit-recurring-forward" ? "Apply to Future Dates" : "Save"}
-          </Button>
+            {saving ? "Saving…" : "Save"}
+          </button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }
