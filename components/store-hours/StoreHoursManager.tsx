@@ -1,5 +1,8 @@
+// components/store-hours/StoreHoursManager.tsx
+
 "use client";
 
+import WeeklyStoreHours from "./WeeklyStoreHours";
 import { useStoreHoursExceptions } from "./useStoreHoursExceptions";
 import ExceptionTable from "./ExceptionTable";
 
@@ -14,8 +17,10 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
   return (
     <>
-      {/* Weekly store hours UI stays above this */}
+      {/* 1️⃣ WEEKLY SCHEDULE */}
+      <WeeklyStoreHours siteId={siteId} />
 
+      {/* 2️⃣ EXCEPTIONS */}
       <div className="mt-10 grid grid-cols-3 gap-6">
         <ExceptionTable
           title={`This Year (${data.this_year.year})`}
@@ -28,7 +33,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
           readOnly
         />
 
-        {/* CHANGE LOG PANEL INTENTIONALLY REMOVED (Option B) */}
+        {/* Change log intentionally omitted (Option B) */}
       </div>
     </>
   );
