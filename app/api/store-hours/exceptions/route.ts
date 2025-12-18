@@ -60,10 +60,7 @@ function nthWeekdayOfMonth(
   return d.getMonth() === month - 1 ? d : null;
 }
 
-function expandException(
-  ex: DBException,
-  year: number
-): Date[] {
+function expandException(ex: DBException, year: number): Date[] {
   if (!ex.is_recurring && ex.exception_date) {
     return [new Date(ex.exception_date)];
   }
@@ -86,7 +83,15 @@ function expandException(
     return d ? [d] : [];
   }
 
+  if (rule.type === "single") {
+    return [new Date(rule.date)];
+  }
+
   return [];
+}
+
+function formatDayOfWeek(d: Date) {
+  return d.toLocaleDateString("en-US", { weekday: "long" });
 }
 
 /* ======================================================
@@ -137,43 +142,38 @@ export async function GET(req: NextRequest) {
           (d) => d >= new Date(ex.effective_from_date)
         )
         .map((d) => ({
-          ...ex,
-          occurrence_date: d.toISOString().slice(0, 10),
+          exception_id: ex.exception_id,
+          name: ex.name,
+          resolved_date: d.toISOString().slice(0, 10),
+          day_of_week: formatDayOfWeek(d),
+          open_time: ex.open_time,
+          close_time: ex.close_time,
+          is_closed: ex.is_closed,
+          source_rule: {
+            is_recurring: ex.is_recurring,
+          },
           ui_state: {
             is_past: d < today,
-            is_future: d >= today,
-            year,
           },
         }))
     );
   }
 
-  const lastYearOccurrences = project(lastYear);
-  const thisYearOccurrences = project(currentYear);
-  const nextYearOccurrences = project(nextYear);
-
   const past = [
-    ...lastYearOccurrences,
-    ...thisYearOccurrences.filter((e) => e.ui_state.is_past),
+    ...project(lastYear),
+    ...project(currentYear).filter((e) => e.ui_state.is_past),
   ];
 
   const future = [
-    ...thisYearOccurrences.filter((e) => e.ui_state.is_future),
-    ...nextYearOccurrences,
+    ...project(currentYear).filter((e) => !e.ui_state.is_past),
+    ...project(nextYear),
   ];
 
-  return NextResponse.json({
-    past,
-    future,
-    meta: {
-      current_year: currentYear,
-      next_year: nextYear,
-    },
-  });
+  return NextResponse.json({ past, future });
 }
 
 /* ======================================================
-   OPTIONS — REQUIRED FOR BROWSER POST
+   OPTIONS
 ====================================================== */
 
 export async function OPTIONS() {
@@ -191,7 +191,7 @@ export async function OPTIONS() {
 }
 
 /* ======================================================
-   POST — unchanged (your existing logic)
+   POST — unchanged
 ====================================================== */
 
 export async function POST(req: NextRequest) {
@@ -210,13 +210,9 @@ export async function POST(req: NextRequest) {
       effective_from_date,
     } = body;
 
-    if (!site_id) {
-      return NextResponse.json({ error: "Missing site_id" }, { status: 400 });
-    }
-
-    if (!name) {
+    if (!site_id || !name) {
       return NextResponse.json(
-        { error: "Missing exception name" },
+        { error: "Missing required fields" },
         { status: 400 }
       );
     }
@@ -247,25 +243,14 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error("Supabase insert error:", error);
-      return NextResponse.json(
-        {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        },
-        { status: 500 }
-      );
+      return NextResponse.json({ error }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("POST /exceptions error:", err);
     return NextResponse.json(
       { error: err.message ?? "Server error" },
       { status: 500 }
     );
   }
 }
-
-export{};
