@@ -20,7 +20,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
   if (loading) return <div>Loading store hours…</div>;
   if (error) return <div className="text-red-600">{error}</div>;
-  if (!data?.this_year || !data?.last_year) {
+  if (!data?.past || !data?.future) {
     return <div>Invalid exception data</div>;
   }
 
@@ -29,20 +29,20 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
       {/* 1️⃣ WEEKLY STORE HOURS */}
       <WeeklyStoreHours siteId={siteId} />
 
-      {/* 2️⃣ EXCEPTIONS SECTION */}
+      {/* 2️⃣ EXCEPTIONS */}
       <div className="mt-10 grid grid-cols-3 gap-6">
-        {/* LEFT — LAST YEAR (LOCKED) */}
+        {/* LEFT — PAST (Last year + past this year) */}
         <ExceptionTable
-          title={`Last Year (${data.last_year.year})`}
-          exceptions={data.last_year.exceptions}
+          title="Past Exceptions"
+          exceptions={data.past}
           readOnly
         />
 
-        {/* CENTER — THIS YEAR */}
+        {/* CENTER — FUTURE (This year forward + next year) */}
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold">
-              This Year ({data.this_year.year})
+              Upcoming Exceptions
             </h3>
 
             <button
@@ -60,7 +60,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
           <ExceptionTable
             title=""
-            exceptions={data.this_year.exceptions}
+            exceptions={data.future}
             onEdit={(ex) => {
               setModalMode(
                 ex.source_rule?.is_recurring
@@ -88,7 +88,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
           initialData={modalInitialData}
           onClose={() => setModalOpen(false)}
           onSaved={() => {
-            refetch();          // ✅ THIS fixes the “reload required” bug
+            refetch(); // 🔑 immediate refresh
             setModalOpen(false);
           }}
         />
