@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 export function useStoreHoursExceptions(siteId: string) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchExceptions = useCallback(() => {
     if (!siteId) return;
 
     setLoading(true);
-    setError(null); // ✅ clear stale errors
+    setError(null);
 
     fetch(`/api/store-hours/exceptions?site_id=${siteId}`)
       .then((res) => {
@@ -30,5 +30,14 @@ export function useStoreHoursExceptions(siteId: string) {
       });
   }, [siteId]);
 
-  return { data, loading, error };
+  useEffect(() => {
+    fetchExceptions();
+  }, [fetchExceptions]);
+
+  return {
+    data,
+    loading,
+    error,
+    refetch: fetchExceptions, // ✅ this is what StoreHoursManager expects
+  };
 }
