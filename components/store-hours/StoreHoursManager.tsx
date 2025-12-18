@@ -9,7 +9,8 @@ import ExceptionModal, {
 } from "./ExceptionModal";
 
 export default function StoreHoursManager({ siteId }: { siteId: string }) {
-  const { data, loading, error, refetch } = useStoreHoursExceptions(siteId);
+  const { data, loading, error, refetch } =
+    useStoreHoursExceptions(siteId);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -79,7 +80,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
         </div>
       </div>
 
-      {/* 3️⃣ MODAL */}
+      {/* 3️⃣ MODAL — STEP 3 FIX */}
       {modalOpen && (
         <ExceptionModal
           open={modalOpen}
@@ -88,7 +89,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
           initialData={modalInitialData}
           onClose={() => setModalOpen(false)}
           onSaved={() => {
-            refetch(); // 🔑 immediate refresh
+            refetch();          // ✅ STEP 3: immediate refresh
             setModalOpen(false);
           }}
         />

@@ -3,8 +3,8 @@
 export interface ExceptionRow {
   exception_id: string;
   name: string;
-
-  resolved_date?: string | null; // YYYY-MM-DD
+  resolved_date: string; // YYYY-MM-DD
+  day_of_week: string;
   open_time: string | null;
   close_time: string | null;
   is_closed: boolean;
@@ -25,32 +25,37 @@ interface ExceptionTableProps {
   onEdit?: (exception: ExceptionRow) => void;
 }
 
-/* ===========================
-   Helpers
-=========================== */
+/* ======================================================
+   Formatting helpers
+====================================================== */
 
-function formatDate(dateStr?: string | null) {
+function formatDate(dateStr: string) {
   if (!dateStr) return "—";
 
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString(undefined, {
+  const date = new Date(`${dateStr}T00:00:00`);
+  return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
+  }).format(date);
 }
 
-function formatDay(dateStr?: string | null) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString(undefined, {
-    weekday: "long",
-  });
+function formatTime(timeStr: string | null) {
+  if (!timeStr) return "";
+
+  const [h, m] = timeStr.split(":").map(Number);
+  const date = new Date();
+  date.setHours(h, m, 0, 0);
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
-/* ===========================
+/* ======================================================
    Component
-=========================== */
+====================================================== */
 
 export default function ExceptionTable({
   title,
@@ -69,16 +74,6 @@ export default function ExceptionTable({
     );
   }
 
-  // 🔒 De-duplicate by exception + date
-  const unique = Array.from(
-    new Map(
-      exceptions.map((ex) => [
-        `${ex.exception_id}-${ex.resolved_date ?? "none"}`,
-        ex,
-      ])
-    ).values()
-  );
-
   return (
     <div className="border rounded bg-white">
       <div className="p-4 border-b">
@@ -89,9 +84,9 @@ export default function ExceptionTable({
         <thead className="bg-gray-50 border-b">
           <tr>
             <th className="p-2 text-left">Name</th>
-            <th className="p-2 text-center">Date</th>
-            <th className="p-2 text-center">Hours</th>
-            <th className="p-2 text-center">Status</th>
+            <th className="p-2">Date</th>
+            <th className="p-2">Hours</th>
+            <th className="p-2">Status</th>
             {!readOnly && onEdit && (
               <th className="p-2 text-right">Action</th>
             )}
@@ -99,12 +94,17 @@ export default function ExceptionTable({
         </thead>
 
         <tbody>
-          {unique.map((ex) => {
-            const isPast = ex.ui_state?.is_past ?? false;
+          {exceptions.map((ex) => {
+            const isPast =
+              ex.ui_state?.is_past ?? false;
+
+            const hoursLabel = ex.is_closed
+              ? "Closed"
+              : `${formatTime(ex.open_time)} – ${formatTime(ex.close_time)}`;
 
             return (
               <tr
-                key={`${ex.exception_id}-${ex.resolved_date ?? "none"}`}
+                key={`${ex.exception_id}-${ex.resolved_date}`}
                 className="border-b last:border-b-0"
               >
                 {/* NAME */}
@@ -126,15 +126,13 @@ export default function ExceptionTable({
                 <td className="p-2 text-center">
                   <div>{formatDate(ex.resolved_date)}</div>
                   <div className="text-xs text-gray-500">
-                    {formatDay(ex.resolved_date)}
+                    {ex.day_of_week}
                   </div>
                 </td>
 
                 {/* HOURS */}
                 <td className="p-2 text-center">
-                  {ex.is_closed
-                    ? "Closed"
-                    : `${ex.open_time} – ${ex.close_time}`}
+                  {hoursLabel}
                 </td>
 
                 {/* STATUS */}

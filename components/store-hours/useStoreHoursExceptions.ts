@@ -5,13 +5,13 @@ export function useStoreHoursExceptions(siteId: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchExceptions = useCallback(() => {
+  const fetchData = useCallback(() => {
     if (!siteId) return;
 
     setLoading(true);
     setError(null);
 
-    fetch(`/api/store-hours/exceptions?site_id=${siteId}`)
+    fetch(`/api/store-hours/exceptions/occurrences?site_id=${siteId}`)
       .then((res) => {
         if (!res.ok) {
           throw new Error("Failed to load store hours exceptions");
@@ -31,13 +31,13 @@ export function useStoreHoursExceptions(siteId: string) {
   }, [siteId]);
 
   useEffect(() => {
-    fetchExceptions();
-  }, [fetchExceptions]);
+    fetchData();
+  }, [fetchData]);
 
   return {
     data,
     loading,
     error,
-    refetch: fetchExceptions, // ✅ this is what StoreHoursManager expects
+    refetch: fetchData,
   };
 }
