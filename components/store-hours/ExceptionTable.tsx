@@ -3,8 +3,8 @@
 export interface ExceptionRow {
   exception_id: string;
   name: string;
-  resolved_date: string; // YYYY-MM-DD
-  day_of_week: string;
+
+  resolved_date?: string | null; // YYYY-MM-DD
   open_time: string | null;
   close_time: string | null;
   is_closed: boolean;
@@ -25,6 +25,33 @@ interface ExceptionTableProps {
   onEdit?: (exception: ExceptionRow) => void;
 }
 
+/* ===========================
+   Helpers
+=========================== */
+
+function formatDate(dateStr?: string | null) {
+  if (!dateStr) return "—";
+
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDay(dateStr?: string | null) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+  });
+}
+
+/* ===========================
+   Component
+=========================== */
+
 export default function ExceptionTable({
   title,
   exceptions,
@@ -42,6 +69,16 @@ export default function ExceptionTable({
     );
   }
 
+  // 🔒 De-duplicate by exception + date
+  const unique = Array.from(
+    new Map(
+      exceptions.map((ex) => [
+        `${ex.exception_id}-${ex.resolved_date ?? "none"}`,
+        ex,
+      ])
+    ).values()
+  );
+
   return (
     <div className="border rounded bg-white">
       <div className="p-4 border-b">
@@ -52,9 +89,9 @@ export default function ExceptionTable({
         <thead className="bg-gray-50 border-b">
           <tr>
             <th className="p-2 text-left">Name</th>
-            <th className="p-2">Date</th>
-            <th className="p-2">Hours</th>
-            <th className="p-2">Status</th>
+            <th className="p-2 text-center">Date</th>
+            <th className="p-2 text-center">Hours</th>
+            <th className="p-2 text-center">Status</th>
             {!readOnly && onEdit && (
               <th className="p-2 text-right">Action</th>
             )}
@@ -62,13 +99,12 @@ export default function ExceptionTable({
         </thead>
 
         <tbody>
-          {exceptions.map((ex) => {
-            const isPast =
-              ex.ui_state?.is_past ?? false;
+          {unique.map((ex) => {
+            const isPast = ex.ui_state?.is_past ?? false;
 
             return (
               <tr
-                key={`${ex.exception_id}-${ex.resolved_date}`}
+                key={`${ex.exception_id}-${ex.resolved_date ?? "none"}`}
                 className="border-b last:border-b-0"
               >
                 {/* NAME */}
@@ -88,9 +124,9 @@ export default function ExceptionTable({
 
                 {/* DATE */}
                 <td className="p-2 text-center">
-                  <div>{ex.resolved_date}</div>
+                  <div>{formatDate(ex.resolved_date)}</div>
                   <div className="text-xs text-gray-500">
-                    {ex.day_of_week}
+                    {formatDay(ex.resolved_date)}
                   </div>
                 </td>
 
