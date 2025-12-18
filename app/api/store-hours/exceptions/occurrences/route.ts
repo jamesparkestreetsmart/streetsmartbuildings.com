@@ -95,4 +95,5 @@ export async function GET(req: NextRequest) {
     upcoming: occurrences.filter(o => !o.ui_state.is_past),
   });
 }
+
 export {};
