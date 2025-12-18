@@ -9,7 +9,7 @@ import ExceptionModal, {
 } from "./ExceptionModal";
 
 export default function StoreHoursManager({ siteId }: { siteId: string }) {
-  const { data, loading, error } = useStoreHoursExceptions(siteId);
+  const { data, loading, error, refetch } = useStoreHoursExceptions(siteId);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -62,8 +62,6 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
             title=""
             exceptions={data.this_year.exceptions}
             onEdit={(ex) => {
-              // 🔑 IMPORTANT FIX:
-              // We must use one of the allowed union values
               setModalMode(
                 ex.source_rule?.is_recurring
                   ? "edit-recurring-forward"
@@ -89,7 +87,10 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
           mode={modalMode}
           initialData={modalInitialData}
           onClose={() => setModalOpen(false)}
-          onSaved={() => setModalOpen(false)}
+          onSaved={() => {
+            refetch();          // ✅ THIS fixes the “reload required” bug
+            setModalOpen(false);
+          }}
         />
       )}
     </>
