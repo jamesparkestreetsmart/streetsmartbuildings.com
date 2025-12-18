@@ -11,7 +11,7 @@ export function useStoreHoursExceptions(siteId: string) {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/store-hours/exceptions/occurrences?site_id=${siteId}`)
+    fetch(`/api/store-hours/exceptions?site_id=${siteId}`)
       .then((res) => {
         if (!res.ok) {
           throw new Error("Failed to load store hours exceptions");
@@ -19,7 +19,18 @@ export function useStoreHoursExceptions(siteId: string) {
         return res.json();
       })
       .then((json) => {
-        setData(json);
+        const past = [
+          ...(json.last_year?.exceptions ?? []),
+          ...(json.this_year?.exceptions ?? []).filter(
+            (e: any) => e.ui_state?.is_past
+          ),
+        ];
+
+        const future = (json.this_year?.exceptions ?? []).filter(
+          (e: any) => !e.ui_state?.is_past
+        );
+
+        setData({ past, future });
       })
       .catch((err) => {
         console.error("Exception load error:", err);
