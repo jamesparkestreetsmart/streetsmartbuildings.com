@@ -11,7 +11,7 @@ export function useStoreHoursExceptions(siteId: string) {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/store-hours/exceptions?site_id=${siteId}`)
+    fetch(`/api/store-hours/exceptions/occurrences?site_id=${siteId}`)
       .then((res) => {
         if (!res.ok) {
           throw new Error("Failed to load store hours exceptions");
