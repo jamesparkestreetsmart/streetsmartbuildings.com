@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 
 export function useStoreHoursExceptions(siteId: string) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<{ past: any[]; future: any[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,25 +13,21 @@ export function useStoreHoursExceptions(siteId: string) {
 
     fetch(`/api/store-hours/exceptions?site_id=${siteId}`)
       .then((res) => {
-        if (!res.ok) {
-          throw new Error("Failed to load store hours exceptions");
-        }
+        if (!res.ok) throw new Error("Failed to load store hours exceptions");
         return res.json();
       })
       .then((json) => {
         const lastYear = json.last_year?.exceptions ?? [];
         const thisYear = json.this_year?.exceptions ?? [];
-        const nextYear = json.next_year?.exceptions ?? [];
 
         const past = [
           ...lastYear,
           ...thisYear.filter((e: any) => e.ui_state?.is_past),
         ];
 
-        const future = [
-          ...thisYear.filter((e: any) => !e.ui_state?.is_past),
-          ...nextYear,
-        ];
+        const future = thisYear.filter(
+          (e: any) => !e.ui_state?.is_past
+        );
 
         setData({ past, future });
       })
@@ -39,19 +35,12 @@ export function useStoreHoursExceptions(siteId: string) {
         console.error("Exception load error:", err);
         setError(err.message);
       })
-      .finally(() => {
-        setLoading(false);
-      });
+      .finally(() => setLoading(false));
   }, [siteId]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  return {
-    data,
-    loading,
-    error,
-    refetch: fetchData,
-  };
+  return { data, loading, error, refetch: fetchData };
 }
