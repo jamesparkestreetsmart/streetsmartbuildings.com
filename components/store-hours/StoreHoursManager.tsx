@@ -21,7 +21,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
   if (loading) return <div>Loading store hours…</div>;
   if (error) return <div className="text-red-600">{error}</div>;
-  if (!data?.past || !data?.future) {
+  if (!data) {
     return <div>Invalid exception data</div>;
   }
 

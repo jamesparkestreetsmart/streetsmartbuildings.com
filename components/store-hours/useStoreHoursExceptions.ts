@@ -19,16 +19,19 @@ export function useStoreHoursExceptions(siteId: string) {
         return res.json();
       })
       .then((json) => {
+        const lastYear = json.last_year?.exceptions ?? [];
+        const thisYear = json.this_year?.exceptions ?? [];
+        const nextYear = json.next_year?.exceptions ?? [];
+
         const past = [
-          ...(json.last_year?.exceptions ?? []),
-          ...(json.this_year?.exceptions ?? []).filter(
-            (e: any) => e.ui_state?.is_past
-          ),
+          ...lastYear,
+          ...thisYear.filter((e: any) => e.ui_state?.is_past),
         ];
 
-        const future = (json.this_year?.exceptions ?? []).filter(
-          (e: any) => !e.ui_state?.is_past
-        );
+        const future = [
+          ...thisYear.filter((e: any) => !e.ui_state?.is_past),
+          ...nextYear,
+        ];
 
         setData({ past, future });
       })
