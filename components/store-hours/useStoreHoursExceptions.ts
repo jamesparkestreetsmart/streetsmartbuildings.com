@@ -20,13 +20,37 @@ export function useStoreHoursExceptions(siteId: string) {
         const lastYear = json.last_year?.exceptions ?? [];
         const thisYear = json.this_year?.exceptions ?? [];
 
+        const today = new Date().toISOString().slice(0, 10);
+
+        // 🔑 Normalize so ui_state ALWAYS exists
+        const normalize = (e: any) => {
+          const resolvedDate = e.resolved_date;
+
+          const isPast =
+            resolvedDate && resolvedDate < today;
+
+          return {
+            ...e,
+            ui_state: e.ui_state ?? {
+              is_past: isPast,
+              is_editable: !isPast,
+              requires_forward_only_edit: false,
+            },
+          };
+        };
+
+        const normalizedLastYear = lastYear.map(normalize);
+        const normalizedThisYear = thisYear.map(normalize);
+
         const past = [
-          ...lastYear,
-          ...thisYear.filter((e: any) => e.ui_state?.is_past),
+          ...normalizedLastYear,
+          ...normalizedThisYear.filter(
+            (e: any) => e.ui_state.is_past
+          ),
         ];
 
-        const future = thisYear.filter(
-          (e: any) => !e.ui_state?.is_past
+        const future = normalizedThisYear.filter(
+          (e: any) => !e.ui_state.is_past
         );
 
         setData({ past, future });
