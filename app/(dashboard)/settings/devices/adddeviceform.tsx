@@ -33,7 +33,8 @@ interface LibraryDevice {
   library_device_id: string;
   product_code: string;
   device_name: string;
-  model: string;
+  manufacturer?: string | null;
+  model?: string | null;
   protocol: string | null;
   connection_type: string | null;
   zwave_lr?: boolean | null;
@@ -70,7 +71,7 @@ export default function AddDeviceForm({
   const [selectedLibraryId, setSelectedLibraryId] = useState<string>("");
 
   // =========================
-  // LOAD LIBRARY + SITES + EQUIPMENT
+  // LOAD INITIAL DATA
   // =========================
   const loadInitialData = useCallback(async () => {
     const [libRes, sitesRes, eqRes] = await Promise.all([
@@ -85,23 +86,13 @@ export default function AddDeviceForm({
         .order("equipment_name"),
     ]);
 
-    if (libRes.data) {
-      setLibraryOptions(libRes.data as LibraryDevice[]);
-    }
-
-    if (sitesRes.data) {
-      setSites(sitesRes.data as Site[]);
-    }
-
-    if (eqRes.data) {
-      setEquipment(eqRes.data as Equipment[]);
-    }
+    if (libRes.data) setLibraryOptions(libRes.data as LibraryDevice[]);
+    if (sitesRes.data) setSites(sitesRes.data as Site[]);
+    if (eqRes.data) setEquipment(eqRes.data as Equipment[]);
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      await loadInitialData();
-    })();
+    void loadInitialData();
   }, [loadInitialData]);
 
   // =========================
@@ -111,7 +102,6 @@ export default function AddDeviceForm({
     setSelectedLibraryId(libraryId);
 
     if (!libraryId) {
-      // Reset device fields but keep site/equipment/status/service_notes
       setNewDevice((prev) => ({
         ...prev,
         device_name: "",
@@ -133,12 +123,11 @@ export default function AddDeviceForm({
       protocol: lib.protocol ?? "",
       connection_type: lib.connection_type ?? "wireless",
       firmware_version: "",
-      // leave site_id, equipment_id, status, service_notes as-is
     }));
   };
 
   // =========================
-  // SAVE (DEVICE + OPTIONAL SENSORS)
+  // SAVE
   // =========================
   const handleSave = async () => {
     if (!newDevice.device_name || !newDevice.serial_number) {
@@ -150,6 +139,11 @@ export default function AddDeviceForm({
       alert("Please select both a Site and Equipment.");
       return;
     }
+
+    // 🔑 Resolve library device ONCE
+    const lib = libraryOptions.find(
+      (l) => l.library_device_id === selectedLibraryId
+    );
 
     // 1) Insert device
     const { data: device, error: deviceError } = await supabase
@@ -165,6 +159,12 @@ export default function AddDeviceForm({
         ip_address: newDevice.ip_address || null,
         status: newDevice.status,
         service_notes: newDevice.service_notes || null,
+
+        // Library metadata
+        library_device_id: lib?.library_device_id ?? null,
+        manufacturer: lib?.manufacturer ?? null,
+        model: lib?.model ?? null,
+        zwave_lr: lib?.zwave_lr ?? null,
       })
       .select()
       .single();
@@ -175,18 +175,15 @@ export default function AddDeviceForm({
       return;
     }
 
-    // 2) If no library template selected, we're done
-    const lib = libraryOptions.find(
-      (l) => l.library_device_id === selectedLibraryId
-    );
-    if (!lib || !lib.default_sensors || lib.default_sensors.length === 0) {
+    // 2) No sensors to add
+    if (!lib || !lib.default_sensors?.length) {
       await fetchDevices();
       setShowAdd(false);
       alert("Device created.");
       return;
     }
 
-    // 3) Load mappings for all sensor types
+    // 3) Load sensor mappings
     const sensorTypes = lib.default_sensors.map((s) => s.sensor_type);
 
     const { data: mappings, error: mappingError } = await supabase
@@ -196,16 +193,16 @@ export default function AddDeviceForm({
 
     if (mappingError) {
       console.error(mappingError);
-      alert("Device created, but failed to load sensor mappings.");
+      alert("Device created, but sensor mappings failed.");
       await fetchDevices();
       setShowAdd(false);
       return;
     }
 
-    // 4) Build a_sensors rows
+    // 4) Insert sensors
     const sensorsToInsert = lib.default_sensors.map((s) => {
-      const map = (mappings ?? []).find(
-        (m: Record<string, unknown>) => m.sensor_type === s.sensor_type
+      const map = mappings?.find(
+        (m: any) => m.sensor_type === s.sensor_type
       );
 
       return {
@@ -220,7 +217,7 @@ export default function AddDeviceForm({
         scale_factor: 1,
         calibration_offset: 0,
         status: "active",
-        log_table: map ? map.log_table : null,
+        log_table: map?.log_table ?? null,
       };
     });
 
@@ -230,9 +227,9 @@ export default function AddDeviceForm({
 
     if (sensorError) {
       console.error(sensorError);
-      alert("Device added, but sensors failed to generate.");
+      alert("Device added, but sensors failed.");
     } else {
-      alert("Device and default sensors added successfully!");
+      alert("Device and default sensors added!");
     }
 
     await fetchDevices();
@@ -244,7 +241,6 @@ export default function AddDeviceForm({
   // =========================
   return (
     <div className="space-y-4">
-      {/* TEMPLATE DROPDOWN */}
       <div>
         <label className="block text-sm font-medium mb-1">
           Device Template (optional)
@@ -263,68 +259,44 @@ export default function AddDeviceForm({
         </select>
       </div>
 
-      {/* BASIC FIELDS */}
       {(
         [
           ["device_name", "Device Name"],
           ["serial_number", "Serial Number"],
           ["protocol", "Protocol"],
           ["connection_type", "Connection Type"],
-          ["model", "Model (optional)"],
           ["firmware_version", "Firmware Version"],
           ["ip_address", "IP Address"],
-        ] as [keyof NewDevice | "model", string][]
-      ).map(([key, label]) => {
-        // "model" is not in NewDevice, so keep it from template only (no persistence)
-        if (key === "model") {
-          return (
-            <div key={key}>
-              <label className="block text-sm mb-1">{label}</label>
-              <input
-                type="text"
-                className="w-full border rounded-md p-2"
-                // read-only placeholder for now based off library model if needed
-                placeholder="(optional)"
-                disabled
-              />
-            </div>
-          );
-        }
+        ] as [keyof NewDevice, string][]
+      ).map(([key, label]) => (
+        <div key={key}>
+          <label className="block text-sm mb-1">{label}</label>
+          <input
+            type="text"
+            className="w-full border rounded-md p-2"
+            value={newDevice[key] ?? ""}
+            onChange={(e) =>
+              setNewDevice((prev) => ({
+                ...prev,
+                [key]: e.target.value,
+              }))
+            }
+          />
+        </div>
+      ))}
 
-        const nk = key as keyof NewDevice;
-
-        return (
-          <div key={nk}>
-            <label className="block text-sm mb-1">{label}</label>
-            <input
-              type="text"
-              className="w-full border rounded-md p-2"
-              value={newDevice[nk] ?? ""}
-              onChange={(e) =>
-                setNewDevice((prev) => ({
-                  ...prev,
-                  [nk]: e.target.value,
-                }))
-              }
-            />
-          </div>
-        );
-      })}
-
-      {/* SITE */}
       <div>
         <label className="block text-sm mb-1">Site</label>
         <select
           className="w-full border rounded-md p-2"
           value={newDevice.site_id}
-          onChange={(e) => {
-            const site_id = e.target.value;
+          onChange={(e) =>
             setNewDevice((prev) => ({
               ...prev,
-              site_id,
-              equipment_id: "", // reset equipment when site changes
-            }));
-          }}
+              site_id: e.target.value,
+              equipment_id: "",
+            }))
+          }
         >
           <option value="">Select Site</option>
           {sites.map((s) => (
@@ -335,7 +307,6 @@ export default function AddDeviceForm({
         </select>
       </div>
 
-      {/* EQUIPMENT */}
       <div>
         <label className="block text-sm mb-1">Equipment</label>
         <select
@@ -362,7 +333,6 @@ export default function AddDeviceForm({
         </select>
       </div>
 
-      {/* SERVICE NOTES */}
       <div>
         <label className="block text-sm mb-1">Service Notes</label>
         <textarea
@@ -377,7 +347,6 @@ export default function AddDeviceForm({
         />
       </div>
 
-      {/* BUTTONS */}
       <div className="flex justify-end gap-3 mt-4">
         <button
           onClick={() => setShowAdd(false)}
@@ -387,7 +356,7 @@ export default function AddDeviceForm({
         </button>
         <button
           onClick={handleSave}
-          className="px-4 py-1.5 text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-500 hover:from-green-700 hover:to-yellow-600"
+          className="px-4 py-1.5 text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-500"
         >
           Save Device
         </button>
