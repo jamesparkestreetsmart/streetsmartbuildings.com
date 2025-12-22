@@ -1,3 +1,4 @@
+// app/(dashboard)/settings/devices/adddeviceform.tsx
 "use client";
 
 import {
