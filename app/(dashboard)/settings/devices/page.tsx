@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Plus, Trash2, ArrowUpDown, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
-import AddDeviceForm, { NewDevice } from "./adddeviceform";
+import AddDeviceForm from "./AddDeviceForm";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,44 +13,33 @@ const supabase = createClient(
 
 interface Device {
   device_id: string;
+  status: string;
   device_name: string;
-  serial_number: string;
-  protocol: string;
-  connection_type: string;
-  firmware_version: string;
-  ip_address: string | null;
   site_name: string | null;
   equipment_name: string | null;
-  status: string | null;
-  service_notes: string | null;
+  ha_device_id: string | null;
+  template_name: string | null;
+  device_role: string;
+  ip_address: string | null;
+  serial_number: string;
+  firmware_version: string | null;
+
+  // ✅ already correct
+  last_message: string | null;
+
   created_at: string;
 }
 
 export default function DevicesPage() {
   const router = useRouter();
-
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [sortColumn, setSortColumn] = useState<keyof Device>("created_at");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [sortColumn, setSortColumn] =
+    useState<keyof Device>("created_at");
+  const [sortOrder, setSortOrder] =
+    useState<"asc" | "desc">("desc");
 
-  const [showAdd, setShowAdd] = useState(false);
-
-  const [newDevice, setNewDevice] = useState<NewDevice>({
-    device_name: "",
-    serial_number: "",
-    protocol: "",
-    connection_type: "",
-    firmware_version: "",
-    ip_address: "",
-    site_id: "",
-    equipment_id: "",
-    status: "active",
-    service_notes: "",
-  });
-
-  // FETCH DEVICES
   const fetchDevices = useCallback(async () => {
     setLoading(true);
 
@@ -59,54 +48,34 @@ export default function DevicesPage() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error(error);
-    } else {
-      setDevices(data || []);
-    }
+    if (!error) setDevices(data ?? []);
+    else console.error(error);
 
     setLoading(false);
   }, []);
 
-  // RUN ON MOUNT
   useEffect(() => {
-    void (async () => {
-      await fetchDevices();
-    })();
+    fetchDevices();
   }, [fetchDevices]);
 
-  // SORT
   const sort = (column: keyof Device) => {
-    const newOrder =
+    const order =
       sortColumn === column && sortOrder === "asc" ? "desc" : "asc";
 
     setSortColumn(column);
-    setSortOrder(newOrder);
+    setSortOrder(order);
 
     setDevices((prev) =>
       [...prev].sort((a, b) => {
-        const aVal = a[column] ?? "";
-        const bVal = b[column] ?? "";
-        if (aVal < bVal) return newOrder === "asc" ? -1 : 1;
-        if (aVal > bVal) return newOrder === "asc" ? 1 : -1;
-        return 0;
+        const av = a[column] ?? "";
+        const bv = b[column] ?? "";
+        return av < bv ? (order === "asc" ? -1 : 1)
+             : av > bv ? (order === "asc" ? 1 : -1)
+             : 0;
       })
     );
   };
 
-  const renderHeader = (label: string, column: keyof Device) => (
-    <th
-      onClick={() => sort(column)}
-      className="p-3 text-left cursor-pointer hover:text-green-600"
-    >
-      <div className="flex items-center gap-1">
-        {label}
-        <ArrowUpDown className="w-4 h-4" />
-      </div>
-    </th>
-  );
-
-  // DELETE
   const deleteDevice = async (device_id: string) => {
     if (!confirm("Delete this device?")) return;
 
@@ -115,69 +84,62 @@ export default function DevicesPage() {
       .delete()
       .eq("device_id", device_id);
 
-    if (error) {
-      console.error(error);
-      alert("Failed to delete device.");
-      return;
-    }
-
-    fetchDevices();
+    if (error) alert("Failed to delete device.");
+    else fetchDevices();
   };
 
   if (loading) {
-    return <div className="p-6 text-gray-500">Loading devices...</div>;
+    return <div className="p-6 text-gray-500">Loading devices…</div>;
   }
 
   return (
-    <div className="p-6 space-y-8">
-      {/* HEADER */}
-      <div className="flex items-center justify-between">
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
         <button
           onClick={() => router.push("/settings")}
-          className="flex items-center gap-2 text-sm text-green-700 hover:text-green-900"
+          className="flex items-center gap-2 text-sm text-green-700"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Settings
         </button>
 
         <button
-          onClick={() => {
-            // reset before opening
-            setNewDevice({
-              device_name: "",
-              serial_number: "",
-              protocol: "",
-              connection_type: "",
-              firmware_version: "",
-              ip_address: "",
-              site_id: "",
-              equipment_id: "",
-              status: "active",
-              service_notes: "",
-            });
-            setShowAdd(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-500"
+          className="flex items-center gap-2 px-4 py-2 text-white rounded-md
+                     bg-gradient-to-r from-green-600 to-yellow-500"
         >
           <Plus className="w-4 h-4" /> Add Device
         </button>
       </div>
 
-      {/* TABLE */}
-      <div className="bg-white shadow border rounded-lg overflow-x-auto">
+      <div className="bg-white border rounded-lg overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-100 text-gray-700 uppercase">
+          <thead className="bg-gray-100 uppercase">
             <tr>
-              {renderHeader("Device Name", "device_name")}
-              {renderHeader("Serial Number", "serial_number")}
-              {renderHeader("Protocol", "protocol")}
-              {renderHeader("Connection", "connection_type")}
-              {renderHeader("Firmware", "firmware_version")}
-              {renderHeader("IP Address", "ip_address")}
-              {renderHeader("Site", "site_name")}
-              {renderHeader("Equipment", "equipment_name")}
-              {renderHeader("Status", "status")}
-              {renderHeader("Created", "created_at")}
-              <th className="p-3">Service Notes</th>
+              {[
+                ["Status", "status"],
+                ["Device Name", "device_name"],
+                ["Site", "site_name"],
+                ["Equipment", "equipment_name"],
+                ["HA Device ID", "ha_device_id"],
+                ["Template", "template_name"],
+                ["Role", "device_role"],
+                ["IP Address", "ip_address"],
+                ["Serial", "serial_number"],
+                ["Firmware", "firmware_version"],
+
+                // ✅ NEW COLUMN
+                ["Last Message", "last_message"],
+              ].map(([label, key]) => (
+                <th
+                  key={key}
+                  onClick={() => sort(key as keyof Device)}
+                  className="p-3 text-left cursor-pointer"
+                >
+                  <div className="flex items-center gap-1">
+                    {label}
+                    <ArrowUpDown className="w-4 h-4" />
+                  </div>
+                </th>
+              ))}
               <th className="p-3 text-center">Actions</th>
             </tr>
           </thead>
@@ -185,8 +147,10 @@ export default function DevicesPage() {
           <tbody>
             {devices.map((d) => (
               <tr key={d.device_id} className="border-b hover:bg-gray-50">
+                <td className="p-3 font-medium">{d.status}</td>
+
                 <td
-                  className="p-3 font-medium text-green-700 cursor-pointer hover:underline"
+                  className="p-3 text-green-700 cursor-pointer hover:underline"
                   onClick={() =>
                     router.push(`/settings/devices/${d.device_id}`)
                   }
@@ -194,38 +158,24 @@ export default function DevicesPage() {
                   {d.device_name}
                 </td>
 
+                <td className="p-3">{d.site_name ?? "—"}</td>
+                <td className="p-3">{d.equipment_name ?? "—"}</td>
+                <td className="p-3">{d.ha_device_id ?? "—"}</td>
+                <td className="p-3">{d.template_name ?? "—"}</td>
+                <td className="p-3">{d.device_role}</td>
+                <td className="p-3">{d.ip_address ?? "—"}</td>
                 <td className="p-3">{d.serial_number}</td>
-                <td className="p-3">{d.protocol}</td>
-                <td className="p-3">{d.connection_type}</td>
-                <td className="p-3">{d.firmware_version}</td>
-                <td className="p-3">{d.ip_address || "—"}</td>
-                <td className="p-3">{d.site_name || "—"}</td>
-                <td className="p-3">{d.equipment_name || "—"}</td>
+                <td className="p-3">{d.firmware_version ?? "—"}</td>
 
-                <td
-                  className={`p-3 font-medium ${
-                    d.status === "active"
-                      ? "text-green-600"
-                      : d.status === "offline"
-                      ? "text-orange-600"
-                      : "text-gray-500"
-                  }`}
-                >
-                  {d.status}
-                </td>
-
-                <td className="p-3">
-                  {new Date(d.created_at).toLocaleDateString()}
-                </td>
-
-                <td className="p-3 italic text-gray-600">
-                  {d.service_notes || "—"}
+                {/* ✅ NEW CELL */}
+                <td className="p-3 italic text-gray-600 max-w-[320px] truncate">
+                  {d.last_message ?? "—"}
                 </td>
 
                 <td className="p-3 text-center">
                   <button
                     onClick={() => deleteDevice(d.device_id)}
-                    className="text-red-600 hover:text-red-800"
+                    className="text-red-600"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -235,20 +185,6 @@ export default function DevicesPage() {
           </tbody>
         </table>
       </div>
-
-      {/* ADD DEVICE MODAL */}
-      {showAdd && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-xl shadow-xl w-[500px]">
-            <AddDeviceForm
-              newDevice={newDevice}
-              setNewDevice={setNewDevice}
-              setShowAdd={setShowAdd}
-              fetchDevices={fetchDevices}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

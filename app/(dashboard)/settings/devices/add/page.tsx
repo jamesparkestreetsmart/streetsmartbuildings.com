@@ -1,19 +1,29 @@
 "use client";
 
-import { useSearchParams, useRouter } from "next/navigation";
-import AddDeviceForm from "@/components/devices/adddeviceform";
+// app/settings/devices/add/page.tsx
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import AddDeviceForm, { NewDevice } from "./AddDeviceForm";
 
 export default function AddDevicePage() {
-  const params = useSearchParams();
   const router = useRouter();
 
-  const equipmentId = params.get("equipment");
-  const siteId = params.get("site");
+  const [newDevice, setNewDevice] = useState<NewDevice>({
+    device_name: "",
+    serial_number: "",
+    protocol: "",
+    connection_type: "",
+    firmware_version: "",
+    ip_address: "",
+    site_id: "",
+    equipment_id: "",
+    status: "active",
+  });
 
   return (
     <div className="p-6 space-y-6">
-
       {/* BACK BUTTON */}
       <button
         onClick={() => router.back()}
@@ -25,13 +35,14 @@ export default function AddDevicePage() {
 
       <h1 className="text-xl font-semibold">Add Device</h1>
 
-      {equipmentId && siteId ? (
-        <AddDeviceForm siteId={siteId} equipmentId={equipmentId} />
-      ) : (
-        <p className="text-red-600 text-sm">
-          Missing equipment or site ID in URL.
-        </p>
-      )}
+      <AddDeviceForm
+        newDevice={newDevice}
+        setNewDevice={setNewDevice}
+        setShowAdd={() => router.back()}
+        fetchDevices={async () => {
+          /* no-op for page usage */
+        }}
+      />
     </div>
   );
 }
