@@ -60,6 +60,7 @@ interface DeviceGroup {
   ha_device_display_name: string;
   equipment_id: string | null;
   equipment_name: string | null;
+  business_device_name: string | null;
   entities: SyncEntityRow[];
 }
 
@@ -91,8 +92,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   const [loading, setLoading] = useState(true);
 
   const [editingHaDevice, setEditingHaDevice] = useState<string | null>(null);
-  const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [selectedValue, setSelectedValue] = useState<string | null>(null);
 
   /* ======================================================
    Group HA devices
@@ -110,6 +110,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
           ha_device_display_name: r.ha_device_display_name,
           equipment_id: r.equipment_id ?? null,
           equipment_name: r.equipment_name ?? null,
+          business_device_name: r.business_device_name ?? null,
           entities: [],
         });
       }
@@ -119,6 +120,36 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
 
     return Array.from(map.values());
   }, [rows]);
+
+  /* ======================================================
+   Group business devices by equipment (A → Z)
+  ====================================================== */
+
+  const devicesByEquipment = useMemo(() => {
+    const map = new Map<string, BusinessDevice[]>();
+
+    devices.forEach((d) => {
+      if (!d.equipment_id) return;
+      if (!map.has(d.equipment_id)) {
+        map.set(d.equipment_id, []);
+      }
+      map.get(d.equipment_id)!.push(d);
+    });
+
+    map.forEach((list) =>
+      list.sort((a, b) => a.device_name.localeCompare(b.device_name))
+    );
+
+    return map;
+  }, [devices]);
+
+  const sortedEquipments = useMemo(
+    () =>
+      [...equipments].sort((a, b) =>
+        a.equipment_name.localeCompare(b.equipment_name)
+      ),
+    [equipments]
+  );
 
   /* ======================================================
    Fetch (15-min auto refresh)
@@ -155,7 +186,9 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   ====================================================== */
 
   const submitMapping = async (ha_device_id: string) => {
-    if (selectedDeviceId === "__UNMAP__") {
+    if (!selectedValue) return;
+
+    if (selectedValue === "__UNMAP__") {
       await fetch("/api/device-map", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -166,22 +199,23 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
           note: "HA device unmapped via gateway UI",
         }),
       });
-    } else if (selectedDeviceId) {
+    } else {
+      const [, device_id] = selectedValue.split("::");
+
       await fetch("/api/device-map", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           site_id: siteid,
           ha_device_id,
-          device_id: selectedDeviceId,
+          device_id,
           note: "HA device mapped via gateway UI",
         }),
       });
     }
 
     setEditingHaDevice(null);
-    setSelectedEquipmentId(null);
-    setSelectedDeviceId(null);
+    setSelectedValue(null);
     fetchAll();
   };
 
@@ -217,57 +251,45 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                   HA ID: {d.ha_device_id}
                 </div>
 
+                {/* Current mapping */}
+                {d.equipment_name && d.business_device_name && (
+                  <div className="text-sm text-gray-600">
+                    Mapped to:{" "}
+                    <span className="font-medium">
+                      {d.equipment_name} → {d.business_device_name}
+                    </span>
+                  </div>
+                )}
+
                 {editingHaDevice === d.ha_device_id ? (
                   <div className="space-y-2 mt-2">
-                    {/* Equipment dropdown */}
                     <Select
-                      value={selectedEquipmentId ?? ""}
-                      onValueChange={(v) => {
-                        setSelectedEquipmentId(v);
-                        setSelectedDeviceId(null);
-                      }}
+                      value={selectedValue ?? ""}
+                      onValueChange={setSelectedValue}
                     >
                       <SelectTrigger className="bg-slate-800 text-white">
-                        <SelectValue placeholder="Select equipment" />
+                        <SelectValue placeholder="Select equipment & device" />
                       </SelectTrigger>
+
                       <SelectContent className="bg-slate-800 text-white">
-                        {equipments.map((eq) => (
-                          <SelectItem
-                            key={eq.equipment_id}
-                            value={eq.equipment_id}
-                          >
-                            {eq.equipment_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                        <SelectItem value="__UNMAP__" className="text-red-400">
+                          — Unmap HA Device —
+                        </SelectItem>
 
-                    {/* Device dropdown */}
-                    {selectedEquipmentId && (
-                      <Select
-                        value={selectedDeviceId ?? ""}
-                        onValueChange={setSelectedDeviceId}
-                      >
-                        <SelectTrigger className="bg-slate-900 text-white">
-                          <SelectValue placeholder="Select business device" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-900 text-white">
-                          <SelectItem value="__UNMAP__" className="text-red-400">
-                            — Unmap HA Device —
-                          </SelectItem>
+                        {sortedEquipments.map((eq) => (
+                          <div key={eq.equipment_id}>
+                            <div className="px-3 py-1 text-xs text-slate-400 uppercase">
+                              {eq.equipment_name}
+                            </div>
 
-                          {devices
-                            .filter(
-                              (bd) =>
-                                bd.equipment_id === selectedEquipmentId
-                            )
-                            .map((bd) => (
+                            {(devicesByEquipment.get(eq.equipment_id) ??
+                              []).map((bd) => (
                               <SelectItem
                                 key={bd.device_id}
-                                value={bd.device_id}
+                                value={`${eq.equipment_id}::${bd.device_id}`}
                                 className={
                                   bd.ha_device_id
-                                    ? "text-yellow-400"
+                                    ? "text-amber-400"
                                     : "text-emerald-400"
                                 }
                               >
@@ -275,14 +297,15 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                                 {bd.ha_device_id ? " (mapped)" : ""}
                               </SelectItem>
                             ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+                          </div>
+                        ))}
+                      </SelectContent>
+                    </Select>
 
                     <div className="flex gap-2">
                       <Button
                         onClick={() => submitMapping(d.ha_device_id)}
-                        disabled={!selectedDeviceId}
+                        disabled={!selectedValue}
                       >
                         Save
                       </Button>
