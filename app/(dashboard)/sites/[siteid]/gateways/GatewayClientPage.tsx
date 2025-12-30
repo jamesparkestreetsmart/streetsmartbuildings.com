@@ -70,6 +70,16 @@ interface DeviceGroup {
  Helpers
 ====================================================== */
 
+const lastSeenClass = (date: string | null) => {
+  if (!date) return "text-red-400";
+  const ageMs = Date.now() - new Date(date).getTime();
+  const hours = ageMs / 36e5;
+
+  if (hours >= 24) return "text-red-400";
+  if (hours >= 6) return "text-amber-300";
+  return "text-emerald-300";
+};
+
 const formatRelativeTime = (date: string | null) => {
   if (!date) return "—";
   const diff = Date.now() - new Date(date).getTime();
@@ -79,6 +89,30 @@ const formatRelativeTime = (date: string | null) => {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} hr ago`;
   return `${Math.floor(hours / 24)} d ago`;
+};
+
+const formatValue = (value: string | null, unit: string | null) => {
+  if (!value) return "—";
+
+  const isIso =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(
+      value
+    );
+
+  if (isIso) {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleString(undefined, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+  }
+
+  return unit ? `${value} ${unit}` : value;
 };
 
 /* ======================================================
@@ -366,15 +400,22 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                       <td className="px-3 py-2">
                         {e.sensor_type ?? "—"}
                       </td>
-                      <td className="px-3 py-2">
+
+                      {/* 🔴🟡🟢 LAST SEEN WITH COLOR */}
+                      <td
+                        className={`px-3 py-2 ${lastSeenClass(
+                          e.last_seen_at
+                        )}`}
+                      >
                         {formatRelativeTime(e.last_seen_at)}
                       </td>
+
+                      {/* 🕒 LOCAL-TIME / FORMATTED VALUE */}
                       <td className="px-3 py-2">
-                        {e.last_state
-                          ? e.unit_of_measurement
-                            ? `${e.last_state} ${e.unit_of_measurement}`
-                            : e.last_state
-                          : "—"}
+                        {formatValue(
+                          e.last_state,
+                          e.unit_of_measurement
+                        )}
                       </td>
                     </tr>
                   ))}
