@@ -211,16 +211,25 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   };
 
   const commitLink = async (haId: string) => {
-    const st = stateByHa[haId];
-    if (!st?.staged_device_id) return;
+  const st = stateByHa[haId];
+  if (!st?.staged_device_id) return;
 
-    await supabase
-      .from("a_devices")
-      .update({ ha_device_id: haId })
-      .eq("device_id", st.staged_device_id);
+  // 1. Unlink any existing device using this HA device
+  await supabase
+    .from("a_devices")
+    .update({ ha_device_id: null })
+    .eq("ha_device_id", haId);
 
-    fetchAll();
-  };
+  // 2. Link the newly selected device
+  await supabase
+    .from("a_devices")
+    .update({ ha_device_id: haId })
+    .eq("device_id", st.staged_device_id);
+
+  // 3. Refresh state
+  fetchAll();
+};
+
 
   /* ======================================================
    UI
