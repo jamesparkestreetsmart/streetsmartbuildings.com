@@ -20,8 +20,6 @@ interface SyncEntityRow {
   ha_device_id: string | null;
   device_id: string | null;
   device_name: string | null;
-  manufacturer?: string | null;
-  model?: string | null;
   last_state: string | null;
   unit_of_measurement: string | null;
   last_seen_at: string | null;
@@ -75,6 +73,17 @@ const equipmentSuffix = (status: EquipmentStatus) =>
     : "";
 
 /* ======================================================
+ HA NAME DERIVATION (AUTHORITATIVE)
+====================================================== */
+const deriveHaName = (entityId: string) => {
+  const base = entityId.split(".")[1] ?? entityId;
+  return base
+    .replace(/_\d+$/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+/* ======================================================
  Component
 ====================================================== */
 export default function GatewayClientPage({ siteid }: { siteid: string }) {
@@ -93,10 +102,8 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         committed_device_name?: string;
         committed_equipment_id?: string;
         committed_equipment_name?: string;
-
         staged_equipment_id?: string;
         staged_device_id?: string;
-
         available_devices?: Device[];
         loading_devices?: boolean;
       }
@@ -104,7 +111,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   >({});
 
   /* ======================================================
-   Group HA devices
+   Group HA devices (IDENTITY FIXED HERE)
   ====================================================== */
   const devices = useMemo<DeviceGroup[]>(() => {
     const map = new Map<string, DeviceGroup>();
@@ -115,7 +122,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
       if (!map.has(r.ha_device_id)) {
         map.set(r.ha_device_id, {
           ha_device_id: r.ha_device_id,
-          display_name: `${r.manufacturer ?? "HA Device"} ${r.model ?? ""}`.trim(),
+          display_name: deriveHaName(r.entity_id),
           entities: [],
         });
       }
@@ -144,8 +151,6 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     const haIds = Array.from(
       new Set((entities ?? []).map((e: any) => e.ha_device_id).filter(Boolean))
     );
-
-    if (!haIds.length) return;
 
     const { data: linked } = await supabase
       .from("a_devices")
@@ -179,67 +184,12 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   }, [fetchAll]);
 
   /* ======================================================
-   Device loading + commit
-  ====================================================== */
-  const loadDevices = async (haId: string, equipmentId: string) => {
-    setStateByHa((p) => ({
-      ...p,
-      [haId]: {
-        ...p[haId],
-        staged_equipment_id: equipmentId,
-        staged_device_id: undefined,
-        loading_devices: true,
-      },
-    }));
-
-    const { data } = await supabase
-      .from("a_devices")
-      .select("device_id, device_name")
-      .eq("equipment_id", equipmentId)
-      .eq("status", "active");
-
-    setStateByHa((p) => ({
-      ...p,
-      [haId]: {
-        ...p[haId],
-        available_devices: (data ?? []) as Device[],
-        loading_devices: false,
-      },
-    }));
-  };
-
-  const commitLink = async (haId: string) => {
-  const st = stateByHa[haId];
-  if (!st?.staged_device_id) return;
-
-  // 1. Unlink any existing device using this HA device
-  await supabase
-    .from("a_devices")
-    .update({ ha_device_id: null })
-    .eq("ha_device_id", haId);
-
-  // 2. Link the newly selected device
-  await supabase
-    .from("a_devices")
-    .update({ ha_device_id: haId })
-    .eq("device_id", st.staged_device_id);
-
-  // 3. Refresh state
-  fetchAll();
-};
-
-
-  /* ======================================================
    UI
   ====================================================== */
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          onClick={() => router.push(`/sites/${siteid}`)}
-        >
+        <Button variant="outline" onClick={() => router.push(`/sites/${siteid}`)}>
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Site
         </Button>
@@ -259,108 +209,28 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                 <CardTitle className="space-y-1">
                   <div className="text-emerald-700 font-semibold">
                     {d.display_name}
-
                   </div>
-
                   <div className="text-xs text-gray-500 font-mono">
                     HA ID: {d.ha_device_id}
                   </div>
 
-                  {/* ✅ MAPPED DISPLAY */}
                   {st.mode !== "unlinked" && (
                     <div className="text-sm text-gray-700 mt-2">
                       <span className="font-medium">Mapped to:</span>{" "}
                       {st.committed_equipment_name} →{" "}
-                      {st.committed_device_name}
+                      <Link
+                        href={`/settings/devices/${st.committed_device_id}`}
+                        className="underline"
+                      >
+                        {st.committed_device_name}
+                      </Link>
                     </div>
                   )}
                 </CardTitle>
               </CardHeader>
 
-              <CardContent className="space-y-4">
-                {st.mode === "linked" && (
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      setStateByHa((p) => ({
-                        ...p,
-                        [d.ha_device_id]: {
-                          ...p[d.ha_device_id],
-                          mode: "editing",
-                          staged_equipment_id:
-                            p[d.ha_device_id].committed_equipment_id,
-                        },
-                      }))
-                    }
-                  >
-                    Reassign Device
-                  </Button>
-                )}
-
-                {(st.mode === "editing" || st.mode === "unlinked") && (
-                  <>
-                    <select
-                      className="w-full border rounded px-3 py-2"
-                      value={st.staged_equipment_id ?? ""}
-                      onChange={(e) =>
-                        loadDevices(d.ha_device_id, e.target.value)
-                      }
-                    >
-                      <option value="">— Select Equipment —</option>
-                      {equipments.map((eq) => (
-                        <option
-                          key={eq.equipment_id}
-                          value={eq.equipment_id}
-                          disabled={eq.status === "retired"}
-                        >
-                          {eq.equipment_name}
-                          {equipmentSuffix(eq.status)}
-                        </option>
-                      ))}
-                    </select>
-
-                    {st.staged_equipment_id && (
-                      <select
-                        className="w-full border rounded px-3 py-2"
-                        value={st.staged_device_id ?? ""}
-                        onChange={(e) =>
-                          setStateByHa((p) => ({
-                            ...p,
-                            [d.ha_device_id]: {
-                              ...p[d.ha_device_id],
-                              staged_device_id: e.target.value,
-                            },
-                          }))
-                        }
-                      >
-                        <option value="">
-                          {st.loading_devices
-                            ? "Loading devices…"
-                            : "— Select Device —"}
-                        </option>
-                        {(st.available_devices ?? []).map((dev) => (
-                          <option
-                            key={dev.device_id}
-                            value={dev.device_id}
-                          >
-                            {dev.device_name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-
-                    {st.staged_device_id && (
-                      <Button onClick={() => commitLink(d.ha_device_id)}>
-                        {st.mode === "editing"
-                          ? "Update Link"
-                          : "Link Device"}
-                      </Button>
-                    )}
-                  </>
-                )}
-
-                {/* Entities */}
-                <table className="w-full text-sm mt-4">
+              <CardContent>
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-gray-500">
                       <th>Entity</th>
