@@ -84,10 +84,27 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   const [equipments, setEquipments] = useState<Equipment[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [stateByHa, setStateByHa] = useState<Record<string, any>>({});
+  const [stateByHa, setStateByHa] = useState<
+    Record<
+      string,
+      {
+        mode: LinkMode;
+        committed_device_id?: string;
+        committed_device_name?: string;
+        committed_equipment_id?: string;
+        committed_equipment_name?: string;
+
+        staged_equipment_id?: string;
+        staged_device_id?: string;
+
+        available_devices?: Device[];
+        loading_devices?: boolean;
+      }
+    >
+  >({});
 
   /* ======================================================
-   Group HA devices (SOURCE OF TRUTH = HA ONLY)
+   Group HA devices
   ====================================================== */
   const devices = useMemo<DeviceGroup[]>(() => {
     const map = new Map<string, DeviceGroup>();
@@ -178,7 +195,8 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     const { data } = await supabase
       .from("a_devices")
       .select("device_id, device_name")
-      .eq("equipment_id", equipmentId);
+      .eq("equipment_id", equipmentId)
+      .eq("status", "active");
 
     setStateByHa((p) => ({
       ...p,
@@ -191,27 +209,32 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   };
 
   const commitLink = async (haId: string) => {
-    const st = stateByHa[haId];
-    if (!st?.staged_device_id) return;
+  const st = stateByHa[haId];
+  if (!st?.staged_device_id) return;
 
-    await supabase
-      .from("a_devices")
-      .update({ ha_device_id: null })
-      .eq("ha_device_id", haId);
+  // 1. Unlink any existing device using this HA device
+  await supabase
+    .from("a_devices")
+    .update({ ha_device_id: null })
+    .eq("ha_device_id", haId);
 
-    await supabase
-      .from("a_devices")
-      .update({ ha_device_id: haId })
-      .eq("device_id", st.staged_device_id);
+  // 2. Link the newly selected device
+  await supabase
+    .from("a_devices")
+    .update({ ha_device_id: haId })
+    .eq("device_id", st.staged_device_id);
 
-    fetchAll();
-  };
+  // 3. Refresh state
+  fetchAll();
+};
+
 
   /* ======================================================
    UI
   ====================================================== */
   return (
     <div className="p-6 space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <Button
           variant="outline"
@@ -224,7 +247,9 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         <div className="w-[120px]" />
       </div>
 
-      {!loading &&
+      {loading ? (
+        <p>Loading…</p>
+      ) : (
         devices.map((d) => {
           const st = stateByHa[d.ha_device_id] ?? { mode: "unlinked" };
 
@@ -234,32 +259,146 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                 <CardTitle className="space-y-1">
                   <div className="text-emerald-700 font-semibold">
                     {d.display_name}
+
                   </div>
 
                   <div className="text-xs text-gray-500 font-mono">
                     HA ID: {d.ha_device_id}
                   </div>
 
+                  {/* ✅ MAPPED DISPLAY */}
                   {st.mode !== "unlinked" && (
                     <div className="text-sm text-gray-700 mt-2">
                       <span className="font-medium">Mapped to:</span>{" "}
                       {st.committed_equipment_name} →{" "}
-                      <Link
-                        href={`/settings/devices/${st.committed_device_id}`}
-                        className="underline"
-                      >
-                        {st.committed_device_name}
-                      </Link>
+                      {st.committed_device_name}
                     </div>
                   )}
                 </CardTitle>
               </CardHeader>
 
-              {/* rest of file unchanged */}
-              <CardContent />
+              <CardContent className="space-y-4">
+                {st.mode === "linked" && (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setStateByHa((p) => ({
+                        ...p,
+                        [d.ha_device_id]: {
+                          ...p[d.ha_device_id],
+                          mode: "editing",
+                          staged_equipment_id:
+                            p[d.ha_device_id].committed_equipment_id,
+                        },
+                      }))
+                    }
+                  >
+                    Reassign Device
+                  </Button>
+                )}
+
+                {(st.mode === "editing" || st.mode === "unlinked") && (
+                  <>
+                    <select
+                      className="w-full border rounded px-3 py-2"
+                      value={st.staged_equipment_id ?? ""}
+                      onChange={(e) =>
+                        loadDevices(d.ha_device_id, e.target.value)
+                      }
+                    >
+                      <option value="">— Select Equipment —</option>
+                      {equipments.map((eq) => (
+                        <option
+                          key={eq.equipment_id}
+                          value={eq.equipment_id}
+                          disabled={eq.status === "retired"}
+                        >
+                          {eq.equipment_name}
+                          {equipmentSuffix(eq.status)}
+                        </option>
+                      ))}
+                    </select>
+
+                    {st.staged_equipment_id && (
+                      <select
+                        className="w-full border rounded px-3 py-2"
+                        value={st.staged_device_id ?? ""}
+                        onChange={(e) =>
+                          setStateByHa((p) => ({
+                            ...p,
+                            [d.ha_device_id]: {
+                              ...p[d.ha_device_id],
+                              staged_device_id: e.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">
+                          {st.loading_devices
+                            ? "Loading devices…"
+                            : "— Select Device —"}
+                        </option>
+                        {(st.available_devices ?? []).map((dev) => (
+                          <option
+                            key={dev.device_id}
+                            value={dev.device_id}
+                          >
+                            {dev.device_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {st.staged_device_id && (
+                      <Button onClick={() => commitLink(d.ha_device_id)}>
+                        {st.mode === "editing"
+                          ? "Update Link"
+                          : "Link Device"}
+                      </Button>
+                    )}
+                  </>
+                )}
+
+                {/* Entities */}
+                <table className="w-full text-sm mt-4">
+                  <thead>
+                    <tr className="border-b text-gray-500">
+                      <th>Entity</th>
+                      <th>Type</th>
+                      <th>Last Seen</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.entities.map((e) => (
+                      <tr key={e.entity_id} className="border-t">
+                        <td className="font-mono text-xs">{e.entity_id}</td>
+                        <td>{e.sensor_type ?? "—"}</td>
+                        <td
+                          className={
+                            isOffline(e.last_seen_at)
+                              ? "text-red-600"
+                              : ""
+                          }
+                        >
+                          {formatRelativeTime(e.last_seen_at)}
+                        </td>
+                        <td>
+                          {e.last_state
+                            ? e.unit_of_measurement
+                              ? `${e.last_state} ${e.unit_of_measurement}`
+                              : e.last_state
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
             </Card>
           );
-        })}
+        })
+      )}
     </div>
   );
 }
