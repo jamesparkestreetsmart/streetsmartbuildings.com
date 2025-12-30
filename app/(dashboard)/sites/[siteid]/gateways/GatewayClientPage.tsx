@@ -176,7 +176,10 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         <p>Loading…</p>
       ) : (
         devices.map((d) => (
-          <Card key={d.ha_device_id}>
+          <Card
+            key={d.ha_device_id}
+            className="bg-white border border-gray-200"
+          >
             <CardHeader>
               <CardTitle className="space-y-2">
                 <div className="text-emerald-700 font-semibold">
@@ -237,23 +240,36 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
               </CardTitle>
             </CardHeader>
 
-            <CardContent>
-              <table className="w-full text-sm">
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
                 <thead>
-                  <tr className="border-b text-gray-500">
-                    <th>Entity</th>
-                    <th>Type</th>
-                    <th>Last Seen</th>
-                    <th>Value</th>
+                  <tr className="bg-emerald-700 text-white">
+                    <th className="px-3 py-2 text-left">Entity</th>
+                    <th className="px-3 py-2 text-left">Type</th>
+                    <th className="px-3 py-2 text-left">Last Seen</th>
+                    <th className="px-3 py-2 text-left">Value</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {d.entities.map((e) => (
-                    <tr key={e.entity_id} className="border-t">
-                      <td className="font-mono text-xs">{e.entity_id}</td>
-                      <td>{e.sensor_type ?? "—"}</td>
-                      <td>{formatRelativeTime(e.last_seen_at)}</td>
-                      <td>
+                  {d.entities.map((e, idx) => (
+                    <tr
+                      key={e.entity_id}
+                      className={
+                        idx % 2 === 0
+                          ? "bg-gray-50 hover:bg-gray-100"
+                          : "bg-white hover:bg-gray-100"
+                      }
+                    >
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {e.entity_id}
+                      </td>
+                      <td className="px-3 py-2">
+                        {e.sensor_type ?? "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {formatRelativeTime(e.last_seen_at)}
+                      </td>
+                      <td className="px-3 py-2">
                         {e.last_state
                           ? e.unit_of_measurement
                             ? `${e.last_state} ${e.unit_of_measurement}`
