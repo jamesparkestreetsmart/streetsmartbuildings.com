@@ -44,6 +44,15 @@ interface SyncEntityRow {
 interface Equipment {
   equipment_id: string;
   equipment_name: string;
+  status?: string | null;
+}
+
+interface BusinessDevice {
+  device_id: string;
+  device_name: string;
+  equipment_id: string | null;
+  ha_device_id: string | null;
+  status?: string | null;
 }
 
 interface DeviceGroup {
@@ -78,13 +87,18 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
 
   const [rows, setRows] = useState<SyncEntityRow[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
+  const [devices, setDevices] = useState<BusinessDevice[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [editingHaDevice, setEditingHaDevice] = useState<string | null>(null);
+  const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+
   /* ======================================================
-   Group devices (DB is source of truth)
+   Group HA devices
   ====================================================== */
 
-  const devices = useMemo<DeviceGroup[]>(() => {
+  const haDevices = useMemo<DeviceGroup[]>(() => {
     const map = new Map<string, DeviceGroup>();
 
     rows.forEach((r) => {
@@ -107,20 +121,26 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   }, [rows]);
 
   /* ======================================================
-   Fetch (15-minute auto refresh)
+   Fetch (15-min auto refresh)
   ====================================================== */
 
   const fetchAll = useCallback(async () => {
-    const [{ data: entities }, { data: eqs }] = await Promise.all([
-      supabase.from("view_entity_sync").select("*").eq("site_id", siteid),
-      supabase
-        .from("a_equipments")
-        .select("equipment_id, equipment_name")
-        .eq("site_id", siteid),
-    ]);
+    const [{ data: entities }, { data: eqs }, { data: devs }] =
+      await Promise.all([
+        supabase.from("view_entity_sync").select("*").eq("site_id", siteid),
+        supabase
+          .from("a_equipments")
+          .select("equipment_id, equipment_name, status")
+          .eq("site_id", siteid),
+        supabase
+          .from("a_devices")
+          .select("device_id, device_name, equipment_id, ha_device_id, status")
+          .eq("site_id", siteid),
+      ]);
 
     setRows((entities ?? []) as SyncEntityRow[]);
     setEquipments((eqs ?? []) as Equipment[]);
+    setDevices((devs ?? []) as BusinessDevice[]);
     setLoading(false);
   }, [siteid]);
 
@@ -131,26 +151,37 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   }, [fetchAll]);
 
   /* ======================================================
-   Map / Unmap handler
+   Submit mapping
   ====================================================== */
 
-  const handleMapChange = async (
-    ha_device_id: string,
-    equipment_id: string | null
-  ) => {
-    await fetch("/api/device-map", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        site_id: siteid,
-        ha_device_id,
-        equipment_id,
-        note: equipment_id
-          ? "Device mapped via gateway UI"
-          : "Device unmapped via gateway UI",
-      }),
-    });
+  const submitMapping = async (ha_device_id: string) => {
+    if (selectedDeviceId === "__UNMAP__") {
+      await fetch("/api/device-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteid,
+          ha_device_id,
+          unmap: true,
+          note: "HA device unmapped via gateway UI",
+        }),
+      });
+    } else if (selectedDeviceId) {
+      await fetch("/api/device-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteid,
+          ha_device_id,
+          device_id: selectedDeviceId,
+          note: "HA device mapped via gateway UI",
+        }),
+      });
+    }
 
+    setEditingHaDevice(null);
+    setSelectedEquipmentId(null);
+    setSelectedDeviceId(null);
     fetchAll();
   };
 
@@ -175,75 +206,110 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
       {loading ? (
         <p>Loading…</p>
       ) : (
-        devices.map((d) => (
-          <Card
-            key={d.ha_device_id}
-            className="bg-white border border-gray-200"
-          >
+        haDevices.map((d) => (
+          <Card key={d.ha_device_id} className="bg-white border">
             <CardHeader>
               <CardTitle className="space-y-2">
                 <div className="text-emerald-700 font-semibold">
                   {d.ha_device_display_name}
                 </div>
-                <div className="text-xs text-gray-500 font-mono">
+                <div className="text-xs font-mono text-gray-500">
                   HA ID: {d.ha_device_id}
                 </div>
 
-                {/* Mapping Control */}
-                <Select
-                  value={d.equipment_id ?? "unmapped"}
-                  onValueChange={(val) =>
-                    handleMapChange(
-                      d.ha_device_id,
-                      val === "unmapped" ? null : val
-                    )
-                  }
-                >
-                  <SelectTrigger className="w-[320px] mt-2">
-                    <SelectValue placeholder="Select equipment" />
-                  </SelectTrigger>
+                {editingHaDevice === d.ha_device_id ? (
+                  <div className="space-y-2 mt-2">
+                    {/* Equipment dropdown */}
+                    <Select
+                      value={selectedEquipmentId ?? ""}
+                      onValueChange={(v) => {
+                        setSelectedEquipmentId(v);
+                        setSelectedDeviceId(null);
+                      }}
+                    >
+                      <SelectTrigger className="bg-slate-800 text-white">
+                        <SelectValue placeholder="Select equipment" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-800 text-white">
+                        {equipments.map((eq) => (
+                          <SelectItem
+                            key={eq.equipment_id}
+                            value={eq.equipment_id}
+                          >
+                            {eq.equipment_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
 
-                  <SelectContent>
-                    <SelectItem value="unmapped">
-                      — Unmap Device —
-                    </SelectItem>
+                    {/* Device dropdown */}
+                    {selectedEquipmentId && (
+                      <Select
+                        value={selectedDeviceId ?? ""}
+                        onValueChange={setSelectedDeviceId}
+                      >
+                        <SelectTrigger className="bg-slate-900 text-white">
+                          <SelectValue placeholder="Select business device" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-900 text-white">
+                          <SelectItem value="__UNMAP__" className="text-red-400">
+                            — Unmap HA Device —
+                          </SelectItem>
 
-                    {equipments.map((eq) => {
-                      const isUsed = rows.some(
-                        (r) =>
-                          r.equipment_id === eq.equipment_id &&
-                          r.ha_device_id !== d.ha_device_id
-                      );
+                          {devices
+                            .filter(
+                              (bd) =>
+                                bd.equipment_id === selectedEquipmentId
+                            )
+                            .map((bd) => (
+                              <SelectItem
+                                key={bd.device_id}
+                                value={bd.device_id}
+                                className={
+                                  bd.ha_device_id
+                                    ? "text-yellow-400"
+                                    : "text-emerald-400"
+                                }
+                              >
+                                {bd.device_name}
+                                {bd.ha_device_id ? " (mapped)" : ""}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    )}
 
-                      return (
-                        <SelectItem
-                          key={eq.equipment_id}
-                          value={eq.equipment_id}
-                          className={
-                            isUsed
-                              ? "text-yellow-700"
-                              : "text-emerald-700"
-                          }
-                        >
-                          {eq.equipment_name}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-
-                {d.equipment_name && (
-                  <div className="text-xs text-gray-500">
-                    Mapped to: {d.equipment_name}
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => submitMapping(d.ha_device_id)}
+                        disabled={!selectedDeviceId}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setEditingHaDevice(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditingHaDevice(d.ha_device_id)}
+                  >
+                    Reassign Device
+                  </Button>
                 )}
               </CardTitle>
             </CardHeader>
 
             <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-emerald-700 text-white">
+              <table className="w-full text-sm bg-slate-900 text-white rounded">
+                <thead className="bg-slate-800">
+                  <tr>
                     <th className="px-3 py-2 text-left">Entity</th>
                     <th className="px-3 py-2 text-left">Type</th>
                     <th className="px-3 py-2 text-left">Last Seen</th>
@@ -251,15 +317,8 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {d.entities.map((e, idx) => (
-                    <tr
-                      key={e.entity_id}
-                      className={
-                        idx % 2 === 0
-                          ? "bg-gray-50 hover:bg-gray-100"
-                          : "bg-white hover:bg-gray-100"
-                      }
-                    >
+                  {d.entities.map((e) => (
+                    <tr key={e.entity_id} className="border-t border-slate-700">
                       <td className="px-3 py-2 font-mono text-xs">
                         {e.entity_id}
                       </td>
