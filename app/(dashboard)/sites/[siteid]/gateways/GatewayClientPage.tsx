@@ -10,21 +10,19 @@ import { ArrowLeft } from "lucide-react";
 /* ---------------------------------------------
  Types
 --------------------------------------------- */
+type EquipmentStatus = "active" | "inactive" | "dummy" | "retired";
+
 interface SyncEntityRow {
   site_id: string;
   entity_id: string;
   sensor_type: string | null;
   ha_device_id: string | null;
-  device_name: string | null; // from view_entity_sync (not HA API)
+  device_name: string | null;
   manufacturer?: string | null;
   model?: string | null;
-  equipment_id: string | null;
   last_state: string | null;
   unit_of_measurement: string | null;
-  last_seen_at: string | null;
 }
-
-type EquipmentStatus = "active" | "inactive" | "dummy" | "retired";
 
 interface Equipment {
   equipment_id: string;
@@ -37,19 +35,13 @@ interface Device {
   device_name: string;
 }
 
-interface LinkedDeviceRow {
-  ha_device_id: string | null;
-  device_id: string;
-  device_name: string;
-  equipment_id: string | null;
-  status?: string | null;
-}
-
 interface DeviceGroup {
   ha_device_id: string;
   display_name: string;
   entities: SyncEntityRow[];
 }
+
+type LinkMode = "unlinked" | "linked" | "editing";
 
 /* ---------------------------------------------
  Helpers
@@ -61,12 +53,10 @@ const formatValue = (row: SyncEntityRow) => {
     : row.last_state;
 };
 
-const isRetired = (status: EquipmentStatus) => status === "retired";
-
-const statusLabel = (status: EquipmentStatus) => {
+const statusSuffix = (status: EquipmentStatus) => {
   if (status === "retired") return " (Retired)";
-  if (status === "dummy") return " (Dummy)";
   if (status === "inactive") return " (Inactive)";
+  if (status === "dummy") return " (Dummy)";
   return "";
 };
 
@@ -78,28 +68,35 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
 
   const [rows, setRows] = useState<SyncEntityRow[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
-  const [devicesByHa, setDevicesByHa] = useState<
+  const [loading, setLoading] = useState(true);
+
+  /**
+   * Per-HA device UI state
+   * committed_* = saved in DB
+   * staged_*    = user selections (not saved)
+   */
+  const [stateByHa, setStateByHa] = useState<
     Record<
       string,
       {
-        equipment_id?: string;
-        devices?: Device[];
-        device_id?: string;
-        loading?: boolean;
+        mode: LinkMode;
 
-        // derived / display
-        linked_device_name?: string;
-        linked_equipment_name?: string;
-        linked_equipment_status?: EquipmentStatus;
-        isLinked?: boolean;
+        committed_equipment_id?: string;
+        committed_equipment_name?: string;
+        committed_device_id?: string;
+        committed_device_name?: string;
+
+        staged_equipment_id?: string;
+        staged_device_id?: string;
+
+        available_devices?: Device[];
+        loading_devices?: boolean;
       }
     >
   >({});
 
-  const [loading, setLoading] = useState(true);
-
   /* ---------------------------------------------
-     Group by HA device
+     Group entities by HA device
   --------------------------------------------- */
   const devices = useMemo<DeviceGroup[]>(() => {
     const map = new Map<string, DeviceGroup>();
@@ -123,49 +120,99 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     return Array.from(map.values());
   }, [rows]);
 
-  const equipmentById = useMemo(() => {
-    const m = new Map<string, Equipment>();
-    equipments.forEach((e) => m.set(e.equipment_id, e));
-    return m;
-  }, [equipments]);
+  /* ---------------------------------------------
+     Initial load
+  --------------------------------------------- */
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+
+      const [{ data: entityRows }, { data: equipmentRows }] =
+        await Promise.all([
+          supabase.from("view_entity_sync").select("*").eq("site_id", siteid),
+          supabase
+            .from("a_equipments")
+            .select("equipment_id, equipment_name, status")
+            .eq("site_id", siteid),
+        ]);
+
+      setRows((entityRows ?? []) as SyncEntityRow[]);
+      setEquipments((equipmentRows ?? []) as Equipment[]);
+
+      // hydrate already-linked devices
+      const haIds = Array.from(
+        new Set(
+          (entityRows ?? [])
+            .map((r: any) => r.ha_device_id)
+            .filter(Boolean)
+        )
+      );
+
+      let linked: any[] = [];
+      if (haIds.length) {
+        const { data } = await supabase
+          .from("a_devices")
+          .select("device_id, device_name, equipment_id, ha_device_id")
+          .in("ha_device_id", haIds);
+        linked = data ?? [];
+      }
+
+      const nextState: any = {};
+      for (const haId of haIds) {
+        const link = linked.find((l) => l.ha_device_id === haId);
+        const eq = equipmentRows?.find(
+          (e: any) => e.equipment_id === link?.equipment_id
+        );
+
+        if (link) {
+          nextState[haId] = {
+            mode: "linked",
+            committed_device_id: link.device_id,
+            committed_device_name: link.device_name,
+            committed_equipment_id: link.equipment_id,
+            committed_equipment_name: eq?.equipment_name,
+          };
+        } else {
+          nextState[haId] = {
+            mode: "unlinked",
+          };
+        }
+      }
+
+      setStateByHa(nextState);
+      setLoading(false);
+    };
+
+    load();
+  }, [siteid]);
 
   /* ---------------------------------------------
-     Load devices for equipment
-     - preserves currently selected device_id if still present
+     Load devices for selected equipment (staged)
   --------------------------------------------- */
   const loadDevices = useCallback(
-    async (ha_device_id: string, equipment_id: string) => {
-      setDevicesByHa((prev) => ({
+    async (haId: string, equipmentId: string) => {
+      setStateByHa((prev) => ({
         ...prev,
-        [ha_device_id]: {
-          ...prev[ha_device_id],
-          equipment_id,
-          loading: true,
-          // changing equipment implies device selection should reset
-          device_id: prev[ha_device_id]?.equipment_id === equipment_id ? prev[ha_device_id]?.device_id : undefined,
+        [haId]: {
+          ...prev[haId],
+          staged_equipment_id: equipmentId,
+          staged_device_id: undefined,
+          loading_devices: true,
         },
       }));
 
-      // NOTE: for selection we typically want "active" devices only.
-      // Already-linked devices are shown via the linked mapping even if inactive.
       const { data } = await supabase
         .from("a_devices")
         .select("device_id, device_name")
-        .eq("equipment_id", equipment_id)
+        .eq("equipment_id", equipmentId)
         .eq("status", "active");
 
-      setDevicesByHa((prev) => ({
+      setStateByHa((prev) => ({
         ...prev,
-        [ha_device_id]: {
-          ...prev[ha_device_id],
-          devices: (data ?? []) as Device[],
-          loading: false,
-          // if current selected device_id is not in list anymore, clear it
-          device_id:
-            prev[ha_device_id]?.device_id &&
-            (data ?? []).some((d: any) => d.device_id === prev[ha_device_id]?.device_id)
-              ? prev[ha_device_id]?.device_id
-              : prev[ha_device_id]?.device_id,
+        [haId]: {
+          ...prev[haId],
+          available_devices: (data ?? []) as Device[],
+          loading_devices: false,
         },
       }));
     },
@@ -173,125 +220,32 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   );
 
   /* ---------------------------------------------
-     Fetch registry + equipment + linked mappings
+     Commit link / reassignment
   --------------------------------------------- */
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-
-      const [{ data: entities }, { data: eqs }] = await Promise.all([
-        supabase.from("view_entity_sync").select("*").eq("site_id", siteid),
-        supabase
-          .from("a_equipments")
-          .select("equipment_id, equipment_name, status")
-          .eq("site_id", siteid),
-      ]);
-
-      const entityRows = (entities ?? []) as SyncEntityRow[];
-      const equipmentRows = (eqs ?? []) as Equipment[];
-
-      setRows(entityRows);
-      setEquipments(equipmentRows);
-
-      // Build HA device list from the fetched entity rows
-      const haIds = Array.from(
-        new Set(entityRows.map((r) => r.ha_device_id).filter(Boolean))
-      ) as string[];
-
-      // Hydrate already-linked HA devices (a_devices.ha_device_id)
-      // This is what lets the UI show "already linked" + preselect dropdowns.
-      let linked: LinkedDeviceRow[] = [];
-      if (haIds.length > 0) {
-        const { data: linkedRows } = await supabase
-          .from("a_devices")
-          .select("ha_device_id, device_id, device_name, equipment_id, status")
-          .in("ha_device_id", haIds);
-
-        linked = (linkedRows ?? []) as LinkedDeviceRow[];
-      }
-
-      // Map linked state into devicesByHa
-      const nextState: Record<string, any> = {};
-      for (const haId of haIds) {
-        const link = linked.find((r) => r.ha_device_id === haId);
-
-        if (link?.equipment_id) {
-          const eq = equipmentRows.find((e) => e.equipment_id === link.equipment_id);
-          nextState[haId] = {
-            equipment_id: link.equipment_id,
-            device_id: link.device_id,
-            isLinked: true,
-            linked_device_name: link.device_name,
-            linked_equipment_name: eq?.equipment_name ?? undefined,
-            linked_equipment_status: (eq?.status as EquipmentStatus) ?? undefined,
-          };
-        } else if (link) {
-          // linked but missing equipment_id (shouldn't happen, but safe)
-          nextState[haId] = {
-            device_id: link.device_id,
-            isLinked: true,
-            linked_device_name: link.device_name,
-          };
-        } else {
-          nextState[haId] = {
-            isLinked: false,
-          };
-        }
-      }
-
-      setDevicesByHa((prev) => ({
-        ...prev,
-        ...nextState,
-      }));
-
-      // For linked devices that have equipment_id, preload the device dropdown list
-      // so user can see the selected device immediately.
-      await Promise.all(
-        haIds
-          .map((haId) => {
-            const st = nextState[haId];
-            if (st?.equipment_id) return { haId, equipment_id: st.equipment_id as string };
-            return null;
-          })
-          .filter(Boolean)
-          .map(({ haId, equipment_id }: any) => loadDevices(haId, equipment_id))
-      );
-
-      setLoading(false);
-    };
-
-    load();
-  }, [siteid, loadDevices]);
-
-  /* ---------------------------------------------
-     Confirm linking (update chosen platform device)
-  --------------------------------------------- */
-  const confirmLink = async (ha_device_id: string) => {
-    const state = devicesByHa[ha_device_id];
-    if (!state?.device_id) return;
+  const commitLink = async (haId: string) => {
+    const st = stateByHa[haId];
+    if (!st?.staged_device_id) return;
 
     await supabase
       .from("a_devices")
-      .update({ ha_device_id })
-      .eq("device_id", state.device_id);
+      .update({ ha_device_id: haId })
+      .eq("device_id", st.staged_device_id);
 
-    // refresh linked display state locally
-    const eq = state.equipment_id ? equipmentById.get(state.equipment_id) : undefined;
-
-    setDevicesByHa((prev) => ({
+    setStateByHa((prev) => ({
       ...prev,
-      [ha_device_id]: {
-        ...prev[ha_device_id],
-        isLinked: true,
-        linked_device_name:
-          (prev[ha_device_id]?.devices ?? []).find((d) => d.device_id === state.device_id)
-            ?.device_name ?? prev[ha_device_id]?.linked_device_name,
-        linked_equipment_name: eq?.equipment_name ?? prev[ha_device_id]?.linked_equipment_name,
-        linked_equipment_status: eq?.status ?? prev[ha_device_id]?.linked_equipment_status,
+      [haId]: {
+        mode: "linked",
+        committed_device_id: st.staged_device_id,
+        committed_device_name:
+          st.available_devices?.find(
+            (d) => d.device_id === st.staged_device_id
+          )?.device_name,
+        committed_equipment_id: st.staged_equipment_id,
+        committed_equipment_name: equipments.find(
+          (e) => e.equipment_id === st.staged_equipment_id
+        )?.equipment_name,
       },
     }));
-
-    alert("HA device linked successfully");
   };
 
   /* ---------------------------------------------
@@ -299,7 +253,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   --------------------------------------------- */
   return (
     <div className="p-6 space-y-6">
-      {/* HEADER w/ BACK */}
+      {/* HEADER */}
       <div className="flex items-center justify-between">
         <Button
           variant="outline"
@@ -309,10 +263,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
           <ArrowLeft className="w-4 h-4" />
           Back
         </Button>
-
         <h1 className="text-2xl font-semibold">Gateway Devices</h1>
-
-        {/* spacer to keep title centered-ish without overthinking layout */}
         <div className="w-[88px]" />
       </div>
 
@@ -320,13 +271,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         <p>Loading…</p>
       ) : (
         devices.map((d) => {
-          const state = devicesByHa[d.ha_device_id] || {};
-          const selectedEq =
-            state.equipment_id && equipmentById.get(state.equipment_id)
-              ? equipmentById.get(state.equipment_id)
-              : undefined;
-
-          const showLinkedBanner = Boolean(state.isLinked && state.device_id);
+          const st = stateByHa[d.ha_device_id] || { mode: "unlinked" };
 
           return (
             <Card key={d.ha_device_id}>
@@ -339,71 +284,86 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                     HA ID: {d.ha_device_id}
                   </div>
 
-                  {showLinkedBanner && (
+                  {st.mode === "linked" && (
                     <div className="text-sm text-gray-700 mt-2">
-                      <span className="font-medium">Currently linked:</span>{" "}
-                      {state.linked_device_name ?? "Unknown Device"}
-                      {state.linked_equipment_name ? (
-                        <>
-                          {" "}
-                          <span className="text-gray-500">→</span>{" "}
-                          <span className="font-medium">
-                            {state.linked_equipment_name}
-                            {state.linked_equipment_status
-                              ? statusLabel(state.linked_equipment_status)
-                              : ""}
-                          </span>
-                        </>
-                      ) : null}
+                      Linked to{" "}
+                      <span className="font-medium">
+                        {st.committed_device_name}
+                      </span>{" "}
+                      →{" "}
+                      <span className="font-medium">
+                        {st.committed_equipment_name}
+                      </span>
                     </div>
                   )}
                 </CardTitle>
               </CardHeader>
 
               <CardContent className="space-y-4">
-                {/* EQUIPMENT */}
-                <select
-                  className="w-full border rounded px-3 py-2"
-                  value={state.equipment_id ?? ""}
-                  onChange={(e) => loadDevices(d.ha_device_id, e.target.value)}
-                >
-                  <option value="">— Select Equipment —</option>
-
-                  {equipments.map((eq) => {
-                    const disabled = isRetired(eq.status);
-                    return (
-                      <option
-                        key={eq.equipment_id}
-                        value={eq.equipment_id}
-                        disabled={disabled}
-                      >
-                        {eq.equipment_name}
-                        {statusLabel(eq.status)}
-                      </option>
-                    );
-                  })}
-                </select>
-
-                {/* DEVICE */}
-                {state.equipment_id && (
-                  <select
-                    className="w-full border rounded px-3 py-2"
-                    value={state.device_id ?? ""}
-                    onChange={(e) =>
-                      setDevicesByHa((prev) => ({
+                {/* ACTION BUTTON */}
+                {st.mode === "linked" && (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setStateByHa((prev) => ({
                         ...prev,
                         [d.ha_device_id]: {
                           ...prev[d.ha_device_id],
-                          device_id: e.target.value,
+                          mode: "editing",
+                          staged_equipment_id:
+                            prev[d.ha_device_id].committed_equipment_id,
+                        },
+                      }))
+                    }
+                  >
+                    Reassign Device
+                  </Button>
+                )}
+
+                {/* EQUIPMENT */}
+                {(st.mode === "unlinked" || st.mode === "editing") && (
+                  <select
+                    className="w-full border rounded px-3 py-2"
+                    value={st.staged_equipment_id ?? ""}
+                    onChange={(e) =>
+                      loadDevices(d.ha_device_id, e.target.value)
+                    }
+                  >
+                    <option value="">— Select Equipment —</option>
+                    {equipments.map((eq) => (
+                      <option
+                        key={eq.equipment_id}
+                        value={eq.equipment_id}
+                        disabled={eq.status === "retired"}
+                      >
+                        {eq.equipment_name}
+                        {statusSuffix(eq.status)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* DEVICE */}
+                {st.staged_equipment_id && (
+                  <select
+                    className="w-full border rounded px-3 py-2"
+                    value={st.staged_device_id ?? ""}
+                    onChange={(e) =>
+                      setStateByHa((prev) => ({
+                        ...prev,
+                        [d.ha_device_id]: {
+                          ...prev[d.ha_device_id],
+                          staged_device_id: e.target.value,
                         },
                       }))
                     }
                   >
                     <option value="">
-                      {state.loading ? "Loading devices…" : "— Select Device —"}
+                      {st.loading_devices
+                        ? "Loading devices…"
+                        : "— Select Device —"}
                     </option>
-
-                    {(state.devices ?? []).map((dev) => (
+                    {(st.available_devices ?? []).map((dev) => (
                       <option key={dev.device_id} value={dev.device_id}>
                         {dev.device_name}
                       </option>
@@ -411,11 +371,32 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                   </select>
                 )}
 
-                {/* CONFIRM */}
-                {state.device_id && (
-                  <Button onClick={() => confirmLink(d.ha_device_id)}>
-                    {showLinkedBanner ? "Update Link" : "Confirm Link"}
-                  </Button>
+                {/* COMMIT */}
+                {st.staged_device_id && (
+                  <div className="flex gap-2">
+                    <Button onClick={() => commitLink(d.ha_device_id)}>
+                      {st.mode === "editing" ? "Update Link" : "Link Device"}
+                    </Button>
+
+                    {st.mode === "editing" && (
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          setStateByHa((prev) => ({
+                            ...prev,
+                            [d.ha_device_id]: {
+                              ...prev[d.ha_device_id],
+                              mode: "linked",
+                              staged_device_id: undefined,
+                              staged_equipment_id: undefined,
+                            },
+                          }))
+                        }
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
                 )}
 
                 {/* ENTITIES */}
