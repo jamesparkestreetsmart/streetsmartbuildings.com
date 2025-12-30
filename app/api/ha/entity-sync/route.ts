@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
       last_seen_at: nowIso,
 
       ha_device_id: e.ha_device_id ?? null,
-      device_name: e.device_name ?? null,
+      ha_device_name: e.device_name ?? null,
       manufacturer: e.manufacturer ?? null,
       model: e.model ?? null,
       sw_version: e.sw_version ?? null,
