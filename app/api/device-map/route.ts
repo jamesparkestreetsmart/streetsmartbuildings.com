@@ -15,8 +15,9 @@ export async function POST(req: NextRequest) {
   const {
     site_id,
     org_id,
-    device_id,
-    ha_device_id, // may be null for UNMAP
+    device_id,      // business device (a_devices.device_id)
+    ha_device_id,   // may be null (UNMAP)
+    note,
   } = body;
 
   if (!site_id || !org_id || !device_id) {
@@ -41,13 +42,11 @@ export async function POST(req: NextRequest) {
   );
 
   /* ======================================================
-     Load current device state
+     Load target business device
   ====================================================== */
   const { data: targetDevice, error: loadError } = await supabase
     .from("a_devices")
-    .select(
-      "device_id, device_name, equipment_id, ha_device_id"
-    )
+    .select("device_id, device_name, equipment_id, ha_device_id, org_id")
     .eq("device_id", device_id)
     .eq("site_id", site_id)
     .single();
@@ -62,8 +61,14 @@ export async function POST(req: NextRequest) {
   const previousHaId = targetDevice.ha_device_id ?? null;
   const nextHaId = ha_device_id ?? null;
 
+  // No-op guard (prevents duplicate logs & writes)
+  if (previousHaId === nextHaId) {
+    return NextResponse.json({ success: true });
+  }
+
   /* ======================================================
-     If mapping HA device, ensure 1:1 by clearing any prior
+     Enforce 1:1 HA device binding
+     (clear HA device from any other business device)
   ====================================================== */
   let remappedFromDeviceId: string | null = null;
   let remappedFromDeviceName: string | null = null;
@@ -76,14 +81,10 @@ export async function POST(req: NextRequest) {
       .eq("ha_device_id", nextHaId)
       .maybeSingle();
 
-    if (
-      existingBinding &&
-      existingBinding.device_id !== device_id
-    ) {
+    if (existingBinding && existingBinding.device_id !== device_id) {
       remappedFromDeviceId = existingBinding.device_id;
       remappedFromDeviceName = existingBinding.device_name;
 
-      // Clear previous binding
       await supabase
         .from("a_devices")
         .update({ ha_device_id: null })
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
   }
 
   /* ======================================================
-     Update target device
+     Update target business device HA mapping
   ====================================================== */
   await supabase
     .from("a_devices")
@@ -100,28 +101,28 @@ export async function POST(req: NextRequest) {
     .eq("device_id", device_id);
 
   /* ======================================================
-     Write audit log
+     Audit log (b_records_log)
   ====================================================== */
   let message = "";
   let metadata: Record<string, any> = {};
 
   if (!previousHaId && nextHaId) {
-    // MAP
     message = "HA device mapped to business device";
     metadata = {
       device_name: targetDevice.device_name,
+      ha_device_id: nextHaId,
     };
   } else if (previousHaId && !nextHaId) {
-    // UNMAP
     message = "HA device unmapped from business device";
     metadata = {
       device_name: targetDevice.device_name,
+      ha_device_id: previousHaId,
     };
   } else if (previousHaId && nextHaId && previousHaId !== nextHaId) {
-    // REMAP
     message = "HA device reassigned to business device";
     metadata = {
       new_device_name: targetDevice.device_name,
+      new_ha_device_id: nextHaId,
       previous_device_id: remappedFromDeviceId,
       previous_device_name: remappedFromDeviceName,
     };
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
 
   if (message) {
     await supabase.from("b_records_log").insert({
-      org_id,
+      org_id: targetDevice.org_id,
       site_id,
       equipment_id: targetDevice.equipment_id,
       device_id,
