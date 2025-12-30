@@ -129,7 +129,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   }, [rows]);
 
   /* ======================================================
-   Data fetch (with 15 min auto refresh)
+   Fetch (15-min auto refresh)
   ====================================================== */
   const fetchAll = useCallback(async () => {
     const [{ data: entities }, { data: eqs }] = await Promise.all([
@@ -249,7 +249,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
           return (
             <Card key={d.ha_device_id}>
               <CardHeader>
-                <CardTitle>
+                <CardTitle className="space-y-1">
                   <div className="text-emerald-700 font-semibold">
                     {st.committed_device_id ? (
                       <Link
@@ -262,9 +262,19 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                       d.display_name
                     )}
                   </div>
+
                   <div className="text-xs text-gray-500 font-mono">
                     HA ID: {d.ha_device_id}
                   </div>
+
+                  {/* ✅ MAPPED DISPLAY */}
+                  {st.mode !== "unlinked" && (
+                    <div className="text-sm text-gray-700 mt-2">
+                      <span className="font-medium">Mapped to:</span>{" "}
+                      {st.committed_equipment_name} →{" "}
+                      {st.committed_device_name}
+                    </div>
+                  )}
                 </CardTitle>
               </CardHeader>
 
