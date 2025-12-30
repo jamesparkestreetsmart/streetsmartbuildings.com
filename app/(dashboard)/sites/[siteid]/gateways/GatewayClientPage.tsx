@@ -158,7 +158,9 @@ export default function GatewayClientPage({ siteid }: Props) {
       if (!map.has(r.ha_device_id)) {
         map.set(r.ha_device_id, {
           ha_device_id: r.ha_device_id,
-          device_name: r.device_name ?? "Unnamed Device",
+          device_name:
+            r.device_name ??
+            `${r.manufacturer ?? "HA Device"} ${r.model ?? ""}`.trim(),
           manufacturer: r.manufacturer,
           model: r.model,
           equipment_id: r.equipment_id,
@@ -241,12 +243,17 @@ export default function GatewayClientPage({ siteid }: Props) {
           <Card key={device.ha_device_id}>
             <CardHeader>
               <CardTitle className="flex justify-between items-center">
-                <Link
-                  href={`/sites/${siteid}/devices/${device.ha_device_id}?returnTo=gateways`}
-                  className="font-semibold text-emerald-700 hover:underline"
-                >
-                  {device.device_name}
-                </Link>
+                <div className="flex flex-col">
+                  <Link
+                    href={`/sites/${siteid}/devices/${device.ha_device_id}?returnTo=gateways`}
+                    className="font-semibold text-emerald-700 hover:underline"
+                  >
+                    {device.device_name}
+                  </Link>
+                  <span className="text-xs text-gray-500 font-mono">
+                    HA ID: {device.ha_device_id}
+                  </span>
+                </div>
 
                 <select
                   className="border rounded px-2 py-1 text-sm"
@@ -280,7 +287,11 @@ export default function GatewayClientPage({ siteid }: Props) {
                     <tr key={e.entity_id} className="border-t">
                       <td className="font-mono text-xs">{e.entity_id}</td>
                       <td>{e.sensor_type ?? "—"}</td>
-                      <td className={isOffline(e.last_seen_at) ? "text-red-600" : ""}>
+                      <td
+                        className={
+                          isOffline(e.last_seen_at) ? "text-red-600" : ""
+                        }
+                      >
                         {formatRelativeTime(e.last_seen_at)}
                       </td>
                       <td>{formatValue(e)}</td>
