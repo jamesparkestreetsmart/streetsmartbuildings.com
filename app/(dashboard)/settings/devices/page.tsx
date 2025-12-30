@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Plus, Trash2, ArrowUpDown, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
-import AddDeviceForm from "./AddDeviceForm";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,10 +22,7 @@ interface Device {
   ip_address: string | null;
   serial_number: string;
   firmware_version: string | null;
-
-  // ✅ already correct
   last_message: string | null;
-
   created_at: string;
 }
 
@@ -102,7 +98,9 @@ export default function DevicesPage() {
           <ArrowLeft className="w-4 h-4" /> Back to Settings
         </button>
 
+        {/* ✅ CHANGE #2: Route-based Add Device */}
         <button
+          onClick={() => router.push("/settings/devices/add")}
           className="flex items-center gap-2 px-4 py-2 text-white rounded-md
                      bg-gradient-to-r from-green-600 to-yellow-500"
         >
@@ -125,8 +123,6 @@ export default function DevicesPage() {
                 ["IP Address", "ip_address"],
                 ["Serial", "serial_number"],
                 ["Firmware", "firmware_version"],
-
-                // ✅ NEW COLUMN
                 ["Last Message", "last_message"],
               ].map(([label, key]) => (
                 <th
@@ -167,7 +163,6 @@ export default function DevicesPage() {
                 <td className="p-3">{d.serial_number}</td>
                 <td className="p-3">{d.firmware_version ?? "—"}</td>
 
-                {/* ✅ NEW CELL */}
                 <td className="p-3 italic text-gray-600 max-w-[320px] truncate">
                   {d.last_message ?? "—"}
                 </td>

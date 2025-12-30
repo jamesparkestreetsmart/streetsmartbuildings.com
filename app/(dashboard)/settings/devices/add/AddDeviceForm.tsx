@@ -1,4 +1,3 @@
-// app/(dashboard)/settings/devices/adddeviceform.tsx
 "use client";
 
 import {
@@ -9,19 +8,10 @@ import {
   SetStateAction,
 } from "react";
 import { supabase } from "@/lib/supabaseClient";
-
-export interface NewDevice {
-  device_name: string;
-  serial_number: string;
-  protocol: string;
-  connection_type: string;
-  firmware_version: string;
-  ip_address: string;
-  site_id: string;
-  equipment_id: string;
-  status: string;
-  service_notes: string;
-}
+import type { NewDevice } from "@/types/device";
+/* =========================
+   TYPES
+========================= */
 
 interface AddDeviceFormProps {
   newDevice: NewDevice;
@@ -32,9 +22,9 @@ interface AddDeviceFormProps {
 
 interface LibraryDevice {
   library_device_id: string;
-  product_code: string;
-  device_name: string;
-  model: string;
+  template_name: string;
+  manufacturer: string | null;
+  model: string | null;
   protocol: string | null;
   connection_type: string | null;
   zwave_lr?: boolean | null;
@@ -59,6 +49,10 @@ interface Equipment {
   status: string | null;
 }
 
+/* =========================
+   COMPONENT
+========================= */
+
 export default function AddDeviceForm({
   newDevice,
   setNewDevice,
@@ -70,12 +64,12 @@ export default function AddDeviceForm({
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [selectedLibraryId, setSelectedLibraryId] = useState<string>("");
 
-  // =========================
-  // LOAD LIBRARY + SITES + EQUIPMENT
-  // =========================
+  /* =========================
+     LOAD INITIAL DATA
+  ========================= */
   const loadInitialData = useCallback(async () => {
     const [libRes, sitesRes, eqRes] = await Promise.all([
-      supabase.from("library_devices").select("*"),
+      supabase.from("library_devices").select("*").order("template_name"),
       supabase
         .from("a_sites")
         .select("site_id, site_name, status")
@@ -86,36 +80,24 @@ export default function AddDeviceForm({
         .order("equipment_name"),
     ]);
 
-    if (libRes.data) {
-      setLibraryOptions(libRes.data as LibraryDevice[]);
-    }
-
-    if (sitesRes.data) {
-      setSites(sitesRes.data as Site[]);
-    }
-
-    if (eqRes.data) {
-      setEquipment(eqRes.data as Equipment[]);
-    }
+    if (libRes.data) setLibraryOptions(libRes.data as LibraryDevice[]);
+    if (sitesRes.data) setSites(sitesRes.data as Site[]);
+    if (eqRes.data) setEquipment(eqRes.data as Equipment[]);
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      await loadInitialData();
-    })();
+    void loadInitialData();
   }, [loadInitialData]);
 
-  // =========================
-  // TEMPLATE SELECT
-  // =========================
+  /* =========================
+     TEMPLATE SELECT
+  ========================= */
   const handleTemplateSelect = (libraryId: string) => {
     setSelectedLibraryId(libraryId);
 
     if (!libraryId) {
-      // Reset device fields but keep site/equipment/status/service_notes
       setNewDevice((prev) => ({
         ...prev,
-        device_name: "",
         protocol: "",
         connection_type: "",
         firmware_version: "",
@@ -130,17 +112,15 @@ export default function AddDeviceForm({
 
     setNewDevice((prev) => ({
       ...prev,
-      device_name: lib.device_name ?? "",
       protocol: lib.protocol ?? "",
       connection_type: lib.connection_type ?? "wireless",
       firmware_version: "",
-      // leave site_id, equipment_id, status, service_notes as-is
     }));
   };
 
-  // =========================
-  // SAVE (DEVICE + OPTIONAL SENSORS)
-  // =========================
+  /* =========================
+     SAVE DEVICE
+  ========================= */
   const handleSave = async () => {
     if (!newDevice.device_name || !newDevice.serial_number) {
       alert("Device Name & Serial Number are required.");
@@ -152,20 +132,25 @@ export default function AddDeviceForm({
       return;
     }
 
-    // 1) Insert device
+    const lib = libraryOptions.find(
+      (l) => l.library_device_id === selectedLibraryId
+    );
+
+    /* ---- Insert Device ---- */
     const { data: device, error: deviceError } = await supabase
       .from("a_devices")
       .insert({
         site_id: newDevice.site_id,
         equipment_id: newDevice.equipment_id,
-        device_name: newDevice.device_name,
+        device_name: newDevice.device_name,        // USER-DEFINED
+        template_name: lib?.template_name ?? null, // SNAPSHOT
+        library_device_id: lib?.library_device_id ?? null,
         protocol: newDevice.protocol,
         connection_type: newDevice.connection_type,
         serial_number: newDevice.serial_number,
         firmware_version: newDevice.firmware_version,
         ip_address: newDevice.ip_address || null,
         status: newDevice.status,
-        service_notes: newDevice.service_notes || null,
       })
       .select()
       .single();
@@ -176,18 +161,15 @@ export default function AddDeviceForm({
       return;
     }
 
-    // 2) If no library template selected, we're done
-    const lib = libraryOptions.find(
-      (l) => l.library_device_id === selectedLibraryId
-    );
-    if (!lib || !lib.default_sensors || lib.default_sensors.length === 0) {
+    /* ---- No template → done ---- */
+    if (!lib || !lib.default_sensors?.length) {
       await fetchDevices();
       setShowAdd(false);
       alert("Device created.");
       return;
     }
 
-    // 3) Load mappings for all sensor types
+    /* ---- Load sensor mappings ---- */
     const sensorTypes = lib.default_sensors.map((s) => s.sensor_type);
 
     const { data: mappings, error: mappingError } = await supabase
@@ -203,10 +185,10 @@ export default function AddDeviceForm({
       return;
     }
 
-    // 4) Build a_sensors rows
+    /* ---- Build sensors ---- */
     const sensorsToInsert = lib.default_sensors.map((s) => {
-      const map = (mappings ?? []).find(
-        (m: Record<string, unknown>) => m.sensor_type === s.sensor_type
+      const map = mappings?.find(
+        (m: Record<string, any>) => m.sensor_type === s.sensor_type
       );
 
       return {
@@ -221,7 +203,7 @@ export default function AddDeviceForm({
         scale_factor: 1,
         calibration_offset: 0,
         status: "active",
-        log_table: map ? map.log_table : null,
+        log_table: map?.log_table ?? null,
       };
     });
 
@@ -240,12 +222,12 @@ export default function AddDeviceForm({
     setShowAdd(false);
   };
 
-  // =========================
-  // RENDER
-  // =========================
+  /* =========================
+     RENDER
+  ========================= */
   return (
     <div className="space-y-4">
-      {/* TEMPLATE DROPDOWN */}
+      {/* TEMPLATE */}
       <div>
         <label className="block text-sm font-medium mb-1">
           Device Template (optional)
@@ -258,7 +240,7 @@ export default function AddDeviceForm({
           <option value="">— Select from Library —</option>
           {libraryOptions.map((lib) => (
             <option key={lib.library_device_id} value={lib.library_device_id}>
-              {lib.device_name || "(Unnamed library device)"}
+              {lib.template_name}
             </option>
           ))}
         </select>
@@ -271,46 +253,25 @@ export default function AddDeviceForm({
           ["serial_number", "Serial Number"],
           ["protocol", "Protocol"],
           ["connection_type", "Connection Type"],
-          ["model", "Model (optional)"],
           ["firmware_version", "Firmware Version"],
           ["ip_address", "IP Address"],
-        ] as [keyof NewDevice | "model", string][]
-      ).map(([key, label]) => {
-        // "model" is not in NewDevice, so keep it from template only (no persistence)
-        if (key === "model") {
-          return (
-            <div key={key}>
-              <label className="block text-sm mb-1">{label}</label>
-              <input
-                type="text"
-                className="w-full border rounded-md p-2"
-                // read-only placeholder for now based off library model if needed
-                placeholder="(optional)"
-                disabled
-              />
-            </div>
-          );
-        }
-
-        const nk = key as keyof NewDevice;
-
-        return (
-          <div key={nk}>
-            <label className="block text-sm mb-1">{label}</label>
-            <input
-              type="text"
-              className="w-full border rounded-md p-2"
-              value={newDevice[nk] ?? ""}
-              onChange={(e) =>
-                setNewDevice((prev) => ({
-                  ...prev,
-                  [nk]: e.target.value,
-                }))
-              }
-            />
-          </div>
-        );
-      })}
+        ] as [keyof NewDevice, string][]
+      ).map(([key, label]) => (
+        <div key={key}>
+          <label className="block text-sm mb-1">{label}</label>
+          <input
+            type="text"
+            className="w-full border rounded-md p-2"
+            value={newDevice[key] ?? ""}
+            onChange={(e) =>
+              setNewDevice((prev) => ({
+                ...prev,
+                [key]: e.target.value,
+              }))
+            }
+          />
+        </div>
+      ))}
 
       {/* SITE */}
       <div>
@@ -318,14 +279,13 @@ export default function AddDeviceForm({
         <select
           className="w-full border rounded-md p-2"
           value={newDevice.site_id}
-          onChange={(e) => {
-            const site_id = e.target.value;
+          onChange={(e) =>
             setNewDevice((prev) => ({
               ...prev,
-              site_id,
-              equipment_id: "", // reset equipment when site changes
-            }));
-          }}
+              site_id: e.target.value,
+              equipment_id: "",
+            }))
+          }
         >
           <option value="">Select Site</option>
           {sites.map((s) => (
@@ -363,22 +323,7 @@ export default function AddDeviceForm({
         </select>
       </div>
 
-      {/* SERVICE NOTES */}
-      <div>
-        <label className="block text-sm mb-1">Service Notes</label>
-        <textarea
-          className="w-full border rounded-md p-2"
-          value={newDevice.service_notes}
-          onChange={(e) =>
-            setNewDevice((prev) => ({
-              ...prev,
-              service_notes: e.target.value,
-            }))
-          }
-        />
-      </div>
-
-      {/* BUTTONS */}
+      {/* ACTIONS */}
       <div className="flex justify-end gap-3 mt-4">
         <button
           onClick={() => setShowAdd(false)}

@@ -5,7 +5,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import AddDeviceForm, { NewDevice } from "./AddDeviceForm";
+import AddDeviceForm from "./AddDeviceForm";
+import type { NewDevice } from "@/types/device";
 
 export default function AddDevicePage() {
   const router = useRouter();
