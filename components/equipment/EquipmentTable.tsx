@@ -158,7 +158,7 @@ export default function EquipmentCheckupTable({ siteId }: Props) {
           {data.map((row) => (
             <tr key={row.equipment_id} className="border-b hover:bg-gray-50">
               <td className="py-3 px-4 underline text-blue-700">
-                <Link href={`/sites/${siteId}/equipment/${row.equipment_id}/individual-equipment`}>
+                <Link href={`/sites/${siteId}/equipment/${row.equipment_id}`}>
                   {row.equipment_name}
                 </Link>
               </td>

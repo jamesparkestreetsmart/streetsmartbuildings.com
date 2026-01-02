@@ -1,4 +1,4 @@
-// sites/[siteid]/equipment/[equipmentid]/individual-equipment/page.tsx
+// sites/[siteid]/equipment/[equipmentid]/page.tsx
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";

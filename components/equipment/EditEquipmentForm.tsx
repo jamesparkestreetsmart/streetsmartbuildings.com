@@ -109,7 +109,7 @@ export default function EditEquipmentForm({
     }
 
     router.push(
-      `/sites/${siteid}/equipment/${equipment.equipment_id}/individual-equipment`
+      `/sites/${siteid}/equipment/${equipment.equipment_id}`
     );
   }
 
@@ -303,7 +303,7 @@ export default function EditEquipmentForm({
               variant="outline"
               onClick={() =>
                 router.push(
-                  `/sites/${siteid}/equipment/${equipment.equipment_id}/individual-equipment`
+                  `/sites/${siteid}/equipment/${equipment.equipment_id}`
                 )
               }
             >

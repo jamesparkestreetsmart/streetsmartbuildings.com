@@ -91,7 +91,7 @@ export default async function DeviceDetailsPage(props: any) {
   let backHref = `/sites/${siteid}`;
 
   if (returnTo === "equipment" && equipmentId) {
-    backHref = `/sites/${siteid}/equipment/${equipmentId}/individual-equipment`;
+    backHref = `/sites/${siteid}/equipment/${equipmentId}`;
   } else if (returnTo === "gateways") {
     backHref = `/sites/${siteid}/gateways`;
   }
