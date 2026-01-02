@@ -100,7 +100,6 @@ export default async function IndividualEquipmentPage({
     return <div className="p-6 text-red-600">Missing parameters</div>;
   }
 
-  // ✅ Context-aware back target (server-safe)
   const returnTo = searchParams?.returnTo ?? `/sites/${siteid}`;
 
   const cookieStore = await cookies();
@@ -117,14 +116,22 @@ export default async function IndividualEquipmentPage({
     }
   );
 
-  /* -------------------- Load Site (timezone) -------------------- */
-  const { data: site } = await supabase
+  /* -------------------- Load Site -------------------- */
+  const { data: site, error: siteError } = await supabase
     .from("a_sites")
-    .select("timezone")
+    .select("timezone, org_id")
     .eq("site_id", siteid)
     .single();
 
-  const siteTimezone = site?.timezone || "America/Chicago";
+  if (siteError || !site) {
+    return (
+      <div className="p-6 text-red-600">
+        Site not found
+      </div>
+    );
+  }
+
+  const siteTimezone = site.timezone || "America/Chicago";
 
   /* -------------------- Equipment -------------------- */
   const { data: equipment } = await supabase
@@ -163,14 +170,15 @@ export default async function IndividualEquipmentPage({
         .in("ha_device_id", haIds);
 
       if (entities) {
-        entitiesByHaDevice = (entities as EntityRow[]).reduce<
-          Record<string, EntityRow[]>
-        >((acc, e) => {
-          if (!e.ha_device_id) return acc;
-          if (!acc[e.ha_device_id]) acc[e.ha_device_id] = [];
-          acc[e.ha_device_id].push(e);
-          return acc;
-        }, {});
+        entitiesByHaDevice = (entities as EntityRow[]).reduce(
+          (acc, e) => {
+            if (!e.ha_device_id) return acc;
+            acc[e.ha_device_id] ??= [];
+            acc[e.ha_device_id].push(e);
+            return acc;
+          },
+          {} as Record<string, EntityRow[]>
+        );
       }
     }
   }
@@ -198,7 +206,6 @@ export default async function IndividualEquipmentPage({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* ✅ FIXED BACK LINK */}
             <Link
               href={returnTo}
               className="inline-flex items-center rounded-full bg-white/15 px-4 py-2 text-sm font-medium hover:bg-white/25 transition"
@@ -240,26 +247,6 @@ export default async function IndividualEquipmentPage({
             <p><strong>Serial:</strong> {equipment.serial_number || "—"}</p>
             <p><strong>Voltage:</strong> {equipment.voltage || "—"}</p>
             <p><strong>Amperage:</strong> {equipment.amperage || "—"}</p>
-
-            <p>
-              <strong>Maintenance:</strong>{" "}
-              {equipment.maintenance_interval_days
-                ? `${equipment.maintenance_interval_days} days`
-                : "—"}
-            </p>
-
-            <p>
-              <strong>Status:</strong>{" "}
-              <span
-                className={
-                  equipment.status === "active"
-                    ? "text-green-600 font-semibold"
-                    : "text-gray-600"
-                }
-              >
-                {equipment.status}
-              </span>
-            </p>
           </div>
         </section>
 
@@ -269,7 +256,7 @@ export default async function IndividualEquipmentPage({
 
           {deviceList.length === 0 ? (
             <p className="text-sm text-gray-500">
-              No devices linked yet. Once HA devices are mapped, they’ll show here.
+              No devices linked yet.
             </p>
           ) : (
             deviceList.map((device) => {
@@ -278,69 +265,12 @@ export default async function IndividualEquipmentPage({
                   entitiesByHaDevice[device.ha_device_id]) ||
                 [];
 
-              const grouped = entities.reduce<Record<string, EntityRow[]>>(
-                (acc, e) => {
-                  const key = e.sensor_type || "measurement";
-                  if (!acc[key]) acc[key] = [];
-                  acc[key].push(e);
-                  return acc;
-                },
-                {}
-              );
-
               return (
                 <div key={device.device_id} className="border rounded-lg p-4 mb-4">
-                  <div className="flex justify-between mb-2">
-                    <div>
-                      <p className="font-semibold">{device.device_name}</p>
-                      <p className="text-xs text-gray-500">
-                        Last seen: {formatDateTime(device.last_seen_at, siteTimezone)}
-                      </p>
-                    </div>
-
-                    {device.ha_device_id && (
-                      <Link
-                        href={`/settings/devices/${device.device_id}?returnTo=/sites/${siteid}/equipment/${equipmentid}`}
-                        className="text-xs text-green-700 underline"
-                      >
-                        View device →
-                      </Link>
-                    )}
-                  </div>
-
-                  {entities.length === 0 ? (
-                    <p className="text-sm text-gray-500">
-                      No entities synced yet for this device.
-                    </p>
-                  ) : (
-                    <div className="grid md:grid-cols-2 gap-3">
-                      {Object.entries(grouped).map(([cat, list]) => (
-                        <div
-                          key={cat}
-                          className="bg-gray-50 border rounded-lg p-3"
-                        >
-                          <p className="text-xs font-semibold mb-2 uppercase text-gray-700">
-                            {formatCategoryLabel(cat)}
-                          </p>
-
-                          {list.map((e) => (
-                            <div
-                              key={e.entity_id}
-                              className="flex justify-between text-xs"
-                            >
-                              <span className="font-mono">{e.entity_id}</span>
-                              <span className="font-semibold">
-                                {e.last_state ?? "—"}
-                                {e.unit_of_measurement
-                                  ? ` ${e.unit_of_measurement}`
-                                  : ""}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <p className="font-semibold">{device.device_name}</p>
+                  <p className="text-xs text-gray-500">
+                    Last seen: {formatDateTime(device.last_seen_at, siteTimezone)}
+                  </p>
                 </div>
               );
             })
@@ -349,13 +279,10 @@ export default async function IndividualEquipmentPage({
 
         {/* -------------------- ACTIVITY LOG -------------------- */}
         <section className="bg-white rounded-xl shadow p-6 space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold">Activity Log</h2>
-            <span className="text-xs text-gray-500">Last 15 records</span>
-          </div>
+          <h2 className="text-lg font-semibold">Activity Log</h2>
 
           <AddRecordNote
-            orgId={equipment.site_id}
+            orgId={site.org_id}
             siteId={siteid}
             equipmentId={equipmentid}
           />
@@ -370,7 +297,6 @@ export default async function IndividualEquipmentPage({
                     {r.metadata?.note ?? r.message}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {r.event_type} •{" "}
                     {formatDateTime(r.created_at, siteTimezone)}
                   </p>
                 </li>
