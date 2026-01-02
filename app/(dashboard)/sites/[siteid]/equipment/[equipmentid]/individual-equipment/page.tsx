@@ -84,10 +84,13 @@ function formatCategoryLabel(raw: string | null): string {
    Page
 ======================= */
 
-export default async function IndividualEquipmentPage(props: any) {
-  const params = await props.params;
-  const siteid = params?.siteid;
-  const equipmentid = params?.equipmentid;
+export default async function IndividualEquipmentPage({
+  params,
+}: {
+  params: { siteid: string; equipmentid: string };
+}) {
+  const siteid = params.siteid;
+  const equipmentid = params.equipmentid;
 
   if (!siteid || !equipmentid) {
     return <div className="p-6 text-red-600">Missing parameters</div>;
@@ -110,7 +113,7 @@ export default async function IndividualEquipmentPage(props: any) {
   /* -------------------- Load Site (for timezone) -------------------- */
   const { data: site } = await supabase
     .from("a_sites")
-    .select("timezone")
+    .select("timezone, org_id")
     .eq("site_id", siteid)
     .single();
 
@@ -344,7 +347,7 @@ export default async function IndividualEquipmentPage(props: any) {
           </div>
 
           <AddRecordNote
-            orgId={equipment.site_id}
+            orgId={site?.org_id}
             siteId={siteid}
             equipmentId={equipmentid}
           />
