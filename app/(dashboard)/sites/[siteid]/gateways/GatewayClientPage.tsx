@@ -1,4 +1,3 @@
-//sites/[siteid]/gateways/GatewayClientPage.tsx
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
@@ -18,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowUpRight } from "lucide-react";
 
 /* ======================================================
  Types
@@ -130,6 +129,14 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   const [editingHaDevice, setEditingHaDevice] = useState<string | null>(null);
   const [selectedValue, setSelectedValue] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
+
+  /* ======================================================
+   NEW: device navigation helper
+  ====================================================== */
+
+  const goToDevice = (deviceId: string) => {
+    router.push(`/settings/devices/${deviceId}`);
+  };
 
   /* ======================================================
    Group HA devices
@@ -292,49 +299,65 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
       {loading ? (
         <p>Loading…</p>
       ) : (
-        haDevices.map((d) => (
-          <Card key={d.ha_device_id} className="bg-white border">
-            <CardHeader>
-              <CardTitle className="space-y-2">
-                <div className="text-emerald-700 font-semibold">
-                  {d.ha_device_display_name}
-                </div>
-                <div className="text-xs font-mono text-gray-500">
-                  HA ID: {d.ha_device_id}
-                </div>
+        haDevices.map((d) => {
+          const deviceId = d.entities[0]?.device_id;
 
-                {d.equipment_name && d.business_device_name && (
-                  <div className="text-sm text-gray-600">
-                    Mapped to:{" "}
-                    <span className="font-medium">
-                      {d.equipment_name} → {d.business_device_name}
-                    </span>
+          return (
+            <Card key={d.ha_device_id} className="bg-white border">
+              <CardHeader>
+                <CardTitle className="space-y-2">
+                  <div className="text-emerald-700 font-semibold">
+                    {d.ha_device_display_name}
                   </div>
-                )}
 
-                {editingHaDevice === d.ha_device_id ? (
-                  <div className="space-y-2 mt-2">
-                    <Select
-                      value={selectedValue ?? ""}
-                      onValueChange={setSelectedValue}
-                    >
-                      <SelectTrigger className="bg-slate-800 text-white">
-                        <SelectValue placeholder="Select equipment & device" />
-                      </SelectTrigger>
+                  <div className="text-xs font-mono text-gray-500">
+                    HA ID: {d.ha_device_id}
+                  </div>
 
-                      <SelectContent className="bg-slate-800 text-white">
-                        <SelectItem value="__UNMAP__" className="text-red-400">
-                          — Unmap HA Device —
-                        </SelectItem>
+                  {d.equipment_name &&
+                    d.business_device_name &&
+                    deviceId && (
+                      <div className="text-sm text-gray-600">
+                        Mapped to:{" "}
+                        <span className="font-medium">
+                          {d.equipment_name} →{" "}
+                          <button
+                            onClick={() => goToDevice(deviceId)}
+                            className="inline-flex items-center gap-1 text-emerald-700 hover:underline cursor-pointer"
+                          >
+                            {d.business_device_name}
+                            <ArrowUpRight className="w-3 h-3 opacity-70" />
+                          </button>
+                        </span>
+                      </div>
+                    )}
 
-                        {sortedEquipments.map((eq) => (
-                          <div key={eq.equipment_id}>
-                            <div className="px-3 py-1 text-xs text-slate-400 uppercase">
-                              {eq.equipment_name}
-                            </div>
+                  {editingHaDevice === d.ha_device_id ? (
+                    <div className="space-y-2 mt-2">
+                      <Select
+                        value={selectedValue ?? ""}
+                        onValueChange={setSelectedValue}
+                      >
+                        <SelectTrigger className="bg-slate-800 text-white">
+                          <SelectValue placeholder="Select equipment & device" />
+                        </SelectTrigger>
 
-                            {(devicesByEquipment.get(eq.equipment_id) ?? []).map(
-                              (bd) => (
+                        <SelectContent className="bg-slate-800 text-white">
+                          <SelectItem
+                            value="__UNMAP__"
+                            className="text-red-400"
+                          >
+                            — Unmap HA Device —
+                          </SelectItem>
+
+                          {sortedEquipments.map((eq) => (
+                            <div key={eq.equipment_id}>
+                              <div className="px-3 py-1 text-xs text-slate-400 uppercase">
+                                {eq.equipment_name}
+                              </div>
+
+                              {(devicesByEquipment.get(eq.equipment_id) ??
+                                []).map((bd) => (
                                 <SelectItem
                                   key={bd.device_id}
                                   value={`${eq.equipment_id}::${bd.device_id}`}
@@ -347,83 +370,82 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                                   {bd.device_name}
                                   {bd.ha_device_id ? " (mapped)" : ""}
                                 </SelectItem>
-                              )
-                            )}
-                          </div>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                              ))}
+                            </div>
+                          ))}
+                        </SelectContent>
+                      </Select>
 
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => submitMapping(d.ha_device_id)}
-                        disabled={!selectedValue}
-                      >
-                        Save
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setEditingHaDevice(null)}
-                      >
-                        Cancel
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => submitMapping(d.ha_device_id)}
+                          disabled={!selectedValue}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => setEditingHaDevice(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setEditingHaDevice(d.ha_device_id)}
-                  >
-                    Reassign Device
-                  </Button>
-                )}
-              </CardTitle>
-            </CardHeader>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditingHaDevice(d.ha_device_id)}
+                    >
+                      Reassign Device
+                    </Button>
+                  )}
+                </CardTitle>
+              </CardHeader>
 
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm bg-slate-900 text-white rounded">
-                <thead className="bg-slate-800">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Entity</th>
-                    <th className="px-3 py-2 text-left">Type</th>
-                    <th className="px-3 py-2 text-left">Last Seen</th>
-                    <th className="px-3 py-2 text-left">Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.entities.map((e) => (
-                    <tr key={e.entity_id} className="border-t border-slate-700">
-                      <td className="px-3 py-2 font-mono text-xs">
-                        {e.entity_id}
-                      </td>
-                      <td className="px-3 py-2">
-                        {e.sensor_type ?? "—"}
-                      </td>
-
-                      {/* 🔴🟡🟢 LAST SEEN WITH COLOR */}
-                      <td
-                        className={`px-3 py-2 ${lastSeenClass(
-                          e.last_seen_at
-                        )}`}
-                      >
-                        {formatRelativeTime(e.last_seen_at)}
-                      </td>
-
-                      {/* 🕒 LOCAL-TIME / FORMATTED VALUE */}
-                      <td className="px-3 py-2">
-                        {formatValue(
-                          e.last_state,
-                          e.unit_of_measurement
-                        )}
-                      </td>
+              <CardContent className="overflow-x-auto">
+                <table className="w-full text-sm bg-slate-900 text-white rounded">
+                  <thead className="bg-slate-800">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Entity</th>
+                      <th className="px-3 py-2 text-left">Type</th>
+                      <th className="px-3 py-2 text-left">Last Seen</th>
+                      <th className="px-3 py-2 text-left">Value</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
-        ))
+                  </thead>
+                  <tbody>
+                    {d.entities.map((e) => (
+                      <tr
+                        key={e.entity_id}
+                        className="border-t border-slate-700"
+                      >
+                        <td className="px-3 py-2 font-mono text-xs">
+                          {e.entity_id}
+                        </td>
+                        <td className="px-3 py-2">
+                          {e.sensor_type ?? "—"}
+                        </td>
+                        <td
+                          className={`px-3 py-2 ${lastSeenClass(
+                            e.last_seen_at
+                          )}`}
+                        >
+                          {formatRelativeTime(e.last_seen_at)}
+                        </td>
+                        <td className="px-3 py-2">
+                          {formatValue(
+                            e.last_state,
+                            e.unit_of_measurement
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          );
+        })
       )}
     </div>
   );
