@@ -234,49 +234,60 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
    Submit mapping (SAFE)
   ====================================================== */
 
-  const submitMapping = async (ha_device_id: string) => {
-    if (!selectedValue || !orgId) return;
+  const submitMapping = async (
+  ha_device_id: string,
+  device_id?: string | null
+) => {
+  if (!selectedValue || !orgId) return;
 
-    let res: Response;
+  let res: Response;
 
-    if (selectedValue === "__UNMAP__") {
-      res = await fetch("/api/device-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_id: siteid,
-          org_id: orgId,
-          ha_device_id,
-          unmap: true,
-          note: "HA device unmapped via gateway UI",
-        }),
-      });
-    } else {
-      const [, device_id] = selectedValue.split("::");
-
-      res = await fetch("/api/device-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_id: siteid,
-          org_id: orgId,
-          ha_device_id,
-          device_id,
-          note: "HA device mapped via gateway UI",
-        }),
-      });
-    }
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(err?.error ?? "Device mapping failed");
+  if (selectedValue === "__UNMAP__") {
+    if (!device_id) {
+      alert("No mapped device found to unmap.");
       return;
     }
 
-    setEditingHaDevice(null);
-    setSelectedValue(null);
-    fetchAll();
-  };
+    res = await fetch("/api/device-map", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        site_id: siteid,
+        org_id: orgId,
+        ha_device_id,
+        device_id,
+        unmap: true,
+        note: "HA device unmapped via gateway UI",
+      }),
+    });
+  } else {
+    const [, mapped_device_id] = selectedValue.split("::");
+
+    res = await fetch("/api/device-map", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        site_id: siteid,
+        org_id: orgId,
+        ha_device_id,
+        device_id: mapped_device_id,
+        note: "HA device mapped via gateway UI",
+      }),
+    });
+  }
+
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err?.error ?? "Device mapping failed");
+    return;
+  }
+
+  setEditingHaDevice(null);
+  setSelectedValue(null);
+  fetchAll();
+};
+
+
 
   /* ======================================================
    UI
@@ -378,7 +389,12 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
 
                       <div className="flex gap-2">
                         <Button
-                          onClick={() => submitMapping(d.ha_device_id)}
+                          onClick={() => 
+                            submitMapping(
+                              d.ha_device_id,
+                              d.entities[0]?.device_id
+                            )
+                          }
                           disabled={!selectedValue}
                         >
                           Save
