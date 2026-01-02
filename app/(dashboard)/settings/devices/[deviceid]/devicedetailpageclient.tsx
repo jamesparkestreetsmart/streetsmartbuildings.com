@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ArrowLeft, Cpu, Trash2, Edit3 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 interface DeviceRow {
   device_id: string;
@@ -67,6 +68,9 @@ export default function DeviceDetailPageClient({
     site_id: "",
     equipment_id: "",
   });
+
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("returnTo") || "/settings/devices";
 
   // ------------------------------
   // LOADING DEVICE + SENSORS
@@ -182,7 +186,7 @@ export default function DeviceDetailPageClient({
     if (!confirm("Delete device?")) return;
 
     await supabase.from("a_devices").delete().eq("device_id", device.device_id);
-    router.push("/settings/devices");
+    router.push(returnTo);
   };
 
   // ------------------------------
@@ -210,10 +214,10 @@ export default function DeviceDetailPageClient({
     return (
       <div className="p-6">
         <button
-          onClick={() => router.push("/settings/devices")}
+          onClick={() => router.push(returnTo)}
           className="flex items-center gap-2 text-sm text-green-700 hover:text-green-900 mb-4"
         >
-          <ArrowLeft className="w-4 h-4" /> Back to Devices
+          <ArrowLeft className="w-4 h-4" /> Back
         </button>
         <p className="text-red-600 text-sm">Device not found.</p>
       </div>
@@ -227,11 +231,11 @@ export default function DeviceDetailPageClient({
       {/* HEADER */}
       <div className="flex items-center justify-between mb-4">
         <button
-          onClick={() => router.push("/settings/devices")}
+          onClick={() => router.push(returnTo)}
           className="flex items-center gap-2 text-sm text-green-700 hover:text-green-900"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to Devices
+          Back
         </button>
 
         <div className="flex items-center gap-2">

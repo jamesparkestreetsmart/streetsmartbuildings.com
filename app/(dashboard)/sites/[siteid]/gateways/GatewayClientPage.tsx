@@ -135,7 +135,9 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   ====================================================== */
 
   const goToDevice = (deviceId: string) => {
-    router.push(`/settings/devices/${deviceId}`);
+    router.push(
+      `/settings/devices/${deviceId}?returnTo=/sites/${siteid}/gateways`
+    );
   };
 
   /* ======================================================
