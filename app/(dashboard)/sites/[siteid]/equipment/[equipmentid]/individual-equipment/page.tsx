@@ -1,3 +1,5 @@
+// sites/[siteid]/equipment/[equipmentid]/individual-equipment/page.tsx
+
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -84,14 +86,22 @@ function formatCategoryLabel(raw: string | null): string {
    Page
 ======================= */
 
-export default async function IndividualEquipmentPage(props: any) {
-  const params = await props.params;
-  const siteid = params?.siteid;
-  const equipmentid = params?.equipmentid;
+export default async function IndividualEquipmentPage({
+  params,
+  searchParams,
+}: {
+  params: { siteid: string; equipmentid: string };
+  searchParams?: { returnTo?: string };
+}) {
+  const siteid = params.siteid;
+  const equipmentid = params.equipmentid;
 
   if (!siteid || !equipmentid) {
     return <div className="p-6 text-red-600">Missing parameters</div>;
   }
+
+  // ✅ Context-aware back target (server-safe)
+  const returnTo = searchParams?.returnTo ?? `/sites/${siteid}`;
 
   const cookieStore = await cookies();
 
@@ -107,7 +117,7 @@ export default async function IndividualEquipmentPage(props: any) {
     }
   );
 
-  /* -------------------- Load Site (for timezone) -------------------- */
+  /* -------------------- Load Site (timezone) -------------------- */
   const { data: site } = await supabase
     .from("a_sites")
     .select("timezone")
@@ -188,11 +198,12 @@ export default async function IndividualEquipmentPage(props: any) {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* ✅ FIXED BACK LINK */}
             <Link
-              href={`/sites/${siteid}`}
+              href={returnTo}
               className="inline-flex items-center rounded-full bg-white/15 px-4 py-2 text-sm font-medium hover:bg-white/25 transition"
             >
-              ← Back to Equipment List
+              ← Back
             </Link>
 
             <Link
@@ -289,7 +300,7 @@ export default async function IndividualEquipmentPage(props: any) {
 
                     {device.ha_device_id && (
                       <Link
-                        href={`/sites/${siteid}/devices/${device.ha_device_id}?returnTo=equipment&equipmentId=${equipmentid}`}
+                        href={`/settings/devices/${device.device_id}?returnTo=/sites/${siteid}/equipment/${equipmentid}`}
                         className="text-xs text-green-700 underline"
                       >
                         View device →

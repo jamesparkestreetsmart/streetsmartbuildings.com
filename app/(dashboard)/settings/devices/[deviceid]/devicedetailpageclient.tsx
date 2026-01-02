@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { ArrowLeft, Cpu, Trash2, Edit3 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useReturnTo } from "@/app/hooks/useReturnTo";
 
 interface DeviceRow {
   device_id: string;
@@ -42,6 +42,9 @@ export default function DeviceDetailPageClient({
 }) {
   const router = useRouter();
 
+  /** 🔁 CENTRALIZED BACK NAVIGATION */
+  const { goBack } = useReturnTo("/settings/devices");
+
   const [loading, setLoading] = useState(true);
   const [device, setDevice] = useState<DeviceRow | null>(null);
   const [sensors, setSensors] = useState<SensorRow[]>([]);
@@ -69,11 +72,8 @@ export default function DeviceDetailPageClient({
     equipment_id: "",
   });
 
-  const searchParams = useSearchParams();
-  const returnTo = searchParams.get("returnTo") || "/settings/devices";
-
   // ------------------------------
-  // LOADING DEVICE + SENSORS
+  // LOAD DEVICE + SENSORS
   // ------------------------------
   const loadData = async () => {
     setLoading(true);
@@ -154,7 +154,7 @@ export default function DeviceDetailPageClient({
   };
 
   // ------------------------------
-  // SAVE EDITED DEVICE
+  // SAVE EDIT
   // ------------------------------
   const saveEdit = async () => {
     if (!device) return;
@@ -186,7 +186,7 @@ export default function DeviceDetailPageClient({
     if (!confirm("Delete device?")) return;
 
     await supabase.from("a_devices").delete().eq("device_id", device.device_id);
-    router.push(returnTo);
+    goBack();
   };
 
   // ------------------------------
@@ -214,7 +214,7 @@ export default function DeviceDetailPageClient({
     return (
       <div className="p-6">
         <button
-          onClick={() => router.push(returnTo)}
+          onClick={goBack}
           className="flex items-center gap-2 text-sm text-green-700 hover:text-green-900 mb-4"
         >
           <ArrowLeft className="w-4 h-4" /> Back
@@ -231,7 +231,7 @@ export default function DeviceDetailPageClient({
       {/* HEADER */}
       <div className="flex items-center justify-between mb-4">
         <button
-          onClick={() => router.push(returnTo)}
+          onClick={goBack}
           className="flex items-center gap-2 text-sm text-green-700 hover:text-green-900"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -248,38 +248,20 @@ export default function DeviceDetailPageClient({
       <div className="bg-white border rounded-xl shadow p-6 flex flex-col md:flex-row justify-between gap-6">
         <div>
           <h2 className="text-lg font-semibold mb-2">Device Information</h2>
-          <p>
-            <b>Serial:</b> {device.serial_number}
-          </p>
-          <p>
-            <b>Protocol:</b> {device.protocol || "—"}
-          </p>
-          <p>
-            <b>Connection:</b> {device.connection_type || "—"}
-          </p>
-          <p>
-            <b>Firmware:</b> {device.firmware_version || "—"}
-          </p>
-          <p>
-            <b>IP:</b> {device.ip_address || "—"}
-          </p>
-          <p>
-            <b>Status:</b> {device.status}
-          </p>
-          <p>
-            <b>Created:</b> {new Date(device.created_at).toLocaleString()}
-          </p>
+          <p><b>Serial:</b> {device.serial_number}</p>
+          <p><b>Protocol:</b> {device.protocol || "—"}</p>
+          <p><b>Connection:</b> {device.connection_type || "—"}</p>
+          <p><b>Firmware:</b> {device.firmware_version || "—"}</p>
+          <p><b>IP:</b> {device.ip_address || "—"}</p>
+          <p><b>Status:</b> {device.status}</p>
+          <p><b>Created:</b> {new Date(device.created_at).toLocaleString()}</p>
         </div>
 
         <div className="flex flex-col items-start md:items-end gap-4">
           <div className="text-sm">
             <h2 className="text-lg font-semibold mb-1">Location</h2>
-            <p>
-              <b>Site:</b> {siteName}
-            </p>
-            <p>
-              <b>Equipment:</b> {equipmentName}
-            </p>
+            <p><b>Site:</b> {siteName}</p>
+            <p><b>Equipment:</b> {equipmentName}</p>
           </div>
 
           <div className="flex gap-2">
@@ -369,7 +351,6 @@ export default function DeviceDetailPageClient({
                 </div>
               ))}
 
-              {/* Status */}
               <div>
                 <label className="block mb-1">Status</label>
                 <select
@@ -386,7 +367,6 @@ export default function DeviceDetailPageClient({
                 </select>
               </div>
 
-              {/* Site */}
               <div>
                 <label className="block mb-1">Site</label>
                 <select
@@ -409,7 +389,6 @@ export default function DeviceDetailPageClient({
                 </select>
               </div>
 
-              {/* Equipment */}
               <div>
                 <label className="block mb-1">Equipment</label>
                 <select
