@@ -86,9 +86,16 @@ function formatCategoryLabel(raw: string | null): string {
 
 export default async function IndividualEquipmentPage({
   params,
+  searchParams
 }: {
   params: { siteid: string; equipmentid: string };
+  searchParams?: { returnTo?: string };
 }) {
+
+    console.log("INDIVIDUAL EQUIPMENT PARAMS", {
+        params,
+        searchParams,
+    });
   const siteid = params.siteid;
   const equipmentid = params.equipmentid;
 
