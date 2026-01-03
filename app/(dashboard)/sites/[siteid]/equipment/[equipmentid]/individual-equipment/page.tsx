@@ -114,11 +114,11 @@ export default async function IndividualEquipmentPage({
   params,
   searchParams,
 }: {
-  params: { siteid?: string; equipmentid?: string };
-  searchParams?: { returnTo?: string };
+  params: { siteid: string; equipmentid: string };
+  searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  const siteid = params?.siteid;
-  const equipmentid = params?.equipmentid;
+  const { siteid, equipmentid } = params;
+
 
   // ✅ HARD GUARD — tells you EXACTLY what is missing
   if (!siteid || !equipmentid) {
