@@ -254,8 +254,9 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
       body: JSON.stringify({
         site_id: siteid,
         org_id: orgId,
+        ha_device_id,
         device_id,
-        ha_device_id: null, //Critical for unmapping
+        unmap: true,
         note: "HA device unmapped via gateway UI",
       }),
     });
