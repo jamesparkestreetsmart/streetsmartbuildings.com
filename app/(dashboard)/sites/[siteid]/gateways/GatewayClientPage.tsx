@@ -131,19 +131,11 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   const [orgId, setOrgId] = useState<string | null>(null);
 
   /* ======================================================
-   Navigation helpers
+   NEW: device navigation helper
   ====================================================== */
 
   const goToDevice = (deviceId: string) => {
-    router.push(
-      `/settings/devices/${deviceId}?returnTo=/sites/${siteid}/gateways`
-    );
-  };
-
-  const goToEquipment = (equipmentId: string) => {
-    router.push(
-      `/sites/${siteid}/equipment/${equipmentId}?returnTo=/sites/${siteid}/gateways`
-    );
+    router.push(`/settings/devices/${deviceId}`);
   };
 
   /* ======================================================
@@ -243,56 +235,58 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   ====================================================== */
 
   const submitMapping = async (
-    ha_device_id: string,
-    device_id?: string | null
-  ) => {
-    if (!selectedValue || !orgId) return;
+  ha_device_id: string,
+  device_id?: string | null
+) => {
+  if (!selectedValue || !orgId) return;
 
-    let res: Response;
+  let res: Response;
 
-    if (selectedValue === "__UNMAP__") {
-      if (!device_id) {
-        alert("No mapped device found to unmap.");
-        return;
-      }
-
-      res = await fetch("/api/device-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_id: siteid,
-          org_id: orgId,
-          device_id,
-          ha_device_id: null, // critical for unmapping
-          note: "HA device unmapped via gateway UI",
-        }),
-      });
-    } else {
-      const [, mapped_device_id] = selectedValue.split("::");
-
-      res = await fetch("/api/device-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_id: siteid,
-          org_id: orgId,
-          ha_device_id,
-          device_id: mapped_device_id,
-          note: "HA device mapped via gateway UI",
-        }),
-      });
-    }
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(err?.error ?? "Device mapping failed");
+  if (selectedValue === "__UNMAP__") {
+    if (!device_id) {
+      alert("No mapped device found to unmap.");
       return;
     }
 
-    setEditingHaDevice(null);
-    setSelectedValue(null);
-    fetchAll();
-  };
+    res = await fetch("/api/device-map", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        site_id: siteid,
+        org_id: orgId,
+        device_id,
+        ha_device_id: null, //Critical for unmapping
+        note: "HA device unmapped via gateway UI",
+      }),
+    });
+  } else {
+    const [, mapped_device_id] = selectedValue.split("::");
+
+    res = await fetch("/api/device-map", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        site_id: siteid,
+        org_id: orgId,
+        ha_device_id,
+        device_id: mapped_device_id,
+        note: "HA device mapped via gateway UI",
+      }),
+    });
+  }
+
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err?.error ?? "Device mapping failed");
+    return;
+  }
+
+  setEditingHaDevice(null);
+  setSelectedValue(null);
+  fetchAll();
+};
+
+
 
   /* ======================================================
    UI
@@ -336,13 +330,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                       <div className="text-sm text-gray-600">
                         Mapped to:{" "}
                         <span className="font-medium">
-                          <button
-                            onClick={() => goToEquipment(d.equipment_id!)}
-                            className="text-emerald-700 hover:underline"
-                          >
-                            {d.equipment_name}
-                          </button>{" "}
-                          →{" "}
+                          {d.equipment_name} →{" "}
                           <button
                             onClick={() => goToDevice(deviceId)}
                             className="inline-flex items-center gap-1 text-emerald-700 hover:underline cursor-pointer"
@@ -400,7 +388,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
 
                       <div className="flex gap-2">
                         <Button
-                          onClick={() =>
+                          onClick={() => 
                             submitMapping(
                               d.ha_device_id,
                               d.entities[0]?.device_id
