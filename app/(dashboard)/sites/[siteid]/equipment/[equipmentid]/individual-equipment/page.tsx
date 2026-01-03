@@ -1,4 +1,4 @@
-// sites/[siteid]/equipment/[equipmentid]/individual-equipment/page.tsx
+// app/(dashboard)/sites/[siteid]/equipment/[equipmentid]/individual-equipment/page.tsx
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
@@ -82,6 +82,30 @@ function formatCategoryLabel(raw: string | null): string {
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : "Other";
 }
 
+function safeReturnToHref(
+  siteid: string,
+  returnToRaw: unknown
+): string {
+  // Default back target
+  let backHref = `/sites/${siteid}`;
+
+  if (typeof returnToRaw !== "string" || !returnToRaw) {
+    return backHref;
+  }
+
+  // If caller passed a real path (GatewayClientPage does this), use it.
+  // Example: /sites/{siteid}/gateways
+  if (returnToRaw.startsWith("/")) {
+    return returnToRaw;
+  }
+
+  // Optional named shortcuts if you ever pass returnTo=gateways etc.
+  if (returnToRaw === "gateways") return `/sites/${siteid}/gateways`;
+  if (returnToRaw === "site") return `/sites/${siteid}`;
+
+  return backHref;
+}
+
 /* =======================
    Page
 ======================= */
@@ -90,18 +114,26 @@ export default async function IndividualEquipmentPage({
   params,
   searchParams,
 }: {
-  params: { siteid: string; equipmentid: string };
+  params: { siteid?: string; equipmentid?: string };
   searchParams?: { returnTo?: string };
 }) {
-  const siteid = params.siteid;
-  const equipmentid = params.equipmentid;
+  const siteid = params?.siteid;
+  const equipmentid = params?.equipmentid;
 
+  // ✅ HARD GUARD — tells you EXACTLY what is missing
   if (!siteid || !equipmentid) {
-    return <div className="p-6 text-red-600">Missing parameters</div>;
+    return (
+      <pre className="p-6 text-red-600 whitespace-pre-wrap">
+        Missing parameters
+        {"\n"}siteid: {String(siteid)}
+        {"\n"}equipmentid: {String(equipmentid)}
+        {"\n\n"}params:
+        {"\n"}{JSON.stringify(params, null, 2)}
+        {"\n\n"}searchParams:
+        {"\n"}{JSON.stringify(searchParams, null, 2)}
+      </pre>
+    );
   }
-
-  // ✅ Context-aware back target (server-safe)
-  const returnTo = searchParams?.returnTo ?? `/sites/${siteid}`;
 
   const cookieStore = await cookies();
 
@@ -117,14 +149,22 @@ export default async function IndividualEquipmentPage({
     }
   );
 
-  /* -------------------- Load Site (timezone) -------------------- */
-  const { data: site } = await supabase
+  /* -------------------- Load Site (timezone + org) -------------------- */
+  const { data: site, error: siteError } = await supabase
     .from("a_sites")
-    .select("timezone")
+    .select("timezone, org_id")
     .eq("site_id", siteid)
     .single();
 
-  const siteTimezone = site?.timezone || "America/Chicago";
+  if (siteError || !site) {
+    return (
+      <div className="p-6 text-red-600">
+        Site not found (site_id: {siteid})
+      </div>
+    );
+  }
+
+  const siteTimezone = site.timezone || "America/Chicago";
 
   /* -------------------- Equipment -------------------- */
   const { data: equipment } = await supabase
@@ -185,6 +225,9 @@ export default async function IndividualEquipmentPage({
 
   const recordList = (records || []) as RecordLog[];
 
+  /* -------------------- Back button target -------------------- */
+  const backHref = safeReturnToHref(siteid, searchParams?.returnTo);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* HEADER */}
@@ -198,9 +241,8 @@ export default async function IndividualEquipmentPage({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* ✅ FIXED BACK LINK */}
             <Link
-              href={returnTo}
+              href={backHref}
               className="inline-flex items-center rounded-full bg-white/15 px-4 py-2 text-sm font-medium hover:bg-white/25 transition"
             >
               ← Back
@@ -222,9 +264,15 @@ export default async function IndividualEquipmentPage({
         <section className="bg-white rounded-xl shadow p-6 grid md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <h2 className="text-lg font-semibold">Equipment Details</h2>
-            <p><strong>Group:</strong> {equipment.equipment_group || "—"}</p>
-            <p><strong>Type:</strong> {equipment.equipment_type || "—"}</p>
-            <p><strong>Space:</strong> {equipment.space_name || "—"}</p>
+            <p>
+              <strong>Group:</strong> {equipment.equipment_group || "—"}
+            </p>
+            <p>
+              <strong>Type:</strong> {equipment.equipment_type || "—"}
+            </p>
+            <p>
+              <strong>Space:</strong> {equipment.space_name || "—"}
+            </p>
 
             {equipment.description && (
               <p className="text-sm text-gray-700">
@@ -235,11 +283,21 @@ export default async function IndividualEquipmentPage({
 
           <div className="space-y-2">
             <h2 className="text-lg font-semibold">Technical Info</h2>
-            <p><strong>Manufacturer:</strong> {equipment.manufacturer || "—"}</p>
-            <p><strong>Model:</strong> {equipment.model || "—"}</p>
-            <p><strong>Serial:</strong> {equipment.serial_number || "—"}</p>
-            <p><strong>Voltage:</strong> {equipment.voltage || "—"}</p>
-            <p><strong>Amperage:</strong> {equipment.amperage || "—"}</p>
+            <p>
+              <strong>Manufacturer:</strong> {equipment.manufacturer || "—"}
+            </p>
+            <p>
+              <strong>Model:</strong> {equipment.model || "—"}
+            </p>
+            <p>
+              <strong>Serial:</strong> {equipment.serial_number || "—"}
+            </p>
+            <p>
+              <strong>Voltage:</strong> {equipment.voltage || "—"}
+            </p>
+            <p>
+              <strong>Amperage:</strong> {equipment.amperage || "—"}
+            </p>
 
             <p>
               <strong>Maintenance:</strong>{" "}
@@ -269,7 +327,8 @@ export default async function IndividualEquipmentPage({
 
           {deviceList.length === 0 ? (
             <p className="text-sm text-gray-500">
-              No devices linked yet. Once HA devices are mapped, they’ll show here.
+              No devices linked yet. Once HA devices are mapped, they’ll show
+              here.
             </p>
           ) : (
             deviceList.map((device) => {
@@ -289,7 +348,10 @@ export default async function IndividualEquipmentPage({
               );
 
               return (
-                <div key={device.device_id} className="border rounded-lg p-4 mb-4">
+                <div
+                  key={device.device_id}
+                  className="border rounded-lg p-4 mb-4"
+                >
                   <div className="flex justify-between mb-2">
                     <div>
                       <p className="font-semibold">{device.device_name}</p>
@@ -300,7 +362,7 @@ export default async function IndividualEquipmentPage({
 
                     {device.ha_device_id && (
                       <Link
-                        href={`/settings/devices/${device.device_id}?returnTo=/sites/${siteid}/equipment/${equipmentid}`}
+                        href={`/sites/${siteid}/devices/${device.ha_device_id}?returnTo=equipment&equipmentId=${equipmentid}`}
                         className="text-xs text-green-700 underline"
                       >
                         View device →
@@ -355,7 +417,7 @@ export default async function IndividualEquipmentPage({
           </div>
 
           <AddRecordNote
-            orgId={equipment.site_id}
+            orgId={site.org_id}
             siteId={siteid}
             equipmentId={equipmentid}
           />
@@ -370,8 +432,7 @@ export default async function IndividualEquipmentPage({
                     {r.metadata?.note ?? r.message}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {r.event_type} •{" "}
-                    {formatDateTime(r.created_at, siteTimezone)}
+                    {r.event_type} • {formatDateTime(r.created_at, siteTimezone)}
                   </p>
                 </li>
               ))}
