@@ -2,19 +2,17 @@
 
 import AddRecordNote from "@/components/AddRecordNote";
 
-interface IndividualEquipmentClientProps {
-  orgId: string | null;
-  siteid: string;
-  equipmentid: string;
-  returnTo?: string; // ✅ optional, for navigation context
-}
-
 export default function IndividualEquipmentClient({
   orgId,
   siteid,
   equipmentid,
-  returnTo, // eslint-disable-line @typescript-eslint/no-unused-vars
-}: IndividualEquipmentClientProps) {
+  returnTo,
+}: {
+  orgId: string | null;
+  siteid: string;
+  equipmentid: string;
+  returnTo?: string;
+}) {
   return (
     <div className="p-6">
       <AddRecordNote
