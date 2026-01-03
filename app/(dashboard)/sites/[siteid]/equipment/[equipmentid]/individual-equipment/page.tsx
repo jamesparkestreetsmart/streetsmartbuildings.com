@@ -1,3 +1,5 @@
+// ❌ DO NOT add "use client" here
+
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import IndividualEquipmentClient from "./IndividualEquipmentClient";
@@ -8,13 +10,16 @@ export default async function IndividualEquipmentPage({
   params,
   searchParams,
 }: {
-  params: { siteid: string; equipmentid: string };
-  searchParams?: { returnTo?: string };
+  params: {
+    siteid: string;
+    equipmentid: string;
+  };
+  searchParams?: Record<string, string | undefined>;
 }) {
   const { siteid, equipmentid } = params;
 
   /* =======================
-     HARD GUARD (DEBUG SAFE)
+     PARAM VALIDATION
   ======================= */
   if (!siteid || !equipmentid) {
     return (
@@ -28,6 +33,9 @@ export default async function IndividualEquipmentPage({
     );
   }
 
+  /* =======================
+     SUPABASE CLIENT
+  ======================= */
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -44,7 +52,7 @@ export default async function IndividualEquipmentPage({
 
   /* =======================
      DEFENSIVE EQUIPMENT FETCH
-     (validates site + org)
+     (confirms site + org)
   ======================= */
   const { data: equipment, error } = await supabase
     .from("a_equipments")
@@ -65,7 +73,7 @@ export default async function IndividualEquipmentPage({
   }
 
   /* =======================
-     PASS VERIFIED DATA
+     RENDER CLIENT
   ======================= */
   return (
     <IndividualEquipmentClient
