@@ -142,7 +142,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
 
   const goToEquipment = (equipmentId: string) => {
     router.push(
-      `/sites/${siteid}/equipment/${equipmentId}?returnTo=/sites/${siteid}/gateways`
+      `/sites/${siteid}/equipment/${equipmentid}/individual-equipment?returnTo=gateways`
     );
   };
 
