@@ -62,7 +62,6 @@ interface DeviceGroup {
   equipment_id: string | null;
   equipment_name: string | null;
   business_device_name: string | null;
-  device_id: string | null;
   entities: SyncEntityRow[];
 }
 
@@ -148,7 +147,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   };
 
   /* ======================================================
-   Group HA devices (FIXED)
+   Group HA devices
   ====================================================== */
 
   const haDevices = useMemo<DeviceGroup[]>(() => {
@@ -161,36 +160,21 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         map.set(r.ha_device_id, {
           ha_device_id: r.ha_device_id,
           ha_device_display_name: r.ha_device_display_name,
-          equipment_id: null,
-          equipment_name: null,
-          business_device_name: null,
-          device_id: null,
+          equipment_id: r.equipment_id ?? null,
+          equipment_name: r.equipment_name ?? null,
+          business_device_name: r.business_device_name ?? null,
           entities: [],
         });
       }
 
-      const group = map.get(r.ha_device_id)!;
-
-      if (r.device_id) {
-        group.device_id = r.device_id;
-        group.business_device_name =
-          r.business_device_name ?? group.business_device_name;
-      }
-
-      if (r.equipment_id) {
-        group.equipment_id = r.equipment_id;
-        group.equipment_name =
-          r.equipment_name ?? group.equipment_name;
-      }
-
-      group.entities.push(r);
+      map.get(r.ha_device_id)!.entities.push(r);
     });
 
     return Array.from(map.values());
   }, [rows]);
 
   /* ======================================================
-   Group business devices by equipment
+   Group business devices by equipment (A → Z)
   ====================================================== */
 
   const devicesByEquipment = useMemo(() => {
@@ -220,7 +204,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   );
 
   /* ======================================================
-   Fetch
+   Fetch (15-min auto refresh)
   ====================================================== */
 
   const fetchAll = useCallback(async () => {
@@ -255,7 +239,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   }, [fetchAll]);
 
   /* ======================================================
-   Submit mapping
+   Submit mapping (SAFE)
   ====================================================== */
 
   const submitMapping = async (
@@ -279,7 +263,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
           site_id: siteid,
           org_id: orgId,
           device_id,
-          ha_device_id: null,
+          ha_device_id: null, // critical for unmapping
           note: "HA device unmapped via gateway UI",
         }),
       });
@@ -332,7 +316,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         <p>Loading…</p>
       ) : (
         haDevices.map((d) => {
-          const deviceId = d.device_id;
+          const deviceId = d.entities[0]?.device_id;
 
           return (
             <Card key={d.ha_device_id} className="bg-white border">
@@ -417,7 +401,10 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                       <div className="flex gap-2">
                         <Button
                           onClick={() =>
-                            submitMapping(d.ha_device_id, d.device_id)
+                            submitMapping(
+                              d.ha_device_id,
+                              d.entities[0]?.device_id
+                            )
                           }
                           disabled={!selectedValue}
                         >
