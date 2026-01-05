@@ -71,9 +71,11 @@ export default function LandingPageUI() {
           Building Intelligence
         </p>
 
-        <p className="text-sm max-w-xl mb-3 leading-relaxed">
-          We integrate best-in-class hardware, software, and industrial
-          communication standards to reduce building operating costs.
+        <p className="text-sm max-w-xl mb-4 leading-relaxed">
+          We are a systems integrator—strategically selecting best-in-class
+          hardware, software, and industrial communication standards to design
+          monitoring solutions that reduce operating costs and improve building
+          reliability.
         </p>
 
         {/* Persona Toggle */}
@@ -99,16 +101,18 @@ export default function LandingPageUI() {
         </div>
 
         {/* Persona Copy */}
-        <p className="text-sm max-w-xl mb-4">
+        <p className="text-sm max-w-xl mb-4 leading-relaxed">
           {persona === "facilities" &&
-            "Reduce emergency calls and truck rolls by catching equipment issues early."}
+            "We help facilities teams reduce emergency calls and unnecessary truck rolls by detecting abnormal equipment behavior early, before issues turn into downtime or reactive maintenance."}
+
           {persona === "cfo" &&
-            "Reduce operating expenses by cutting utility waste and extending asset life."}
+            "We help operators and finance leaders reduce operating expenses by identifying utility waste, inefficient operation, and early signs of asset degradation across their building portfolio."}
+
           {persona === "residential" &&
-            "Gain visibility into energy usage, comfort, and system health—without complexity."}
+            "We provide homeowners and property managers with visibility into energy usage, comfort, and system health across primary residences, rental homes, and vacation properties—no matter where the property is located."}
         </p>
 
-        {/* Lead Form — ALWAYS VISIBLE */}
+        {/* Lead Form — Above the Fold */}
         <form
           onSubmit={handleLeadSubmit}
           className="bg-white/10 p-4 rounded-lg backdrop-blur-sm max-w-md mb-3"
@@ -140,7 +144,8 @@ export default function LandingPageUI() {
           />
 
           <p className="text-xs text-white/80 mb-2">
-            Optional: Upload a short walkthrough (≤2 min, up to 3 videos). Helps us deliver{" "}
+            Optional: Upload a short building walkthrough (≤2 minutes each, up to
+            3 videos). This helps us deliver{" "}
             <span className="font-semibold text-yellow-300">
               Effective & Affordable
             </span>{" "}
@@ -160,7 +165,7 @@ export default function LandingPageUI() {
         </form>
 
         {/* Industries */}
-        <p className="text-xs text-white/80 mb-2">
+        <p className="text-xs text-white/80 mb-1">
           <span className="font-semibold">Industries:</span>{" "}
           Residential • Commercial • Industrial
         </p>
@@ -171,10 +176,14 @@ export default function LandingPageUI() {
           Utility Reduction • Truck Roll Reduction • Asset Life Extension
         </p>
 
-        {/* DIKW — compact */}
+        {/* DIKW + Digital Twin */}
         <p className="text-xs text-white/80">
-          <span className="font-semibold">Data → Information → Knowledge → Wisdom:</span>{" "}
-          Turning raw signals into clear, cost-reducing actions.
+          <span className="font-semibold">
+            Data → Information → Knowledge → Wisdom:
+          </span>{" "}
+          Turning raw building signals into clear, cost-reducing actions—creating
+          a living operational view of the building, often referred to as a
+          practical digital twin.
         </p>
       </div>
 
