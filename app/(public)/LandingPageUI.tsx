@@ -14,7 +14,6 @@ export default function LandingPageUI() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [videos, setVideos] = useState<File[]>([]);
-  const [uploading, setUploading] = useState(false);
 
   function handleVideoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
@@ -72,12 +71,11 @@ export default function LandingPageUI() {
           Building Intelligence
         </p>
 
-        <p className="text-sm max-w-xl mb-6 leading-relaxed">
+        <p className="text-sm max-w-xl mb-5 leading-relaxed">
           We are a <span className="font-semibold">systems integrator</span>—
-          strategically selecting best-in-class third-party hardware, software,
-          and industrial communication standards to deliver the most effective
-          and most affordable solutions for reducing a building’s operating
-          costs.
+          strategically selecting best-in-class hardware, software, and
+          industrial communication standards to deliver effective, affordable
+          solutions that reduce building operating costs.
         </p>
 
         {/* Persona Toggle */}
@@ -109,18 +107,18 @@ export default function LandingPageUI() {
         {/* Persona Copy */}
         {persona === "facilities" ? (
           <p className="text-sm max-w-xl mb-5 leading-relaxed">
-            We help facilities teams reduce emergency calls, detect equipment
-            issues early, and minimize truck rolls by continuously monitoring
-            temperature, pressure, flow, energy usage, and equipment behavior.
+            We help facilities teams reduce emergency calls, detect issues early,
+            and minimize truck rolls by continuously monitoring building systems.
           </p>
         ) : (
           <p className="text-sm max-w-xl mb-5 leading-relaxed">
             We help operators and finance leaders reduce operating expenses by
             cutting utility waste, extending asset life, and preventing
-            avoidable maintenance costs across their building portfolio.
+            avoidable maintenance costs.
           </p>
         )}
 
+        {/* What We Fight */}
         <div className="max-w-xl mb-6">
           <h3 className="font-semibold mb-2">What We Fight Every Day</h3>
           <ul className="text-sm space-y-1">
@@ -135,14 +133,34 @@ export default function LandingPageUI() {
           </ul>
         </div>
 
+        {/* DIKW */}
         <div className="max-w-xl mb-6">
-          <h3 className="font-semibold mb-2">What We Monitor</h3>
-          <ul className="list-disc ml-5 text-sm space-y-1">
-            <li>Temperature & humidity</li>
-            <li>Pressure & flow rate</li>
-            <li>Electrical usage & power quality</li>
-            <li>Gas, water, and thermal utilities</li>
-            <li>Critical equipment runtime & asset health</li>
+          <h3 className="font-semibold mb-3">How We Turn Data Into Action</h3>
+          <ul className="space-y-2 text-sm">
+            <li>
+              <span className="font-semibold">Data</span>
+              <div className="ml-4 text-white/80">
+                Temperature • Pressure • Flow • Energy • Runtime
+              </div>
+            </li>
+            <li>
+              <span className="font-semibold">Information</span>
+              <div className="ml-4 text-white/80">
+                Contextualized against schedules and normal operation
+              </div>
+            </li>
+            <li>
+              <span className="font-semibold">Knowledge</span>
+              <div className="ml-4 text-white/80">
+                Waste, degradation, abnormal behavior, early failure signals
+              </div>
+            </li>
+            <li>
+              <span className="font-semibold">Wisdom</span>
+              <div className="ml-4 text-white/80">
+                Clear actions that reduce cost and extend asset life
+              </div>
+            </li>
           </ul>
         </div>
 
@@ -180,7 +198,10 @@ export default function LandingPageUI() {
           <p className="text-xs text-white/80 mb-3">
             Upload a short building walkthrough (≤2 minutes each, up to 3 videos).
             This helps us deliver on our mantra:{" "}
-            <em>Effective & Affordable</em>.
+            <span className="font-semibold text-yellow-300">
+              Effective & Affordable
+            </span>
+            .
           </p>
 
           <button
