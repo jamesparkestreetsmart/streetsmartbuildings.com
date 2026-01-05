@@ -3,7 +3,7 @@
 import { useState } from "react";
 import LoginForm from "./LoginForm";
 
-type Persona = "facilities" | "cfo";
+type Persona = "facilities" | "cfo" | "residential";
 
 export default function LandingPageUI() {
   const [leadEmail, setLeadEmail] = useState("");
@@ -61,117 +61,61 @@ export default function LandingPageUI() {
   return (
     <div className="min-h-screen flex">
       {/* LEFT */}
-      <div className="flex-1 text-white px-12 py-10 flex flex-col justify-center bg-gradient-to-r from-green-700 to-yellow-500">
-        <h1 className="text-4xl font-bold mb-2">Street Smart Buildings</h1>
+      <div className="flex-1 text-white px-10 py-8 flex flex-col justify-center bg-gradient-to-r from-green-700 to-yellow-500">
+        <h1 className="text-4xl font-bold mb-1">Street Smart Buildings</h1>
 
-        <p className="text-lg font-semibold mb-4">
+        <p className="text-lg font-semibold mb-2">
           <span className="text-yellow-300 font-bold">
             Effective & Affordable
           </span>{" "}
           Building Intelligence
         </p>
 
-        <p className="text-sm max-w-xl mb-5 leading-relaxed">
-          We are a <span className="font-semibold">systems integrator</span>—
-          strategically selecting best-in-class hardware, software, and
-          industrial communication standards to deliver effective, affordable
-          solutions that reduce building operating costs.
+        <p className="text-sm max-w-xl mb-3 leading-relaxed">
+          We integrate best-in-class hardware, software, and industrial
+          communication standards to reduce building operating costs.
         </p>
 
         {/* Persona Toggle */}
-        <div className="flex gap-2 mb-5">
-          <button
-            type="button"
-            onClick={() => setPersona("facilities")}
-            className={`px-3 py-1 rounded text-sm ${
-              persona === "facilities"
-                ? "bg-white text-green-700 font-semibold"
-                : "bg-white/20"
-            }`}
-          >
-            Facilities Manager
-          </button>
-          <button
-            type="button"
-            onClick={() => setPersona("cfo")}
-            className={`px-3 py-1 rounded text-sm ${
-              persona === "cfo"
-                ? "bg-white text-green-700 font-semibold"
-                : "bg-white/20"
-            }`}
-          >
-            CFO / Operations
-          </button>
+        <div className="flex gap-2 mb-3">
+          {["facilities", "cfo", "residential"].map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPersona(p as Persona)}
+              className={`px-3 py-1 rounded text-sm ${
+                persona === p
+                  ? "bg-white text-green-700 font-semibold"
+                  : "bg-white/20"
+              }`}
+            >
+              {p === "facilities"
+                ? "Facilities"
+                : p === "cfo"
+                ? "CFO / Ops"
+                : "Residential"}
+            </button>
+          ))}
         </div>
 
         {/* Persona Copy */}
-        {persona === "facilities" ? (
-          <p className="text-sm max-w-xl mb-5 leading-relaxed">
-            We help facilities teams reduce emergency calls, detect issues early,
-            and minimize truck rolls by continuously monitoring building systems.
-          </p>
-        ) : (
-          <p className="text-sm max-w-xl mb-5 leading-relaxed">
-            We help operators and finance leaders reduce operating expenses by
-            cutting utility waste, extending asset life, and preventing
-            avoidable maintenance costs.
-          </p>
-        )}
+        <p className="text-sm max-w-xl mb-4">
+          {persona === "facilities" &&
+            "Reduce emergency calls and truck rolls by catching equipment issues early."}
+          {persona === "cfo" &&
+            "Reduce operating expenses by cutting utility waste and extending asset life."}
+          {persona === "residential" &&
+            "Gain visibility into energy usage, comfort, and system health—without complexity."}
+        </p>
 
-        {/* What We Fight */}
-        <div className="max-w-xl mb-6">
-          <h3 className="font-semibold mb-2">What We Fight Every Day</h3>
-          <ul className="text-sm space-y-1">
-            <li>
-              <span className="font-semibold">Utility Reduction</span>
-              <div className="ml-4 text-white/80">
-                Electric • Gas • Water
-              </div>
-            </li>
-            <li className="font-semibold">Truck Roll Reduction</li>
-            <li className="font-semibold">Asset Life Extension</li>
-          </ul>
-        </div>
-
-        {/* DIKW */}
-        <div className="max-w-xl mb-6">
-          <h3 className="font-semibold mb-3">How We Turn Data Into Action</h3>
-          <ul className="space-y-2 text-sm">
-            <li>
-              <span className="font-semibold">Data</span>
-              <div className="ml-4 text-white/80">
-                Temperature • Pressure • Flow • Energy • Runtime
-              </div>
-            </li>
-            <li>
-              <span className="font-semibold">Information</span>
-              <div className="ml-4 text-white/80">
-                Contextualized against schedules and normal operation
-              </div>
-            </li>
-            <li>
-              <span className="font-semibold">Knowledge</span>
-              <div className="ml-4 text-white/80">
-                Waste, degradation, abnormal behavior, early failure signals
-              </div>
-            </li>
-            <li>
-              <span className="font-semibold">Wisdom</span>
-              <div className="ml-4 text-white/80">
-                Clear actions that reduce cost and extend asset life
-              </div>
-            </li>
-          </ul>
-        </div>
-
-        {/* Lead Form */}
+        {/* Lead Form — ALWAYS VISIBLE */}
         <form
           onSubmit={handleLeadSubmit}
-          className="bg-white/10 p-5 rounded-lg backdrop-blur-sm max-w-md"
+          className="bg-white/10 p-4 rounded-lg backdrop-blur-sm max-w-md mb-3"
         >
           <input
             type="text"
-            placeholder="Organization name"
+            placeholder="Organization / Property name"
             className="w-full p-2 rounded text-black mb-2"
             value={orgName}
             onChange={(e) => setOrgName(e.target.value)}
@@ -181,7 +125,7 @@ export default function LandingPageUI() {
           <input
             type="email"
             placeholder="you@company.com"
-            className="w-full p-2 rounded text-black mb-3"
+            className="w-full p-2 rounded text-black mb-2"
             value={leadEmail}
             onChange={(e) => setLeadEmail(e.target.value)}
             required
@@ -192,16 +136,15 @@ export default function LandingPageUI() {
             accept="video/*"
             multiple
             onChange={handleVideoSelect}
-            className="text-sm text-white mb-2"
+            className="text-sm text-white mb-1"
           />
 
-          <p className="text-xs text-white/80 mb-3">
-            Upload a short building walkthrough (≤2 minutes each, up to 3 videos).
-            This helps us deliver on our mantra:{" "}
+          <p className="text-xs text-white/80 mb-2">
+            Optional: Upload a short walkthrough (≤2 min, up to 3 videos). Helps us deliver{" "}
             <span className="font-semibold text-yellow-300">
               Effective & Affordable
-            </span>
-            .
+            </span>{" "}
+            results.
           </p>
 
           <button
@@ -215,10 +158,28 @@ export default function LandingPageUI() {
           {message && <p className="mt-2 text-emerald-200 text-sm">{message}</p>}
           {error && <p className="mt-2 text-red-300 text-sm">{error}</p>}
         </form>
+
+        {/* Industries */}
+        <p className="text-xs text-white/80 mb-2">
+          <span className="font-semibold">Industries:</span>{" "}
+          Residential • Commercial • Industrial
+        </p>
+
+        {/* What We Fight */}
+        <p className="text-xs text-white/80 mb-1">
+          <span className="font-semibold">We focus on:</span>{" "}
+          Utility Reduction • Truck Roll Reduction • Asset Life Extension
+        </p>
+
+        {/* DIKW — compact */}
+        <p className="text-xs text-white/80">
+          <span className="font-semibold">Data → Information → Knowledge → Wisdom:</span>{" "}
+          Turning raw signals into clear, cost-reducing actions.
+        </p>
       </div>
 
       {/* RIGHT */}
-      <div className="w-[40%] hidden md:flex items-center justify-center p-12 bg-gray-50">
+      <div className="w-[40%] hidden md:flex items-center justify-center p-10 bg-gray-50">
         <div className="bg-white rounded-xl shadow-xl p-10 w-full max-w-sm">
           <h2 className="text-2xl font-bold text-center mb-6">Login</h2>
 
