@@ -64,12 +64,24 @@ export default function LandingPageUI() {
       {/* LEFT */}
       <div className="flex-1 text-white px-12 py-10 flex flex-col justify-center bg-gradient-to-r from-green-700 to-yellow-500">
         <h1 className="text-4xl font-bold mb-2">Street Smart Buildings</h1>
+
         <p className="text-lg font-semibold mb-4">
-          Effective & Affordable Building Intelligence
+          <span className="text-yellow-300 font-bold">
+            Effective & Affordable
+          </span>{" "}
+          Building Intelligence
+        </p>
+
+        <p className="text-sm max-w-xl mb-6 leading-relaxed">
+          We are a <span className="font-semibold">systems integrator</span>—
+          strategically selecting best-in-class third-party hardware, software,
+          and industrial communication standards to deliver the most effective
+          and most affordable solutions for reducing a building’s operating
+          costs.
         </p>
 
         {/* Persona Toggle */}
-        <div className="flex gap-2 mb-6">
+        <div className="flex gap-2 mb-5">
           <button
             type="button"
             onClick={() => setPersona("facilities")}
@@ -115,7 +127,7 @@ export default function LandingPageUI() {
             <li>
               <span className="font-semibold">Utility Reduction</span>
               <div className="ml-4 text-white/80">
-                Electric • Gas • Water • Sewer • Thermal • Power Quality
+                Electric • Gas • Water
               </div>
             </li>
             <li className="font-semibold">Truck Roll Reduction</li>
@@ -167,7 +179,8 @@ export default function LandingPageUI() {
 
           <p className="text-xs text-white/80 mb-3">
             Upload a short building walkthrough (≤2 minutes each, up to 3 videos).
-            This helps us deliver on our mantra: <em>Effective & Affordable</em>.
+            This helps us deliver on our mantra:{" "}
+            <em>Effective & Affordable</em>.
           </p>
 
           <button
@@ -187,7 +200,15 @@ export default function LandingPageUI() {
       <div className="w-[40%] hidden md:flex items-center justify-center p-12 bg-gray-50">
         <div className="bg-white rounded-xl shadow-xl p-10 w-full max-w-sm">
           <h2 className="text-2xl font-bold text-center mb-6">Login</h2>
+
           <LoginForm />
+
+          <div className="text-center mt-4 text-sm">
+            New here?{" "}
+            <a href="/signup" className="text-green-700 font-semibold">
+              Create an account
+            </a>
+          </div>
         </div>
       </div>
     </div>
