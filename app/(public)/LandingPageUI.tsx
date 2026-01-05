@@ -112,10 +112,52 @@ export default function LandingPageUI() {
             "We provide homeowners and property managers with visibility into energy usage, comfort, and system health across primary residences, rental homes, and vacation properties—no matter where the property is located."}
         </p>
 
-        {/* Lead Form — Above the Fold */}
+        {/* Strategic Focus */}
+        <p className="text-sm text-white/90 mb-3">
+          <span className="font-semibold">We focus on:</span>{" "}
+          Utility Reduction • Truck Roll Reduction • Asset Life Extension
+        </p>
+
+        {/* DIKW — Engineering Style */}
+        <div className="max-w-xl mb-4">
+          <h3 className="font-semibold mb-2">How We Turn Data Into Action</h3>
+
+          <ul className="space-y-1 text-sm">
+            <li>
+              <span className="font-semibold">Data</span>
+              <div className="ml-4 text-white/80">
+                Temperature • Humidity • Pressure • Flow • Energy • Runtime
+              </div>
+            </li>
+
+            <li>
+              <span className="font-semibold">Information</span>
+              <div className="ml-4 text-white/80">
+                Contextualized against schedules, setpoints, and normal operation
+              </div>
+            </li>
+
+            <li>
+              <span className="font-semibold">Knowledge</span>
+              <div className="ml-4 text-white/80">
+                Waste, degradation, abnormal behavior, early failure indicators
+              </div>
+            </li>
+
+            <li>
+              <span className="font-semibold">Wisdom</span>
+              <div className="ml-4 text-white/80">
+                Clear actions that reduce cost and extend asset life—forming a
+                practical, living digital twin of the building
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        {/* Lead Form */}
         <form
           onSubmit={handleLeadSubmit}
-          className="bg-white/10 p-4 rounded-lg backdrop-blur-sm max-w-md mb-3"
+          className="bg-white/10 p-4 rounded-lg backdrop-blur-sm max-w-md"
         >
           <input
             type="text"
@@ -163,28 +205,6 @@ export default function LandingPageUI() {
           {message && <p className="mt-2 text-emerald-200 text-sm">{message}</p>}
           {error && <p className="mt-2 text-red-300 text-sm">{error}</p>}
         </form>
-
-        {/* Industries */}
-        <p className="text-xs text-white/80 mb-1">
-          <span className="font-semibold">Industries:</span>{" "}
-          Residential • Commercial • Industrial
-        </p>
-
-        {/* What We Fight */}
-        <p className="text-xs text-white/80 mb-1">
-          <span className="font-semibold">We focus on:</span>{" "}
-          Utility Reduction • Truck Roll Reduction • Asset Life Extension
-        </p>
-
-        {/* DIKW + Digital Twin */}
-        <p className="text-xs text-white/80">
-          <span className="font-semibold">
-            Data → Information → Knowledge → Wisdom:
-          </span>{" "}
-          Turning raw building signals into clear, cost-reducing actions—creating
-          a living operational view of the building, often referred to as a
-          practical digital twin.
-        </p>
       </div>
 
       {/* RIGHT */}
