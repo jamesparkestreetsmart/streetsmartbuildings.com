@@ -36,19 +36,24 @@ export async function POST(req: Request) {
 
   console.log("Lead insert payload:", payload);
 
-  const { error } = await supabase
+  const { data: leadRows, error } = await supabase
     .from("z_marketing_leads")
-    .insert(payload);
+    .insert(payload)
+    .select("id")
+    .single();
 
   if (error) {
     console.error("Supabase insert error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  /* 🔽 EXACTLY HERE — LINK VIDEOS 🔽 */
+  /* 🔽 LINK VIDEOS TO LEAD 🔽 */
   const { error: videoLinkError } = await supabase
     .from("z_marketing_lead_videos")
-    .update({ status: "linked" })
+    .update({
+      status: "linked",
+      lead_id: leadRows.id,
+    })
     .eq("lead_email", email)
     .in("status", ["uploaded", "pending"]);
 
