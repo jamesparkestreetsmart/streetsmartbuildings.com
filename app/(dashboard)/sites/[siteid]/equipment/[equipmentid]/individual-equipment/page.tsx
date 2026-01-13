@@ -18,9 +18,6 @@ export default async function IndividualEquipmentPage({
 }) {
   const { siteid, equipmentid } = params;
 
-  /* =======================
-     PARAM VALIDATION
-  ======================= */
   if (!siteid || !equipmentid) {
     return (
       <pre className="p-6 text-red-600 whitespace-pre-wrap">
@@ -33,16 +30,10 @@ export default async function IndividualEquipmentPage({
     );
   }
 
-  /* =======================
-     NORMALIZE searchParams
-  ======================= */
   const returnToRaw = searchParams?.returnTo;
   const returnTo =
     Array.isArray(returnToRaw) ? returnToRaw[0] : returnToRaw;
 
-  /* =======================
-     SUPABASE CLIENT
-  ======================= */
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -57,10 +48,6 @@ export default async function IndividualEquipmentPage({
     }
   );
 
-  /* =======================
-     DEFENSIVE EQUIPMENT FETCH
-     (confirms site + org)
-  ======================= */
   const { data: equipment, error } = await supabase
     .from("a_equipments")
     .select("equipment_id, site_id, org_id")
@@ -79,9 +66,6 @@ export default async function IndividualEquipmentPage({
     );
   }
 
-  /* =======================
-     RENDER CLIENT
-  ======================= */
   return (
     <IndividualEquipmentClient
       siteid={siteid}
