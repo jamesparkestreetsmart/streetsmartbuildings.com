@@ -103,10 +103,7 @@ export async function GET(req: NextRequest) {
   const site_id = searchParams.get("site_id");
 
   if (!site_id) {
-    return NextResponse.json(
-      { error: "Missing site_id" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing site_id" }, { status: 400 });
   }
 
   const supabase = createServerClient(
@@ -115,62 +112,164 @@ export async function GET(req: NextRequest) {
     { cookies: { get: () => undefined } }
   );
 
-  const { data, error } = await supabase
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+
+  /* --------------------------------------------------
+     Load rule definitions
+  -------------------------------------------------- */
+
+  const { data: rules, error: ruleError } = await supabase
     .from("b_store_hours_exceptions")
     .select("*")
     .eq("site_id", site_id);
 
-  if (error) {
-    console.error("GET exceptions error:", error);
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
+  if (ruleError) {
+    console.error(ruleError);
+    return NextResponse.json({ error: ruleError.message }, { status: 500 });
   }
 
-  const exceptions = data as DBException[];
+  /* --------------------------------------------------
+     Load ledger (past + overrides)
+  -------------------------------------------------- */
 
-  const today = new Date();
+  const { data: ledger, error: ledgerError } = await supabase
+    .from("b_store_hours_exception_occurrences")
+    .select("*")
+    .eq("site_id", site_id);
+
+  if (ledgerError) {
+    console.error(ledgerError);
+    return NextResponse.json({ error: ledgerError.message }, { status: 500 });
+  }
+
+  const ledgerMap = new Map<string, any>();
+
+  for (const row of ledger ?? []) {
+    const key = `${row.exception_id}:${row.occurrence_date}`;
+    ledgerMap.set(key, row);
+  }
+
+  /* --------------------------------------------------
+     Expand future occurrences from rules
+  -------------------------------------------------- */
+
   const currentYear = today.getFullYear();
-  const nextYear = currentYear + 1;
-  const lastYear = currentYear - 1;
+  const years = [currentYear, currentYear + 1];
 
-  function project(year: number) {
-    return exceptions.flatMap((ex) =>
-      expandException(ex, year)
-        .filter(
-          (d) => d >= new Date(ex.effective_from_date)
-        )
-        .map((d) => ({
-          exception_id: ex.exception_id,
-          name: ex.name,
-          resolved_date: d.toISOString().slice(0, 10),
-          day_of_week: formatDayOfWeek(d),
-          open_time: ex.open_time,
-          close_time: ex.close_time,
-          is_closed: ex.is_closed,
-          source_rule: {
-            is_recurring: ex.is_recurring,
-          },
-          ui_state: {
-            is_past: d < today,
-          },
-        }))
-    );
+  const generated: any[] = [];
+
+  for (const rule of rules ?? []) {
+    for (const year of years) {
+      const dates = expandException(rule as any, year);
+
+      for (const d of dates) {
+        const dateStr = d.toISOString().slice(0, 10);
+
+        if (dateStr < rule.effective_from_date) continue;
+        if (dateStr < todayStr) continue;
+
+        const key = `${rule.exception_id}:${dateStr}`;
+        const override = ledgerMap.get(key);
+
+        if (override) {
+          generated.push({
+            exception_id: override.exception_id,
+            site_id: override.site_id,
+            name: override.name,
+            date: override.occurrence_date,
+            open_time: override.open_time,
+            close_time: override.close_time,
+            is_closed: override.is_closed,
+            is_recurring: override.source_rule?.is_recurring ?? true,
+            is_override: true,
+          });
+        } else {
+          generated.push({
+            exception_id: rule.exception_id,
+            site_id: rule.site_id,
+            name: rule.name,
+            date: dateStr,
+            open_time: rule.open_time,
+            close_time: rule.close_time,
+            is_closed: rule.is_closed,
+            is_recurring: rule.is_recurring,
+            is_override: false,
+          });
+        }
+      }
+    }
   }
 
-  const past = [
-    ...project(lastYear),
-    ...project(currentYear).filter((e) => e.ui_state.is_past),
-  ];
+  /* --------------------------------------------------
+     Materialize missing past occurrences (lazy freeze)
+  -------------------------------------------------- */
 
-  const future = [
-    ...project(currentYear).filter((e) => !e.ui_state.is_past),
-    ...project(nextYear),
-  ];
+  const inserts: any[] = [];
 
-  return NextResponse.json({ past, future });
+  for (const rule of rules ?? []) {
+    const dates = expandException(rule as any, currentYear - 1).concat(
+      expandException(rule as any, currentYear)
+    );
+
+    for (const d of dates) {
+      const dateStr = d.toISOString().slice(0, 10);
+      const key = `${rule.exception_id}:${dateStr}`;
+
+      if (dateStr >= todayStr) continue;
+      if (dateStr < rule.effective_from_date) continue;
+      if (ledgerMap.has(key)) continue;
+
+      inserts.push({
+        exception_id: rule.exception_id,
+        site_id: rule.site_id,
+        occurrence_date: dateStr,
+        name: rule.name,
+        open_time: rule.open_time,
+        close_time: rule.close_time,
+        is_closed: rule.is_closed,
+        source_rule: {
+          exception_id: rule.exception_id,
+          is_recurring: rule.is_recurring,
+          recurrence_rule: rule.recurrence_rule,
+          name: rule.name,
+        },
+      });
+    }
+  }
+
+  if (inserts.length > 0) {
+    await supabase.from("b_store_hours_exception_occurrences").insert(inserts);
+  }
+
+  /* --------------------------------------------------
+     Build past from ledger
+  -------------------------------------------------- */
+
+  const past = (ledger ?? [])
+    .filter((r) => r.occurrence_date < todayStr)
+    .map((r) => ({
+      exception_id: r.exception_id,
+      site_id: r.site_id,
+      name: r.name,
+      date: r.occurrence_date,
+      open_time: r.open_time,
+      close_time: r.close_time,
+      is_closed: r.is_closed,
+      is_recurring: r.source_rule?.is_recurring ?? true,
+      is_override: true,
+    }));
+
+  const all = [...past, ...generated].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+
+  return NextResponse.json({
+    occurrences: all,
+  });
 }
+
+
 
 /* ======================================================
    OPTIONS
