@@ -21,7 +21,7 @@ export default async function IndividualEquipmentPage({
   if (!siteid || !equipmentid) {
     return (
       <pre className="p-6 text-red-600 whitespace-pre-wrap">
-        Missing parameters
+        Missing parameters!!!!
         {"\n"}siteid: {String(siteid)}
         {"\n"}equipmentid: {String(equipmentid)}
         {"\n"}params: {JSON.stringify(params, null, 2)}
