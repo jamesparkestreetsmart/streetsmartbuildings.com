@@ -24,16 +24,37 @@ function formatCategoryLabel(raw: string | null): string {
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : "Other";
 }
 
-export default function IndividualEquipmentClient({
-  siteid,
-  equipment,
-  devices,
-  entitiesByHaDevice,
-  recordList,
-  siteTimezone,
-  orgId,
-  returnTo,
-}: any) {
+export default function IndividualEquipmentClient(props: any) {
+  const {
+    siteid,
+    equipment,
+    devices = [],
+    entitiesByHaDevice = {},
+    recordList = [],
+    siteTimezone,
+    orgId,
+    returnTo,
+  } = props;
+
+  /* ---------- Defensive guard ---------- */
+  if (!equipment) {
+    return (
+      <div className="p-6 text-red-600">
+        <h2 className="text-lg font-semibold mb-2">
+          Equipment data not loaded
+        </h2>
+
+        <p className="text-sm mb-4">
+          The server did not pass equipment data to this page.
+        </p>
+
+        <pre className="text-xs bg-gray-100 p-4 rounded overflow-auto">
+{JSON.stringify(props, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* HEADER */}
