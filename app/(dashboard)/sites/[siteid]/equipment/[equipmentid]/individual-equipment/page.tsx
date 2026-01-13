@@ -12,18 +12,22 @@ export default async function IndividualEquipmentPage({
   params,
   searchParams,
 }: {
-  params: {
+  params: Promise<{
     siteid: string;
     equipmentid: string;
-  };
-  searchParams?: Record<string, string | string[] | undefined>;
+  }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // 🔎 Runtime proof
   console.log("EQUIPMENT PAGE FUNCTION HIT");
-  console.log("PARAMS RECEIVED:", params);
-  console.log("SEARCH PARAMS RECEIVED:", searchParams);
 
-  const { siteid, equipmentid } = params || {};
+  // ✅ unwrap promises (Next 16 requirement)
+  const resolvedParams = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+
+  console.log("PARAMS RECEIVED:", resolvedParams);
+  console.log("SEARCH PARAMS RECEIVED:", resolvedSearchParams);
+
+  const { siteid, equipmentid } = resolvedParams;
 
   if (!siteid || !equipmentid) {
     return (
@@ -31,13 +35,13 @@ export default async function IndividualEquipmentPage({
         Missing parameters!!!!
         {"\n"}siteid: {String(siteid)}
         {"\n"}equipmentid: {String(equipmentid)}
-        {"\n"}params: {JSON.stringify(params, null, 2)}
-        {"\n"}searchParams: {JSON.stringify(searchParams, null, 2)}
+        {"\n"}params: {JSON.stringify(resolvedParams, null, 2)}
+        {"\n"}searchParams: {JSON.stringify(resolvedSearchParams, null, 2)}
       </pre>
     );
   }
 
-  const returnToRaw = searchParams?.returnTo;
+  const returnToRaw = resolvedSearchParams?.returnTo;
   const returnTo =
     Array.isArray(returnToRaw) ? returnToRaw[0] : returnToRaw;
 
