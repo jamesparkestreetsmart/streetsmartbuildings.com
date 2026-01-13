@@ -1,5 +1,3 @@
-// app/sites/[siteid]/page.tsx
-
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -44,13 +42,13 @@ export default async function SitePage(props: any) {
   }
 
   /** ============================
-   *  FETCH INFRASTRUCTURE EQUIPMENT
+   *  FETCH INFRASTRUCTURE EQUIPMENT (FIXED)
    * ============================ */
   const { data: infrastructureEquipment } = await supabase
     .from("a_equipments")
-    .select("equipment_name, group, type")
+    .select("equipment_id, equipment_name, equipment_group, equipment_type, status")
     .eq("site_id", id)
-    .eq("group", "Infrastructure")
+    .eq("equipment_group", "Infrastructure")
     .order("equipment_name");
 
   /** ============================
@@ -90,20 +88,15 @@ export default async function SitePage(props: any) {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* HEADER */}
-      <header className="w-full rounded-lg bg-gradient-to-r from-green-600 to-yellow-500 p-6 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+      <header className="w-full rounded-lg bg-gradient-to-r from-green-600 to-yellow-500 p-6 grid grid-cols-1 xl:grid-cols-[1.4fr_0.8fr_0.8fr] gap-6">
 
-        {/* LEFT COLUMN — Site Info */}
-        <div className="max-w-xl">
+        {/* LEFT — Site Info */}
+        <div>
           <h1 className="text-3xl font-bold text-white">{site.site_name}</h1>
 
-          {/* Brand + Industry */}
           <div className="mt-2 text-sm text-white space-y-1">
-            <p>
-              <span className="font-semibold">Brand:</span> {site.brand || "—"}
-            </p>
-            <p>
-              <span className="font-semibold">Industry:</span> {site.industry || "—"}
-            </p>
+            <p><span className="font-semibold">Brand:</span> {site.brand || "—"}</p>
+            <p><span className="font-semibold">Industry:</span> {site.industry || "—"}</p>
           </div>
 
           <p className="text-white mt-3">
@@ -114,57 +107,20 @@ export default async function SitePage(props: any) {
 
           <p className="text-white mt-1">{site.phone_number}</p>
 
-          {/* TIMEZONE BADGE */}
-          <p className="mt-2 inline-block bg-black/40 text-white text-xs font-semibold px-3 py-1 rounded-md">
+          <span className="mt-2 inline-block bg-black/40 text-white text-xs font-semibold px-3 py-1 rounded-md">
             {site.timezone || "CST"}
-          </p>
+          </span>
         </div>
 
-        {/* CENTER — Infrastructure Matrix */}
-        <div className="bg-white/95 rounded-md shadow p-4 min-w-[320px] max-w-md">
-          <h3 className="text-sm font-semibold text-gray-800 mb-2">
-            Infrastructure Overview
-          </h3>
+        {/* CENTER — Weather + Buttons */}
+        <div className="flex flex-col items-end justify-between">
 
-          <div className="grid grid-cols-3 text-xs font-semibold text-gray-600 border-b pb-1 mb-1">
-            <div>Group</div>
-            <div>Type</div>
-            <div>Name</div>
-          </div>
-
-          <div className="max-h-40 overflow-y-auto space-y-1 text-xs font-mono">
-            {infrastructureEquipment && infrastructureEquipment.length > 0 ? (
-              infrastructureEquipment.map((eq, idx) => (
-                <div
-                  key={idx}
-                  className="grid grid-cols-3 gap-2 text-gray-800"
-                >
-                  <div>{eq.group}</div>
-                  <div>{eq.type}</div>
-                  <div className="truncate" title={eq.equipment_name}>
-                    {eq.equipment_name}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-gray-500 italic">No infrastructure equipment</p>
-            )}
-          </div>
-        </div>
-
-        {/* RIGHT — Weather + Actions */}
-        <div className="flex flex-col items-end gap-4">
-
-          {/* Weather */}
           <div className="text-right">
             <h2 className="font-semibold text-white text-lg">Weather</h2>
-            <p className="text-white text-sm flex items-center justify-end gap-1">
-              {weatherSummary}
-            </p>
+            <p className="text-white text-sm">{weatherSummary}</p>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col gap-2 self-end">
+          <div className="flex flex-col gap-2 mt-4">
             <Link
               href={`/sites/${id}/edit`}
               className="px-4 py-2 bg-white/90 hover:bg-white text-green-700 font-semibold rounded-md shadow text-center"
@@ -180,9 +136,57 @@ export default async function SitePage(props: any) {
             </Link>
           </div>
         </div>
+
+        {/* RIGHT — Infrastructure Matrix */}
+        <div className="bg-white/95 rounded-md shadow p-3 text-xs">
+
+          <div className="font-semibold text-gray-800 mb-2">
+            Infrastructure Overview
+          </div>
+
+          <div className="grid grid-cols-4 font-semibold text-gray-600 border-b pb-1 mb-1">
+            <div>Group</div>
+            <div>Type</div>
+            <div>Name</div>
+            <div>Status</div>
+          </div>
+
+          <div className="max-h-28 overflow-y-auto space-y-1 font-mono text-gray-800">
+            {infrastructureEquipment?.length ? (
+              infrastructureEquipment.map((eq, i) => (
+                <div key={i} className="grid grid-cols-4 gap-2">
+                  <div>{eq.equipment_group}</div>
+                  <div>{eq.equipment_type}</div>
+                  <div className="truncate" title={eq.equipment_name}>
+                    <Link
+                      href={`/sites/${id}/equipment/${eq.equipment_id}/individual-equipment`}
+                      className="text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      {eq.equipment_name}
+                    </Link>
+                  </div>
+                  <div
+                    className={
+                      eq.status === "active"
+                        ? "text-green-600"
+                        : eq.status === "inactive"
+                        ? "text-yellow-600"
+                        : "text-gray-500"
+                    }
+                  >
+                    {eq.status}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="italic text-gray-500">No infrastructure equipment</div>
+            )}
+          </div>
+        </div>
+
       </header>
 
-      {/* MAIN CONTENT — TABS */}
+      {/* MAIN CONTENT */}
       <main className="p-6">
         <TabClientWrapper siteId={id} />
       </main>
