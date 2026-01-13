@@ -1,5 +1,7 @@
 // ❌ DO NOT add "use client" here
 
+console.log("EQUIPMENT PAGE FILE HIT (module loaded)");
+
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import IndividualEquipmentClient from "./IndividualEquipmentClient";
@@ -16,7 +18,12 @@ export default async function IndividualEquipmentPage({
   };
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  const { siteid, equipmentid } = params;
+  // 🔎 Runtime proof
+  console.log("EQUIPMENT PAGE FUNCTION HIT");
+  console.log("PARAMS RECEIVED:", params);
+  console.log("SEARCH PARAMS RECEIVED:", searchParams);
+
+  const { siteid, equipmentid } = params || {};
 
   if (!siteid || !equipmentid) {
     return (
