@@ -14,7 +14,7 @@ export default async function IndividualEquipmentPage({
     siteid: string;
     equipmentid: string;
   };
-  searchParams?: Record<string, string | undefined>;
+  searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const { siteid, equipmentid } = params;
 
@@ -32,6 +32,13 @@ export default async function IndividualEquipmentPage({
       </pre>
     );
   }
+
+  /* =======================
+     NORMALIZE searchParams
+  ======================= */
+  const returnToRaw = searchParams?.returnTo;
+  const returnTo =
+    Array.isArray(returnToRaw) ? returnToRaw[0] : returnToRaw;
 
   /* =======================
      SUPABASE CLIENT
@@ -80,7 +87,7 @@ export default async function IndividualEquipmentPage({
       siteid={siteid}
       equipmentid={equipment.equipment_id}
       orgId={equipment.org_id}
-      returnTo={searchParams?.returnTo}
+      returnTo={returnTo}
     />
   );
 }
