@@ -95,6 +95,71 @@ export async function GET(req: NextRequest) {
 }
 
 /* ======================================================
+   POST — create/update rule + regenerate (NEW)
+====================================================== */
+
+export async function POST(req: NextRequest) {
+  const supabase = getSupabase();
+
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const {
+    exception_id,
+    site_id,
+    name,
+    is_closed,
+    open_time,
+    close_time,
+    is_recurring,
+    recurrence_rule,
+    effective_from_date,
+  } = body;
+
+  if (!site_id || !name) {
+    return NextResponse.json(
+      { error: "Missing required fields" },
+      { status: 400 }
+    );
+  }
+
+  const { error: upsertErr } = await supabase
+    .from("b_store_hours_exceptions")
+    .upsert({
+      exception_id: exception_id ?? undefined,
+      site_id,
+      name,
+      is_closed,
+      open_time,
+      close_time,
+      is_recurring,
+      recurrence_rule,
+      effective_from_date,
+    });
+
+  if (upsertErr) {
+    console.error("upsert error:", upsertErr);
+    return NextResponse.json({ error: upsertErr.message }, { status: 500 });
+  }
+
+  const { error: regenErr } = await supabase.rpc(
+    "generate_store_hours_exception_occurrences",
+    { days_ahead: 180 }
+  );
+
+  if (regenErr) {
+    console.error("regen error:", regenErr);
+    return NextResponse.json({ error: regenErr.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
+}
+
+/* ======================================================
    DELETE — rule-based delete + regenerate (NEW)
 ====================================================== */
 
@@ -112,10 +177,6 @@ export async function DELETE(req: NextRequest) {
   const supabase = getSupabase();
   const today = todayStr();
 
-  /* ------------------------------------------------
-     Check for past occurrences
-  ------------------------------------------------ */
-
   const { data: pastRows, error: pastErr } = await supabase
     .from("b_store_hours_exception_occurrences")
     .select("occurrence_id")
@@ -127,10 +188,6 @@ export async function DELETE(req: NextRequest) {
     console.error("past check error:", pastErr);
     return NextResponse.json({ error: pastErr.message }, { status: 500 });
   }
-
-  /* ------------------------------------------------
-     Load rule
-  ------------------------------------------------ */
 
   const { data: rule, error: ruleErr } = await supabase
     .from("b_store_hours_exceptions")
@@ -150,10 +207,6 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  /* ------------------------------------------------
-     Delete rule
-  ------------------------------------------------ */
-
   const { error: delRuleErr } = await supabase
     .from("b_store_hours_exceptions")
     .delete()
@@ -164,10 +217,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: delRuleErr.message }, { status: 500 });
   }
 
-  /* ------------------------------------------------
-     Regenerate occurrences
-  ------------------------------------------------ */
-
   const { error: regenErr } = await supabase.rpc(
     "generate_store_hours_exception_occurrences",
     { days_ahead: 180 }
@@ -177,10 +226,6 @@ export async function DELETE(req: NextRequest) {
     console.error("regen error:", regenErr);
     return NextResponse.json({ error: regenErr.message }, { status: 500 });
   }
-
-  /* ------------------------------------------------
-     Optional debug log
-  ------------------------------------------------ */
 
   console.log("Deleted exception rule:", exception_id);
 
