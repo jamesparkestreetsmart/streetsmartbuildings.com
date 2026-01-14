@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
 }
 
 /* ======================================================
-   DELETE — safe delete (future only)
+   DELETE — rule-based delete + regenerate (NEW)
 ====================================================== */
 
 export async function DELETE(req: NextRequest) {
@@ -113,30 +113,37 @@ export async function DELETE(req: NextRequest) {
   const today = todayStr();
 
   /* ------------------------------------------------
-     Delete rule only if allowed
-     - recurring OR no past occurrences
+     Check for past occurrences
   ------------------------------------------------ */
 
-  const { data: deletedRules, error: delRuleErr } = await supabase
-    .from("b_store_hours_exceptions")
-    .delete()
+  const { data: pastRows, error: pastErr } = await supabase
+    .from("b_store_hours_exception_occurrences")
+    .select("occurrence_id")
     .eq("exception_id", exception_id)
-    .or(`
-      is_recurring.eq.true,
-      exception_id.not.in.(
-        select exception_id
-        from b_store_hours_exception_occurrences
-        where occurrence_date < '${today}'
-      )
-    `)
-    .select("exception_id");
+    .lt("occurrence_date", today)
+    .limit(1);
 
-  if (delRuleErr) {
-    console.error(delRuleErr);
-    return NextResponse.json({ error: delRuleErr.message }, { status: 500 });
+  if (pastErr) {
+    console.error("past check error:", pastErr);
+    return NextResponse.json({ error: pastErr.message }, { status: 500 });
   }
 
-  if (!deletedRules || deletedRules.length === 0) {
+  /* ------------------------------------------------
+     Load rule
+  ------------------------------------------------ */
+
+  const { data: rule, error: ruleErr } = await supabase
+    .from("b_store_hours_exceptions")
+    .select("is_recurring")
+    .eq("exception_id", exception_id)
+    .single();
+
+  if (ruleErr) {
+    console.error("rule load error:", ruleErr);
+    return NextResponse.json({ error: ruleErr.message }, { status: 500 });
+  }
+
+  if (!rule.is_recurring && pastRows.length > 0) {
     return NextResponse.json(
       { error: "Cannot delete past one-time exception" },
       { status: 400 }
@@ -144,19 +151,38 @@ export async function DELETE(req: NextRequest) {
   }
 
   /* ------------------------------------------------
-     Delete future occurrences
+     Delete rule
   ------------------------------------------------ */
 
-  const { error: delOccErr } = await supabase
-    .from("b_store_hours_exception_occurrences")
+  const { error: delRuleErr } = await supabase
+    .from("b_store_hours_exceptions")
     .delete()
-    .eq("exception_id", exception_id)
-    .gte("occurrence_date", today);
+    .eq("exception_id", exception_id);
 
-  if (delOccErr) {
-    console.error(delOccErr);
-    return NextResponse.json({ error: delOccErr.message }, { status: 500 });
+  if (delRuleErr) {
+    console.error("rule delete error:", delRuleErr);
+    return NextResponse.json({ error: delRuleErr.message }, { status: 500 });
   }
+
+  /* ------------------------------------------------
+     Regenerate occurrences
+  ------------------------------------------------ */
+
+  const { error: regenErr } = await supabase.rpc(
+    "generate_store_hours_exception_occurrences",
+    { days_ahead: 180 }
+  );
+
+  if (regenErr) {
+    console.error("regen error:", regenErr);
+    return NextResponse.json({ error: regenErr.message }, { status: 500 });
+  }
+
+  /* ------------------------------------------------
+     Optional debug log
+  ------------------------------------------------ */
+
+  console.log("Deleted exception rule:", exception_id);
 
   return NextResponse.json({ success: true });
 }
