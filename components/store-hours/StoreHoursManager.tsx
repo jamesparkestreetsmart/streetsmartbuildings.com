@@ -49,6 +49,8 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
       );
 
       const json = await res.json();
+      console.log("DELETE response:", json);
+
 
       if (!res.ok) {
         alert(json.error || "Failed to delete exception");
