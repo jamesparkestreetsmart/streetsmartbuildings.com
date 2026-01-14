@@ -1,13 +1,10 @@
 "use client";
 
-import StoreHoursCalendar from "./StoreHoursCalendar";
 import { useState } from "react";
 import WeeklyStoreHours from "./WeeklyStoreHours";
 import { useStoreHoursExceptions } from "./useStoreHoursExceptions";
 import ExceptionTable from "./ExceptionTable";
-import ExceptionModal, {
-  ExceptionModalMode,
-} from "./ExceptionModal";
+import ExceptionModal, { ExceptionModalMode } from "./ExceptionModal";
 
 export default function StoreHoursManager({ siteId }: { siteId: string }) {
   const { data, loading, error, refetch } = useStoreHoursExceptions(siteId);
@@ -19,8 +16,50 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
   if (loading) return <div>Loading store hours…</div>;
   if (error) return <div className="text-red-600">{error}</div>;
-  if (!data) {
-    return <div>Invalid exception data</div>;
+  if (!data) return <div>Invalid exception data</div>;
+
+  function toExceptionRow(list: any[]) {
+    return list.map((e) => ({
+      ...e,
+      resolved_date: e.date,
+      day_of_week: new Date(e.date).toLocaleDateString("en-US", {
+        weekday: "long",
+      }),
+      name: e.name + (e.is_recurring ? " (Recurring)" : " (One-time)"),
+    }));
+  }
+
+  // Sort helpers
+  const pastSorted = [...data.past].sort((a, b) =>
+    b.date.localeCompare(a.date)
+  );
+  const futureSorted = [...data.future].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+
+  /* ======================================================
+     Delete handler
+  ====================================================== */
+
+  async function handleDelete(ex: any) {
+    try {
+      const res = await fetch(
+        `/api/store-hours-exceptions?exception_id=${ex.exception_id}`,
+        { method: "DELETE" }
+      );
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        alert(json.error || "Failed to delete exception");
+        return;
+      }
+
+      await refetch();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete exception");
+    }
   }
 
   return (
@@ -30,47 +69,21 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
       {/* 2️⃣ EXCEPTIONS */}
       <div className="mt-10 space-y-6">
-        {/* CALENDAR */}
-        <div className="border rounded-lg p-4 bg-white">
-          <StoreHoursCalendar
-            occurrences={data.all}
-            onSelectDate={(date, list) => {
-              // If user clicks a day with existing exception → edit first one
-              if (list.length > 0) {
-                const ex = list[0] as any;
-                setModalMode(
-                  ex.source_rule?.is_recurring
-                    ? "edit-recurring-forward"
-                    : "edit-one-time"
-                );
-                setModalInitialData(ex);
-              } else {
-                // Otherwise create new exception for this date
-                setModalMode("create");
-                setModalInitialData({ exception_date: date });
-              }
-              setModalOpen(true);
-            }}
-          />
-        </div>
-
-        {/* TABLES */}
         <div className="grid grid-cols-3 gap-6">
-          {/* LEFT — PAST (Last year + past this year) */}
+          {/* LEFT — PAST */}
           <ExceptionTable
             title="Past Exceptions"
-            exceptions={data.past}
+            exceptions={toExceptionRow(pastSorted)}
             readOnly
           />
 
-          {/* CENTER — FUTURE (This year forward + next year) */}
+          {/* CENTER — FUTURE */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Upcoming Exceptions</h3>
 
               <button
-                className="px-3 py-1.5 rounded-md text-sm font-semibold
-                           bg-green-600 text-white hover:bg-green-700"
+                className="px-3 py-1.5 rounded-md text-sm font-semibold bg-green-600 text-white hover:bg-green-700"
                 onClick={() => {
                   setModalMode("create");
                   setModalInitialData(null);
@@ -83,16 +96,43 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
             <ExceptionTable
               title=""
-              exceptions={data.future}
+              exceptions={toExceptionRow(futureSorted)}
               onEdit={(ex) => {
+                const baseName = ex.name.replace(
+                  /\s+\((Recurring|One-time)\)$/,
+                  ""
+                );
+
+                const normalized = {
+                  exception_id: ex.exception_id,
+                  site_id: ex.site_id,
+                  name: baseName,
+                  is_closed: ex.is_closed,
+                  open_time: ex.open_time,
+                  close_time: ex.close_time,
+                  is_recurring: ex.is_recurring,
+
+                  // the actual occurrence date that was clicked
+                  exception_date: ex.date,
+
+                  recurrence_rule: ex.is_recurring
+                    ? ex.source_rule?.recurrence_rule ?? null
+                    : null,
+
+                  // IMPORTANT: forward-edit starts from THIS occurrence
+                  effective_from_date: ex.date,
+                };
+
                 setModalMode(
-                  ex.source_rule?.is_recurring
+                  ex.is_recurring
                     ? "edit-recurring-forward"
                     : "edit-one-time"
                 );
-                setModalInitialData(ex);
+
+                setModalInitialData(normalized);
                 setModalOpen(true);
               }}
+              onDelete={handleDelete}
             />
           </div>
 
@@ -112,7 +152,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
           initialData={modalInitialData}
           onClose={() => setModalOpen(false)}
           onSaved={() => {
-            refetch(); // immediate refresh
+            refetch();
             setModalOpen(false);
           }}
         />

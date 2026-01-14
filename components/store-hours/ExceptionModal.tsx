@@ -98,7 +98,7 @@ export default function ExceptionModal({
   const [saving, setSaving] = useState(false);
 
   /* ======================================================
-     Init
+     Init + Prefill
   ====================================================== */
   useEffect(() => {
     if (!open) return;
@@ -106,7 +106,8 @@ export default function ExceptionModal({
     setError(null);
     setSaving(false);
 
-    if (!initialData) {
+    // If creating OR no initialData -> reset to blank
+    if (mode === "create" || !initialData) {
       setScope("one-time");
       setName("");
       setDate("");
@@ -119,8 +120,63 @@ export default function ExceptionModal({
       setHoursType("closed");
       setOpenTime("");
       setCloseTime("");
+      return;
     }
-  }, [open, initialData]);
+
+    // Normalize incoming shape (supports both your normalized manager payload and older shapes)
+    const isRecurring = initialData.is_recurring === true;
+    const initName = initialData.name ?? "";
+    const initIsClosed = initialData.is_closed === true;
+    const initOpen = initialData.open_time ?? "";
+    const initClose = initialData.close_time ?? "";
+
+    setScope(isRecurring ? "recurring" : "one-time");
+    setName(initName);
+
+    // One-time date
+    if (!isRecurring) {
+      setDate(initialData.exception_date ?? initialData.date ?? "");
+    } else {
+      // For recurring, we don't use `date` field in the rule table,
+      // so leave `date` empty (it is not shown in recurring UI anyway)
+      setDate("");
+    }
+
+    // Hours
+    if (initIsClosed) {
+      setHoursType("closed");
+      setOpenTime("");
+      setCloseTime("");
+    } else {
+      setHoursType("special");
+      setOpenTime(initOpen);
+      setCloseTime(initClose);
+    }
+
+    // Recurrence
+    const rule = initialData.recurrence_rule ?? initialData.source_rule?.recurrence_rule ?? null;
+
+    // Reset recurrence inputs first (prevents stale UI when switching between different edits)
+    setRecurrenceKind("fixed_date");
+    setFixedMonth("");
+    setFixedDay("");
+    setNth(-1);
+    setWeekday("thursday");
+    setNthMonth("");
+
+    if (isRecurring && rule?.type === "fixed_date") {
+      setRecurrenceKind("fixed_date");
+      setFixedMonth(rule.month ?? "");
+      setFixedDay(rule.day ?? "");
+    }
+
+    if (isRecurring && rule?.type === "nth_weekday") {
+      setRecurrenceKind("nth_weekday");
+      setNth((rule.occurrence ?? -1) as NthOption);
+      setWeekday((rule.weekday ?? "thursday") as Weekday);
+      setNthMonth(rule.month ?? "");
+    }
+  }, [open, mode, initialData]);
 
   /* ======================================================
      Recurrence Builder
@@ -140,7 +196,7 @@ export default function ExceptionModal({
     if (recurrenceKind === "nth_weekday") {
       if (!nthMonth) return null;
       return {
-        type: "nth_weekday", // ✅ FIX #1
+        type: "nth_weekday",
         month: nthMonth,
         weekday,
         occurrence: nth,
@@ -153,42 +209,41 @@ export default function ExceptionModal({
   /* ======================================================
      Validation
   ====================================================== */
-function validate(): boolean {
-  if (!siteId) {
-    setError("Missing site id.");
-    return false;
-  }
-
-  if (!name.trim()) {
-    setError("Exception name is required.");
-    return false;
-  }
-
-  if (scope === "one-time" && !date) {
-    setError("Please select a date.");
-    return false;
-  }
-
-  if (scope === "recurring" && !buildRecurrenceRule()) {
-    setError("Please complete the recurrence pattern.");
-    return false;
-  }
-
-  if (hoursType === "special") {
-    if (!openTime || !closeTime) {
-      setError("Both open and close times are required.");
+  function validate(): boolean {
+    if (!siteId) {
+      setError("Missing site id.");
       return false;
     }
-    if (openTime >= closeTime) {
-      setError("Open time must be before close time.");
+
+    if (!name.trim()) {
+      setError("Exception name is required.");
       return false;
     }
+
+    if (scope === "one-time" && !date) {
+      setError("Please select a date.");
+      return false;
+    }
+
+    if (scope === "recurring" && !buildRecurrenceRule()) {
+      setError("Please complete the recurrence pattern.");
+      return false;
+    }
+
+    if (hoursType === "special") {
+      if (!openTime || !closeTime) {
+        setError("Both open and close times are required.");
+        return false;
+      }
+      if (openTime >= closeTime) {
+        setError("Open time must be before close time.");
+        return false;
+      }
+    }
+
+    setError(null);
+    return true;
   }
-
-  setError(null);
-  return true;
-}
-
 
   /* ======================================================
      Save
@@ -208,10 +263,12 @@ function validate(): boolean {
       is_recurring: scope === "recurring",
       exception_date: scope === "one-time" ? date : null,
       recurrence_rule:
-        scope === "one-time"
-          ? { type: "single", date } // ✅ FIX #2
-          : buildRecurrenceRule(),
-      effective_from_date: todayYYYYMMDD(),
+        scope === "one-time" ? { type: "single", date } : buildRecurrenceRule(),
+      // for forward-only recurring edits, effective_from_date should be "today" (or selected occurrence date if you pass it)
+      effective_from_date:
+        mode === "edit-recurring-forward" && initialData?.effective_from_date
+          ? initialData.effective_from_date
+          : todayYYYYMMDD(),
     };
 
     try {
@@ -238,9 +295,10 @@ function validate(): boolean {
 
   if (!open) return null;
 
-  /* ======================================================
-     Render
-  ====================================================== */
+  // Guardrails for edits:
+  const scopeLocked =
+    mode === "edit-one-time" || mode === "edit-recurring-forward";
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg w-full max-w-lg p-6">
@@ -266,6 +324,7 @@ function validate(): boolean {
             <input
               type="radio"
               checked={scope === "one-time"}
+              disabled={scopeLocked}
               onChange={() => setScope("one-time")}
             />{" "}
             One-time
@@ -274,6 +333,7 @@ function validate(): boolean {
             <input
               type="radio"
               checked={scope === "recurring"}
+              disabled={scopeLocked}
               onChange={() => setScope("recurring")}
             />{" "}
             Recurring
@@ -292,6 +352,7 @@ function validate(): boolean {
                 onChange={(e) => setDate(e.target.value)}
               />
             </div>
+
             <div className="mb-5">
               <label className="font-semibold block mb-2">Title</label>
               <input
@@ -310,6 +371,7 @@ function validate(): boolean {
               <label className="font-semibold block mb-2">
                 Recurrence pattern
               </label>
+
               <label className="block">
                 <input
                   type="radio"
@@ -318,6 +380,7 @@ function validate(): boolean {
                 />{" "}
                 Fixed date
               </label>
+
               <label className="block">
                 <input
                   type="radio"
@@ -368,17 +431,21 @@ function validate(): boolean {
                   <option value={3}>Third</option>
                   <option value={4}>Fourth</option>
                 </select>
+
                 <select
                   className="border rounded px-3 py-2"
                   value={weekday}
                   onChange={(e) => setWeekday(e.target.value as Weekday)}
                 >
+                  <option value="sunday">Sunday</option>
                   <option value="monday">Monday</option>
                   <option value="tuesday">Tuesday</option>
                   <option value="wednesday">Wednesday</option>
                   <option value="thursday">Thursday</option>
                   <option value="friday">Friday</option>
+                  <option value="saturday">Saturday</option>
                 </select>
+
                 <input
                   type="number"
                   min={1}
@@ -448,7 +515,7 @@ function validate(): boolean {
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || (scope === "recurring" && !buildRecurrenceRule())} // ✅ FIX #3
+            disabled={saving || (scope === "recurring" && !buildRecurrenceRule())}
           >
             {saving ? "Saving…" : "Save"}
           </Button>
