@@ -44,7 +44,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
   async function handleDelete(ex: any) {
     try {
       const res = await fetch(
-        `/api/store-hours-exceptions?exception_id=${ex.exception_id}`,
+        `/api/store-hours/exceptions?exception_id=${ex.exception_id}`,
         { method: "DELETE" }
       );
 
