@@ -68,17 +68,11 @@ export default function ExceptionModal({
   onClose,
   onSaved,
 }: ExceptionModalProps) {
-  /* -------------------------
-     Core State
-  ------------------------- */
   const [scope, setScope] = useState<Scope>("one-time");
   const [hoursType, setHoursType] = useState<HoursType>("closed");
   const [name, setName] = useState("");
-
-  /* One-time */
   const [date, setDate] = useState("");
 
-  /* Recurring */
   const [recurrenceKind, setRecurrenceKind] =
     useState<RecurrenceKind>("fixed_date");
 
@@ -89,24 +83,18 @@ export default function ExceptionModal({
   const [weekday, setWeekday] = useState<Weekday>("thursday");
   const [nthMonth, setNthMonth] = useState<number | "">("");
 
-  /* Hours */
   const [openTime, setOpenTime] = useState("");
   const [closeTime, setCloseTime] = useState("");
 
-  /* UI */
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  /* ======================================================
-     Init + Prefill
-  ====================================================== */
   useEffect(() => {
     if (!open) return;
 
     setError(null);
     setSaving(false);
 
-    // If creating OR no initialData -> reset to blank
     if (mode === "create" || !initialData) {
       setScope("one-time");
       setName("");
@@ -123,40 +111,30 @@ export default function ExceptionModal({
       return;
     }
 
-    // Normalize incoming shape (supports both your normalized manager payload and older shapes)
     const isRecurring = initialData.is_recurring === true;
-    const initName = initialData.name ?? "";
-    const initIsClosed = initialData.is_closed === true;
-    const initOpen = initialData.open_time ?? "";
-    const initClose = initialData.close_time ?? "";
 
     setScope(isRecurring ? "recurring" : "one-time");
-    setName(initName);
+    setName(initialData.name ?? "");
 
-    // One-time date
     if (!isRecurring) {
       setDate(initialData.exception_date ?? initialData.date ?? "");
-    } else {
-      // For recurring, we don't use `date` field in the rule table,
-      // so leave `date` empty (it is not shown in recurring UI anyway)
-      setDate("");
     }
 
-    // Hours
-    if (initIsClosed) {
+    if (initialData.is_closed) {
       setHoursType("closed");
       setOpenTime("");
       setCloseTime("");
     } else {
       setHoursType("special");
-      setOpenTime(initOpen);
-      setCloseTime(initClose);
+      setOpenTime(initialData.open_time ?? "");
+      setCloseTime(initialData.close_time ?? "");
     }
 
-    // Recurrence
-    const rule = initialData.recurrence_rule ?? initialData.source_rule?.recurrence_rule ?? null;
+    const rule =
+      initialData.recurrence_rule ??
+      initialData.source_rule?.recurrence_rule ??
+      null;
 
-    // Reset recurrence inputs first (prevents stale UI when switching between different edits)
     setRecurrenceKind("fixed_date");
     setFixedMonth("");
     setFixedDay("");
@@ -178,100 +156,92 @@ export default function ExceptionModal({
     }
   }, [open, mode, initialData]);
 
-  /* ======================================================
-     Recurrence Builder
-  ====================================================== */
   function buildRecurrenceRule() {
     if (scope !== "recurring") return null;
 
     if (recurrenceKind === "fixed_date") {
       if (!fixedMonth || !fixedDay) return null;
-      return {
-        type: "fixed_date",
-        month: fixedMonth,
-        day: fixedDay,
-      };
+      return { type: "fixed_date", month: fixedMonth, day: fixedDay };
     }
 
     if (recurrenceKind === "nth_weekday") {
       if (!nthMonth) return null;
-      return {
-        type: "nth_weekday",
-        month: nthMonth,
-        weekday,
-        occurrence: nth,
-      };
+      return { type: "nth_weekday", month: nthMonth, weekday, occurrence: nth };
     }
 
     return null;
   }
 
-  /* ======================================================
-     Validation
-  ====================================================== */
   function validate(): boolean {
-    if (!siteId) {
-      setError("Missing site id.");
-      return false;
-    }
-
-    if (!name.trim()) {
-      setError("Exception name is required.");
-      return false;
-    }
-
-    if (scope === "one-time" && !date) {
-      setError("Please select a date.");
-      return false;
-    }
-
-    if (scope === "recurring" && !buildRecurrenceRule()) {
-      setError("Please complete the recurrence pattern.");
-      return false;
-    }
+    if (!siteId) return false;
+    if (!name.trim()) return false;
+    if (scope === "one-time" && !date) return false;
+    if (scope === "recurring" && !buildRecurrenceRule()) return false;
 
     if (hoursType === "special") {
-      if (!openTime || !closeTime) {
-        setError("Both open and close times are required.");
-        return false;
-      }
-      if (openTime >= closeTime) {
-        setError("Open time must be before close time.");
-        return false;
-      }
+      if (!openTime || !closeTime) return false;
+      if (openTime >= closeTime) return false;
     }
 
-    setError(null);
     return true;
   }
 
   /* ======================================================
-     Save
+     Save (UPDATED)
   ====================================================== */
+
   async function handleSave() {
     if (saving) return;
     if (!validate()) return;
 
     setSaving(true);
-
-    const payload = {
-      site_id: siteId,
-      name: name.trim(),
-      is_closed: hoursType === "closed",
-      open_time: hoursType === "special" ? openTime : null,
-      close_time: hoursType === "special" ? closeTime : null,
-      is_recurring: scope === "recurring",
-      exception_date: scope === "one-time" ? date : null,
-      recurrence_rule:
-        scope === "one-time" ? { type: "single", date } : buildRecurrenceRule(),
-      // for forward-only recurring edits, effective_from_date should be "today" (or selected occurrence date if you pass it)
-      effective_from_date:
-        mode === "edit-recurring-forward" && initialData?.effective_from_date
-          ? initialData.effective_from_date
-          : todayYYYYMMDD(),
-    };
+    setError(null);
 
     try {
+      // ONE-TIME EDIT → PATCH OCCURRENCE
+      if (scope === "one-time" && mode === "edit-one-time") {
+        const res = await fetch("/api/store-hours/occurrences", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            occurrence_id: initialData?.occurrence_id,
+            occurrence_date: date,
+            open_time: hoursType === "special" ? openTime : null,
+            close_time: hoursType === "special" ? closeTime : null,
+            is_closed: hoursType === "closed",
+            name: name.trim(),
+          }),
+        });
+
+        if (!res.ok) {
+          const j = await safeJson(res);
+          setError(j?.error || `Failed to save exception (${res.status})`);
+          setSaving(false);
+          return;
+        }
+
+        onSaved();
+        return;
+      }
+
+      // CREATE or RECURRING EDIT → RULE TABLE
+      const payload = {
+        exception_id: initialData?.exception_id ?? undefined,
+        site_id: siteId,
+        name: name.trim(),
+        is_closed: hoursType === "closed",
+        open_time: hoursType === "special" ? openTime : null,
+        close_time: hoursType === "special" ? closeTime : null,
+        is_recurring: scope === "recurring",
+        exception_date: scope === "one-time" ? date : null,
+        recurrence_rule:
+          scope === "one-time" ? { type: "single", date } : buildRecurrenceRule(),
+        effective_from_date:
+          mode === "edit-recurring-forward" && initialData?.effective_from_date
+            ? initialData.effective_from_date
+            : todayYYYYMMDD(),
+      };
+
       const res = await fetch("/api/store-hours/exceptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -295,7 +265,6 @@ export default function ExceptionModal({
 
   if (!open) return null;
 
-  // Guardrails for edits:
   const scopeLocked =
     mode === "edit-one-time" || mode === "edit-recurring-forward";
 
@@ -340,9 +309,8 @@ export default function ExceptionModal({
           </label>
         </div>
 
-        {/* One-time */}
         {scope === "one-time" && (
-          <div>
+          <>
             <div className="mb-5">
               <label className="font-semibold block mb-2">Date</label>
               <input
@@ -361,12 +329,11 @@ export default function ExceptionModal({
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-          </div>
+          </>
         )}
 
-        {/* Recurring */}
         {scope === "recurring" && (
-          <div>
+          <>
             <div className="mb-5">
               <label className="font-semibold block mb-2">
                 Recurrence pattern
@@ -468,10 +435,9 @@ export default function ExceptionModal({
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-          </div>
+          </>
         )}
 
-        {/* Hours */}
         <div className="mb-6">
           <label className="font-semibold block mb-2">Hours</label>
           <label className="block">
