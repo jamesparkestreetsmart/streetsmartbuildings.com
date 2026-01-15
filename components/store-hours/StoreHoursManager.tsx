@@ -1,3 +1,4 @@
+// components/store-hours/StoreHoursManager.tsx
 "use client";
 
 import { useState } from "react";
@@ -10,8 +11,37 @@ import ExceptionModal, { ExceptionModalMode } from "./ExceptionModal";
    Helpers
 ====================================================== */
 
-function getRowDate(row: any): string {
-  return row.occurrence_date ?? row.target_date;
+function getRowDate(row: any): string | null {
+  const d = row.occurrence_date ?? row.target_date;
+  if (!d || isNaN(new Date(d).getTime())) return null;
+  return d;
+}
+
+function normalizeRows(list: any[]) {
+  return list
+    .map((e) => {
+      const date = getRowDate(e);
+      if (!date) return null;
+
+      return {
+        occurrence_id: e.occurrence_id ?? `${e.site_id}-${date}`,
+        exception_id: e.exception_id,
+        site_id: e.site_id,
+
+        // canonical UI date
+        date,
+
+        name: e.name + (e.is_recurring ? " (Recurring)" : " (One-time)"),
+        open_time: e.open_time,
+        close_time: e.close_time,
+        is_closed: e.is_closed,
+        is_recurring: e.is_recurring ?? false,
+        is_recent: e.is_recent ?? false,
+        source_rule: e.source_rule,
+      };
+    })
+    .filter((e): e is NonNullable<typeof e> => e !== null);
+
 }
 
 export default function StoreHoursManager({ siteId }: { siteId: string }) {
@@ -25,32 +55,19 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
   if (error) return <div className="text-red-600">{error}</div>;
   if (!data) return <div>Invalid exception data</div>;
 
-  function toExceptionRow(list: any[]) {
-    return list.map((e) => {
-      const date = getRowDate(e);
-
-      return {
-        occurrence_id: e.occurrence_id,
-        ...e,
-        resolved_date: date,
-        day_of_week: new Date(date).toLocaleDateString("en-US", {
-          weekday: "long",
-        }),
-        name: e.name + (e.is_recurring ? " (Recurring)" : " (One-time)"),
-      };
-    });
-  }
-
   /* ======================================================
-     Sorting
+     Normalize + sort
   ====================================================== */
 
-  const pastSorted = [...data.past].sort((a, b) =>
-    getRowDate(b).localeCompare(getRowDate(a))
+  const pastRows = normalizeRows(data.past);
+  const futureRows = normalizeRows(data.future);
+
+  const pastSorted = [...pastRows].sort((a: any, b: any) =>
+    b.date.localeCompare(a.date)
   );
 
-  const futureSorted = [...data.future].sort((a, b) =>
-    getRowDate(a).localeCompare(getRowDate(b))
+  const futureSorted = [...futureRows].sort((a: any, b: any) =>
+    a.date.localeCompare(b.date)
   );
 
   /* ======================================================
@@ -90,7 +107,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
           {/* LEFT — PAST */}
           <ExceptionTable
             title="Past Exceptions"
-            exceptions={toExceptionRow(pastSorted)}
+            exceptions={pastSorted}
             readOnly
           />
 
@@ -113,14 +130,12 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
             <ExceptionTable
               title=""
-              exceptions={toExceptionRow(futureSorted)}
+              exceptions={futureSorted}
               onEdit={(ex) => {
                 const baseName = ex.name.replace(
                   /\s+\((Recurring|One-time)\)$/,
                   ""
                 );
-
-                const date = getRowDate(ex);
 
                 const normalized = {
                   occurrence_id: ex.occurrence_id,
@@ -132,13 +147,13 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
                   close_time: ex.close_time,
                   is_recurring: ex.is_recurring,
 
-                  exception_date: date,
+                  exception_date: ex.date,
 
                   recurrence_rule: ex.is_recurring
                     ? ex.source_rule?.recurrence_rule ?? null
                     : null,
 
-                  effective_from_date: date,
+                  effective_from_date: ex.date,
                 };
 
                 setModalMode(
