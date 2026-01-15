@@ -20,6 +20,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
   function toExceptionRow(list: any[]) {
     return list.map((e) => ({
+      occurrence_id: e.occurrence_id,
       ...e,
       resolved_date: e.date,
       day_of_week: new Date(e.date).toLocaleDateString("en-US", {
@@ -106,6 +107,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
                 );
 
                 const normalized = {
+                  occurrence_id: ex.occurrence_id,
                   exception_id: ex.exception_id,
                   site_id: ex.site_id,
                   name: baseName,

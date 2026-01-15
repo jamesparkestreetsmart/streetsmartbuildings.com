@@ -1,21 +1,25 @@
 import { useEffect, useState } from "react";
 
-export interface ExceptionOccurrence {
-  exception_id: string;
+export interface StoreHoursRow {
   site_id: string;
+  occurrence_date?: string;   // past
+  target_date?: string;       // future
+
+  is_exception: boolean;
+  exception_id: string | null;
   name: string;
-  date: string;
+
   open_time: string | null;
   close_time: string | null;
   is_closed: boolean;
-  is_recurring: boolean;
+
   source_rule?: any;
 }
 
 export function useStoreHoursExceptions(siteId: string) {
   const [data, setData] = useState<{
-    past: ExceptionOccurrence[];
-    future: ExceptionOccurrence[];
+    past: StoreHoursRow[];
+    future: StoreHoursRow[];
   } | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -25,19 +29,21 @@ export function useStoreHoursExceptions(siteId: string) {
     try {
       setLoading(true);
 
-      const res = await fetch(
-        `/api/store-hours/exceptions?site_id=${siteId}`
-      );
+      const [pastRes, futureRes] = await Promise.all([
+        fetch(`/api/store-hours/past?site_id=${siteId}`, { cache: "no-store" }),
+        fetch(`/api/store-hours/future?site_id=${siteId}`, { cache: "no-store" }),
+      ]);
 
-      if (!res.ok) {
-        throw new Error("Failed to fetch exceptions");
+      if (!pastRes.ok || !futureRes.ok) {
+        throw new Error("Failed to fetch store hours");
       }
 
-      const json = await res.json();
+      const pastJson = await pastRes.json();
+      const futureJson = await futureRes.json();
 
       setData({
-        past: json.past ?? [],
-        future: json.future ?? [],
+        past: pastJson.rows ?? [],
+        future: futureJson.rows ?? [],
       });
 
       setError(null);

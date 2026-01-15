@@ -56,6 +56,11 @@ async function safeJson(res: Response) {
   }
 }
 
+const MONTHS = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December"
+];
+
 /* ======================================================
    Component
 ====================================================== */
@@ -187,7 +192,7 @@ export default function ExceptionModal({
   }
 
   /* ======================================================
-     Save (UPDATED)
+     Save
   ====================================================== */
 
   async function handleSave() {
@@ -198,7 +203,6 @@ export default function ExceptionModal({
     setError(null);
 
     try {
-      // ONE-TIME EDIT → PATCH OCCURRENCE
       if (scope === "one-time" && mode === "edit-one-time") {
         const res = await fetch("/api/store-hours/occurrences", {
           method: "PATCH",
@@ -224,7 +228,6 @@ export default function ExceptionModal({
         return;
       }
 
-      // CREATE or RECURRING EDIT → RULE TABLE
       const payload = {
         exception_id: initialData?.exception_id ?? undefined,
         site_id: siteId,
@@ -345,7 +348,7 @@ export default function ExceptionModal({
                   checked={recurrenceKind === "fixed_date"}
                   onChange={() => setRecurrenceKind("fixed_date")}
                 />{" "}
-                Fixed date
+                Fixed date (yearly)
               </label>
 
               <label className="block">
@@ -360,28 +363,31 @@ export default function ExceptionModal({
 
             {recurrenceKind === "fixed_date" && (
               <div className="mb-5 grid grid-cols-2 gap-3">
-                <input
-                  type="number"
-                  min={1}
-                  max={12}
-                  placeholder="Month"
+                <select
                   className="border rounded px-3 py-2"
                   value={fixedMonth}
-                  onChange={(e) =>
-                    setFixedMonth(e.target.value ? +e.target.value : "")
-                  }
-                />
-                <input
-                  type="number"
-                  min={1}
-                  max={31}
-                  placeholder="Day"
+                  onChange={(e) => setFixedMonth(+e.target.value)}
+                >
+                  <option value="">Month</option>
+                  {MONTHS.map((m, i) => (
+                    <option key={m} value={i + 1}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+
+                <select
                   className="border rounded px-3 py-2"
                   value={fixedDay}
-                  onChange={(e) =>
-                    setFixedDay(e.target.value ? +e.target.value : "")
-                  }
-                />
+                  onChange={(e) => setFixedDay(+e.target.value)}
+                >
+                  <option value="">Day</option>
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 
@@ -413,17 +419,18 @@ export default function ExceptionModal({
                   <option value="saturday">Saturday</option>
                 </select>
 
-                <input
-                  type="number"
-                  min={1}
-                  max={12}
-                  placeholder="Month"
+                <select
                   className="border rounded px-3 py-2"
                   value={nthMonth}
-                  onChange={(e) =>
-                    setNthMonth(e.target.value ? +e.target.value : "")
-                  }
-                />
+                  onChange={(e) => setNthMonth(+e.target.value)}
+                >
+                  <option value="">Month</option>
+                  {MONTHS.map((m, i) => (
+                    <option key={m} value={i + 1}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 
