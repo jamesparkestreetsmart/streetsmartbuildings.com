@@ -6,10 +6,17 @@ import { useStoreHoursExceptions } from "./useStoreHoursExceptions";
 import ExceptionTable from "./ExceptionTable";
 import ExceptionModal, { ExceptionModalMode } from "./ExceptionModal";
 
+/* ======================================================
+   Helpers
+====================================================== */
+
+function getRowDate(row: any): string {
+  return row.occurrence_date ?? row.target_date;
+}
+
 export default function StoreHoursManager({ siteId }: { siteId: string }) {
   const { data, loading, error, refetch } = useStoreHoursExceptions(siteId);
 
-  // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ExceptionModalMode>("create");
   const [modalInitialData, setModalInitialData] = useState<any>(null);
@@ -19,23 +26,31 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
   if (!data) return <div>Invalid exception data</div>;
 
   function toExceptionRow(list: any[]) {
-    return list.map((e) => ({
-      occurrence_id: e.occurrence_id,
-      ...e,
-      resolved_date: e.date,
-      day_of_week: new Date(e.date).toLocaleDateString("en-US", {
-        weekday: "long",
-      }),
-      name: e.name + (e.is_recurring ? " (Recurring)" : " (One-time)"),
-    }));
+    return list.map((e) => {
+      const date = getRowDate(e);
+
+      return {
+        occurrence_id: e.occurrence_id,
+        ...e,
+        resolved_date: date,
+        day_of_week: new Date(date).toLocaleDateString("en-US", {
+          weekday: "long",
+        }),
+        name: e.name + (e.is_recurring ? " (Recurring)" : " (One-time)"),
+      };
+    });
   }
 
-  // Sort helpers
+  /* ======================================================
+     Sorting
+  ====================================================== */
+
   const pastSorted = [...data.past].sort((a, b) =>
-    b.date.localeCompare(a.date)
+    getRowDate(b).localeCompare(getRowDate(a))
   );
+
   const futureSorted = [...data.future].sort((a, b) =>
-    a.date.localeCompare(b.date)
+    getRowDate(a).localeCompare(getRowDate(b))
   );
 
   /* ======================================================
@@ -51,7 +66,6 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
 
       const json = await res.json();
       console.log("DELETE response:", json);
-
 
       if (!res.ok) {
         alert(json.error || "Failed to delete exception");
@@ -106,6 +120,8 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
                   ""
                 );
 
+                const date = getRowDate(ex);
+
                 const normalized = {
                   occurrence_id: ex.occurrence_id,
                   exception_id: ex.exception_id,
@@ -116,15 +132,13 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
                   close_time: ex.close_time,
                   is_recurring: ex.is_recurring,
 
-                  // the actual occurrence date that was clicked
-                  exception_date: ex.date,
+                  exception_date: date,
 
                   recurrence_rule: ex.is_recurring
                     ? ex.source_rule?.recurrence_rule ?? null
                     : null,
 
-                  // IMPORTANT: forward-edit starts from THIS occurrence
-                  effective_from_date: ex.date,
+                  effective_from_date: date,
                 };
 
                 setModalMode(
