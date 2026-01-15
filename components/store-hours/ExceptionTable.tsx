@@ -14,6 +14,7 @@ export interface ExceptionOccurrence {
   close_time: string | null;
   is_closed: boolean;
   is_recurring: boolean;
+  is_recent?: boolean; // NEW
   source_rule?: {
     recurrence_rule?: any;
     effective_from_date?: string;
@@ -26,7 +27,7 @@ interface ExceptionTableProps {
   exceptions: ExceptionOccurrence[];
   readOnly?: boolean;
   onEdit?: (exception: ExceptionOccurrence) => void;
-  onDelete?: (exception: ExceptionOccurrence) => void; // ✅ NEW
+  onDelete?: (exception: ExceptionOccurrence) => void;
 }
 
 /* ======================================================
@@ -35,7 +36,6 @@ interface ExceptionTableProps {
 
 function formatDate(dateStr: string) {
   if (!dateStr) return "—";
-
   const date = new Date(`${dateStr}T00:00:00`);
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -53,7 +53,6 @@ function formatDayOfWeek(dateStr: string) {
 
 function formatTime(timeStr: string | null) {
   if (!timeStr) return "";
-
   const [h, m] = timeStr.split(":").map(Number);
   const date = new Date();
   date.setHours(h, m, 0, 0);
@@ -106,17 +105,21 @@ export default function ExceptionTable({
         </thead>
 
         <tbody>
-          {exceptions.map((ex, index) => {
+          {exceptions.map((ex) => {
             const isPast = ex.date < todayStr;
 
             const hoursLabel = ex.is_closed
               ? "Closed"
               : `${formatTime(ex.open_time)} – ${formatTime(ex.close_time)}`;
 
+            // subtle highlight for recent past rows
+            const recentClass =
+              ex.is_recent && isPast ? "bg-yellow-50" : "";
+
             return (
               <tr
                 key={ex.occurrence_id}
-                className="border-b last:border-b-0"
+                className={`border-b last:border-b-0 ${recentClass}`}
               >
                 {/* NAME */}
                 <td className="p-2">
@@ -125,6 +128,11 @@ export default function ExceptionTable({
                     {ex.is_recurring && (
                       <span title="Recurring exception" className="text-xs">
                         🔁
+                      </span>
+                    )}
+                    {ex.is_recent && isPast && (
+                      <span className="ml-1 text-xs text-gray-400">
+                        recent
                       </span>
                     )}
                   </div>
