@@ -1,3 +1,4 @@
+// app/api/store-hours/future/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
@@ -20,10 +21,11 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabase();
 
   const { data, error } = await supabase
-    .from("view_store_hours_future")
+    .from("view_store_hours_events")
     .select("*")
     .eq("site_id", site_id)
-    .order("target_date", { ascending: true });
+    .gte("event_date", new Date().toISOString().slice(0, 10))
+    .order("event_date", { ascending: true });
 
   if (error) {
     console.error("future fetch error:", error);

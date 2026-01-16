@@ -1,78 +1,52 @@
-// components/store-hours/StoreHoursManager.tsx
 "use client";
 
 import { useState } from "react";
 import WeeklyStoreHours from "./WeeklyStoreHours";
-import { useStoreHoursExceptions } from "./useStoreHoursExceptions";
-import ExceptionTable from "./ExceptionTable";
+
+import { usePastStoreHours } from "./usePastStoreHours";
+import { useFutureExceptions } from "./useFutureExceptions";
+
+import { PastStoreHoursTable } from "./PastStoreHoursTable";
+import FutureExceptionsTable from "./FutureExceptionsTable";
+import { FutureException } from "./useFutureExceptions";
+
 import ExceptionModal, { ExceptionModalMode } from "./ExceptionModal";
 
-/* ======================================================
-   Helpers
-====================================================== */
-
-function getRowDate(row: any): string | null {
-  const d = row.occurrence_date ?? row.target_date;
-  if (!d || isNaN(new Date(d).getTime())) return null;
-  return d;
-}
-
-function normalizeRows(list: any[]) {
-  return list
-    .map((e) => {
-      const date = getRowDate(e);
-      if (!date) return null;
-
-      return {
-        occurrence_id: e.occurrence_id ?? `${e.site_id}-${date}`,
-        exception_id: e.exception_id,
-        site_id: e.site_id,
-
-        // canonical UI date
-        date,
-
-        name: e.name + (e.is_recurring ? " (Recurring)" : " (One-time)"),
-        open_time: e.open_time,
-        close_time: e.close_time,
-        is_closed: e.is_closed,
-        is_recurring: e.is_recurring ?? false,
-        is_recent: e.is_recent ?? false,
-        source_rule: e.source_rule,
-      };
-    })
-    .filter((e): e is NonNullable<typeof e> => e !== null);
-
-}
-
 export default function StoreHoursManager({ siteId }: { siteId: string }) {
-  const { data, loading, error, refetch } = useStoreHoursExceptions(siteId);
+  const past = usePastStoreHours(siteId);
+  const future = useFutureExceptions(siteId);
+
+  /* ---------------- Debugging (optional) ---------------- */
+
+  const badRows = future.rows.filter(
+    (r) => typeof r?.event_date !== "string" || !r.event_date
+  );
+
+  if (badRows.length) {
+    console.warn("Dropping bad future rows:", badRows);
+  }
+
+  console.log("future rows:", future.rows);
+
+  /* ------------------------------------------------------ */
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ExceptionModalMode>("create");
   const [modalInitialData, setModalInitialData] = useState<any>(null);
 
-  if (loading) return <div>Loading store hours…</div>;
-  if (error) return <div className="text-red-600">{error}</div>;
-  if (!data) return <div>Invalid exception data</div>;
+  if (past.loading || future.loading) return <div>Loading store hours…</div>;
+  if (past.error) return <div className="text-red-600">{past.error}</div>;
+  if (future.error) return <div className="text-red-600">{future.error}</div>;
 
-  /* ======================================================
-     Normalize + sort
-  ====================================================== */
-
-  const pastRows = normalizeRows(data.past);
-  const futureRows = normalizeRows(data.future);
-
-  const pastSorted = [...pastRows].sort((a: any, b: any) =>
-    b.date.localeCompare(a.date)
+  const pastSorted = [...past.rows].sort((a, b) =>
+    b.occurrence_date.localeCompare(a.occurrence_date)
   );
 
-  const futureSorted = [...futureRows].sort((a: any, b: any) =>
-    a.date.localeCompare(b.date)
-  );
-
-  /* ======================================================
-     Delete handler
-  ====================================================== */
+  const futureSorted = [...future.rows]
+    .filter(
+      (r) => typeof r?.event_date === "string" && r.event_date.length > 0
+    )
+    .sort((a, b) => a.event_date.localeCompare(b.event_date));
 
   async function handleDelete(ex: any) {
     try {
@@ -82,14 +56,13 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
       );
 
       const json = await res.json();
-      console.log("DELETE response:", json);
 
       if (!res.ok) {
         alert(json.error || "Failed to delete exception");
         return;
       }
 
-      await refetch();
+      await future.refetch();
     } catch (err) {
       console.error(err);
       alert("Failed to delete exception");
@@ -101,20 +74,16 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
       {/* 1️⃣ WEEKLY STORE HOURS */}
       <WeeklyStoreHours siteId={siteId} />
 
-      {/* 2️⃣ EXCEPTIONS */}
+      {/* 2️⃣ STORE HOURS + EXCEPTIONS */}
       <div className="mt-10 space-y-6">
         <div className="grid grid-cols-3 gap-6">
-          {/* LEFT — PAST */}
-          <ExceptionTable
-            title="Past Exceptions"
-            exceptions={pastSorted}
-            readOnly
-          />
+          {/* LEFT — PAST (history) */}
+          <PastStoreHoursTable rows={pastSorted} />
 
-          {/* CENTER — FUTURE */}
+          {/* CENTER — FUTURE (events) */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Upcoming Exceptions</h3>
+              <h3 className="text-lg font-semibold">Upcoming Events</h3>
 
               <button
                 className="px-3 py-1.5 rounded-md text-sm font-semibold bg-green-600 text-white hover:bg-green-700"
@@ -128,36 +97,26 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
               </button>
             </div>
 
-            <ExceptionTable
+            <FutureExceptionsTable
               title=""
               exceptions={futureSorted}
-              onEdit={(ex) => {
-                const baseName = ex.name.replace(
-                  /\s+\((Recurring|One-time)\)$/,
-                  ""
-                );
-
+              onEdit={(ex: FutureException) => {
                 const normalized = {
-                  occurrence_id: ex.occurrence_id,
                   exception_id: ex.exception_id,
                   site_id: ex.site_id,
-                  name: baseName,
+                  name: ex.name,
                   is_closed: ex.is_closed,
                   open_time: ex.open_time,
                   close_time: ex.close_time,
-                  is_recurring: ex.is_recurring,
+                  is_recurring: Boolean(ex.source_rule?.recurrence_rule),
 
-                  exception_date: ex.date,
-
-                  recurrence_rule: ex.is_recurring
-                    ? ex.source_rule?.recurrence_rule ?? null
-                    : null,
-
-                  effective_from_date: ex.date,
+                  exception_date: ex.event_date,
+                  recurrence_rule: ex.source_rule?.recurrence_rule ?? null,
+                  effective_from_date: ex.event_date,
                 };
 
                 setModalMode(
-                  ex.is_recurring
+                  ex.source_rule?.recurrence_rule
                     ? "edit-recurring-forward"
                     : "edit-one-time"
                 );
@@ -184,8 +143,9 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
           mode={modalMode}
           initialData={modalInitialData}
           onClose={() => setModalOpen(false)}
-          onSaved={() => {
-            refetch();
+          onSaved={async () => {
+            await future.refetch();
+            await past.refetch();
             setModalOpen(false);
           }}
         />

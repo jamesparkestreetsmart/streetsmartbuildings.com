@@ -1,41 +1,16 @@
 "use client";
 
-/* ======================================================
-   Types
-====================================================== */
+import { FutureException } from "./useFutureExceptions";
 
-export interface ExceptionOccurrence {
-  occurrence_id: string;
-  exception_id: string;
-  site_id: string;
-  name: string;
-  date: string; // YYYY-MM-DD
-  open_time: string | null;
-  close_time: string | null;
-  is_closed: boolean;
-  is_recurring: boolean;
-  is_recent?: boolean; // NEW
-  source_rule?: {
-    recurrence_rule?: any;
-    effective_from_date?: string;
-    is_recurring?: boolean;
-  };
-}
-
-interface ExceptionTableProps {
+interface FutureExceptionsTableProps {
   title: string;
-  exceptions: ExceptionOccurrence[];
+  exceptions: FutureException[];
   readOnly?: boolean;
-  onEdit?: (exception: ExceptionOccurrence) => void;
-  onDelete?: (exception: ExceptionOccurrence) => void;
+  onEdit?: (exception: FutureException) => void;
+  onDelete?: (exception: FutureException) => void;
 }
-
-/* ======================================================
-   Formatting helpers
-====================================================== */
 
 function formatDate(dateStr: string) {
-  if (!dateStr) return "—";
   const date = new Date(`${dateStr}T00:00:00`);
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -54,27 +29,19 @@ function formatDayOfWeek(dateStr: string) {
 function formatTime(timeStr: string | null) {
   if (!timeStr) return "";
   const [h, m] = timeStr.split(":").map(Number);
-  const date = new Date();
-  date.setHours(h, m, 0, 0);
-
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-/* ======================================================
-   Component
-====================================================== */
-
-export default function ExceptionTable({
+export default function FutureExceptionsTable({
   title,
   exceptions,
   readOnly = false,
   onEdit,
   onDelete,
-}: ExceptionTableProps) {
-  if (!exceptions || exceptions.length === 0) {
+}: FutureExceptionsTableProps) {
+  if (!exceptions.length) {
     return (
       <div className="border rounded p-4 bg-white">
         <h3 className="font-semibold mb-2">{title}</h3>
@@ -82,8 +49,6 @@ export default function ExceptionTable({
       </div>
     );
   }
-
-  const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="border rounded bg-white">
@@ -106,66 +71,39 @@ export default function ExceptionTable({
 
         <tbody>
           {exceptions.map((ex) => {
-            const isPast = ex.date < todayStr;
-
             const hoursLabel = ex.is_closed
               ? "Closed"
               : `${formatTime(ex.open_time)} – ${formatTime(ex.close_time)}`;
 
-            // subtle highlight for recent past rows
-            const recentClass =
-              ex.is_recent && isPast ? "bg-yellow-50" : "";
+            const isRecurring = Boolean(ex.source_rule?.recurrence_rule);
 
             return (
-              <tr
-                key={ex.occurrence_id}
-                className={`border-b last:border-b-0 ${recentClass}`}
-              >
-                {/* NAME */}
+              <tr key={ex.exception_id} className="border-b last:border-b-0">
                 <td className="p-2">
                   <div className="flex items-center gap-1">
                     <span>{ex.name}</span>
-                    {ex.is_recurring && (
-                      <span title="Recurring exception" className="text-xs">
-                        🔁
-                      </span>
-                    )}
-                    {ex.is_recent && isPast && (
-                      <span className="ml-1 text-xs text-gray-400">
-                        recent
-                      </span>
-                    )}
+                    {isRecurring && <span className="text-xs">🔁</span>}
                   </div>
                 </td>
 
-                {/* DATE */}
                 <td className="p-2 text-center">
-                  <div>{formatDate(ex.date)}</div>
+                  <div>{formatDate(ex.event_date)}</div>
                   <div className="text-xs text-gray-500">
-                    {formatDayOfWeek(ex.date)}
+                    {formatDayOfWeek(ex.event_date)}
                   </div>
                 </td>
 
-                {/* HOURS */}
                 <td className="p-2 text-center">{hoursLabel}</td>
 
-                {/* STATUS */}
                 <td className="p-2 text-center">
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-semibold ${
-                      isPast
-                        ? "bg-yellow-200 text-yellow-900"
-                        : "bg-green-200 text-green-900"
-                    }`}
-                  >
-                    {isPast ? "Past" : "Upcoming"}
+                  <span className="px-2 py-1 rounded text-xs font-semibold bg-green-200 text-green-900">
+                    Upcoming
                   </span>
                 </td>
 
-                {/* ACTIONS */}
                 {!readOnly && (onEdit || onDelete) && (
                   <td className="p-2 text-right space-x-3">
-                    {!isPast && onEdit && (
+                    {onEdit && (
                       <button
                         className="text-blue-600 hover:underline"
                         onClick={() => onEdit(ex)}
@@ -174,22 +112,18 @@ export default function ExceptionTable({
                       </button>
                     )}
 
-                    {!isPast && onDelete && (
+                    {onDelete && (
                       <button
                         className="text-red-600 hover:underline"
                         onClick={() => {
                           const ok = confirm(
-                            `Delete "${ex.name}" on ${ex.date}?\n\nThis cannot be undone.`
+                            `Delete "${ex.name}" on ${ex.event_date}?`
                           );
                           if (ok) onDelete(ex);
                         }}
                       >
                         Delete
                       </button>
-                    )}
-
-                    {isPast && (
-                      <span className="text-gray-400 text-xs">Locked</span>
                     )}
                   </td>
                 )}
