@@ -2,27 +2,14 @@ import { useEffect, useState } from "react";
 
 export interface FutureException {
   event_id: string;
-  exception_id: string;
+  rule_id: string;
   site_id: string;
-  event_date: string; // YYYY-MM-DD
-  name: string;
+  event_date: string;
+  event_name: string;
+  event_type: string;
+  is_closed: boolean;
   open_time: string | null;
   close_time: string | null;
-  is_closed: boolean;
-  source_rule?: any;
-}
-
-function isValidFutureException(x: any): x is FutureException {
-  return (
-    x &&
-    typeof x.event_id === "string" &&
-    typeof x.exception_id === "string" &&
-    typeof x.site_id === "string" &&
-    typeof x.event_date === "string" &&
-    x.event_date.length > 0 &&
-    typeof x.name === "string" &&
-    x.name.length > 0
-  );
 }
 
 export function useFutureExceptions(siteId: string) {
@@ -34,31 +21,26 @@ export function useFutureExceptions(siteId: string) {
     try {
       setLoading(true);
 
-      const res = await fetch(`/api/store-hours/future?site_id=${siteId}`, {
-        cache: "no-store",
-      });
+      const url = `/api/store-hours/events?site_id=${siteId}&status=upcoming`;
+      const res = await fetch(url, { cache: "no-store" });
 
-      if (!res.ok) throw new Error("Failed to fetch future events");
+      const text = await res.text();
 
-      const json = await res.json();
+      if (!res.ok) {
+        let msg = `HTTP ${res.status} ${res.statusText}`;
+        try {
+          const j = JSON.parse(text);
+          if (j?.error) msg += `: ${j.error}`;
+        } catch {}
+        throw new Error(msg);
+      }
 
-      const mapped = (json.rows ?? [])
-        .map((r: any) => ({
-          event_id: r.event_id,
-          exception_id: r.exception_id,
-          site_id: r.site_id,
-          event_date: r.event_date,
-          name: r.name,
-          open_time: r.open_time,
-          close_time: r.close_time,
-          is_closed: r.is_closed,
-          source_rule: r.source_rule,
-        }))
-        .filter(isValidFutureException);
+      const json = JSON.parse(text);
 
-      setRows(mapped);
+      setRows(json.rows ?? []);
       setError(null);
     } catch (e: any) {
+      console.error("future events fetch failed:", e);
       setError(e.message ?? "Unknown error");
     } finally {
       setLoading(false);
@@ -67,8 +49,12 @@ export function useFutureExceptions(siteId: string) {
 
   useEffect(() => {
     if (siteId) fetchRows();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId]);
 
-  return { rows, loading, error, refetch: fetchRows };
+  return {
+    rows,
+    loading,
+    error,
+    refetch: fetchRows,
+  };
 }

@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-/* ======================================================
-   Helpers
-====================================================== */
-
 function getSupabase() {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,132 +10,96 @@ function getSupabase() {
 }
 
 /* ======================================================
-   GET — list rules for site
+   GET – list rules for a site
 ====================================================== */
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const site_id = searchParams.get("site_id");
+  try {
+    const { searchParams } = new URL(req.url);
+    const site_id = searchParams.get("site_id");
 
-  if (!site_id) {
-    return NextResponse.json({ error: "Missing site_id" }, { status: 400 });
+    if (!site_id) {
+      return NextResponse.json(
+        { error: "Missing site_id" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from("b_store_hours_exceptions_rules")
+      .select("*")
+      .eq("site_id", site_id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("rules fetch error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ rows: data ?? [] });
+
+  } catch (err: any) {
+    console.error("rules route crashed:", err);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
-
-  const supabase = getSupabase();
-
-  const { data, error } = await supabase
-    .from("b_store_hours_exceptions_future")
-    .select("*")
-    .eq("site_id", site_id)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error(error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ rules: data ?? [] });
 }
 
 /* ======================================================
-   POST — create or update rule
+   POST – create new exception rule
 ====================================================== */
 
 export async function POST(req: NextRequest) {
-  const supabase = getSupabase();
-
-  let body: any;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+    const body = await req.json();
 
-  const {
-    exception_id,
-    site_id,
-    name,
-    is_closed,
-    open_time,
-    close_time,
-    is_recurring,
-    recurrence_rule,
-    effective_from_date,
-  } = body;
-
-  if (!site_id || !name) {
-    return NextResponse.json(
-      { error: "Missing required fields" },
-      { status: 400 }
-    );
-  }
-
-  const { error } = await supabase
-    .from("b_store_hours_exceptions_future")
-    .upsert({
-      exception_id: exception_id ?? undefined,
+    const {
       site_id,
       name,
       is_closed,
       open_time,
       close_time,
-      is_recurring,
       recurrence_rule,
       effective_from_date,
-    });
+    } = body;
 
-  if (error) {
-    console.error("upsert error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+    if (!site_id || !name || !recurrence_rule || !effective_from_date) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
 
-  return NextResponse.json({ success: true });
-}
+    const supabase = getSupabase();
 
-/* ======================================================
-   DELETE — delete rule
-====================================================== */
+    const { error } = await supabase
+      .from("b_store_hours_exceptions_rules")   // ✅ correct table
+      .insert({
+        site_id,
+        name,
+        is_closed,
+        open_time,
+        close_time,
+        recurrence_rule,
+        effective_from_date,
+      });
 
-export async function DELETE(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const exception_id = searchParams.get("exception_id");
+    if (error) {
+      console.error("rules insert error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
-  if (!exception_id) {
+    return NextResponse.json({ ok: true });
+
+  } catch (err: any) {
+    console.error("rules POST crashed:", err);
     return NextResponse.json(
-      { error: "Missing exception_id" },
-      { status: 400 }
+      { error: "Internal server error" },
+      { status: 500 }
     );
   }
-
-  const supabase = getSupabase();
-
-  const { error } = await supabase
-    .from("b_store_hours_exceptions_future")
-    .delete()
-    .eq("exception_id", exception_id);
-
-  if (error) {
-    console.error("delete error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ success: true });
-}
-
-/* ======================================================
-   OPTIONS
-====================================================== */
-
-export async function OPTIONS() {
-  return NextResponse.json(
-    {},
-    {
-      status: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      },
-    }
-  );
 }

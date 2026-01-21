@@ -20,10 +20,10 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabase();
 
   const { data, error } = await supabase
-    .from("view_store_hours_past")
+    .from("view_store_hours_manifest")
     .select("*")
     .eq("site_id", site_id)
-    .order("occurrence_date", { ascending: false })
+    .order("manifest_date", { ascending: false })
     .limit(100);
 
   if (error) {

@@ -2,15 +2,16 @@ import { useEffect, useState } from "react";
 
 
 export interface PastStoreHour {
-occurrence_id: string;
-site_id: string;
-occurrence_date: string;
-exception_id: string | null;
-name: string | null;
-open_time: string | null;
-close_time: string | null;
-is_closed: boolean;
-is_recent: boolean;
+  occurrence_id: string;
+  site_id: string;
+  occurrence_date: string;
+  exception_id: string | null;
+  name: string | null;
+  event_type: string;
+  open_time: string | null;
+  close_time: string | null;
+  is_closed: boolean;
+  is_recent: boolean;
 }
 
 
@@ -38,22 +39,26 @@ cache: "no-store",
 });
 
 
-if (!res.ok) throw new Error("Failed to fetch past store hours");
+if (!res.ok) {
+  const json = await res.json().catch(() => ({}));
+  throw new Error(json.error || `Failed to fetch past store hours (${res.status})`);
+}
 
 
 const json = await res.json();
 
 
 const mapped: PastStoreHour[] = (json.rows ?? []).map((r: any) => ({
-occurrence_id: r.occurrence_id,
-site_id: r.site_id,
-occurrence_date: r.occurrence_date,
-exception_id: r.exception_id,
-name: r.name,
-open_time: r.open_time,
-close_time: r.close_time,
-is_closed: r.is_closed,
-is_recent: isWithinLast7Days(r.occurrence_date),
+  occurrence_id: r.occurrence_id,
+  site_id: r.site_id,
+  occurrence_date: r.manifest_date,
+  exception_id: r.exception_id,
+  name: r.manifest_name,
+  event_type: r.event_type,
+  open_time: r.open_time,
+  close_time: r.close_time,
+  is_closed: r.is_closed,
+  is_recent: isWithinLast7Days(r.manifest_date),
 }));
 
 
