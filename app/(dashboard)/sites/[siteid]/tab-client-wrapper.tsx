@@ -4,6 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useEffect, useState } from "react";
 import EquipmentTable from "@/components/equipment/EquipmentTable";
+import SpaceHvacTable from "@/components/equipment/SpaceHvacTable";
+import PlumbingTable from "@/components/equipment/PlumbingTable";
 import StoreHoursManager from "@/components/store-hours/StoreHoursManager";
 
 export default function TabClientWrapper({ siteId }: { siteId: string }) {
@@ -27,6 +29,8 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
         onChange={updateTab}
         options={[
           { label: "Equipment Checkup", value: "equipment" },
+          { label: "Space & HVAC", value: "space-hvac" },
+          { label: "Plumbing", value: "plumbing" },
           { label: "Store Hours", value: "hours" },
         ]}
         className="mb-6"
@@ -34,6 +38,8 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
 
       {/* TAB CONTENT */}
       {tab === "equipment" && <EquipmentTable siteId={siteId} />}
+      {tab === "space-hvac" && <SpaceHvacTable siteId={siteId} />}
+      {tab === "plumbing" && <PlumbingTable siteId={siteId} />}
       {tab === "hours" && <StoreHoursManager siteId={siteId} />}
     </>
   );

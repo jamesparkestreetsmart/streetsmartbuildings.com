@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabase();
 
     const { data, error } = await supabase
-      .from("b_store_hours_exceptions_rules")
+      .from("b_store_hours_exception_rules")
       .select("*")
       .eq("site_id", site_id)
       .order("created_at", { ascending: false });
@@ -60,33 +60,70 @@ export async function POST(req: NextRequest) {
     const {
       site_id,
       name,
+      event_type,
+      rule_type,
+      effective_from_date,
+      effective_to_date,
+      // Standard hours (for most rule types)
       is_closed,
       open_time,
       close_time,
-      recurrence_rule,
-      effective_from_date,
+      // Date range daily - three time slots
+      start_day_open,
+      start_day_close,
+      middle_days_closed,
+      middle_days_open,
+      middle_days_close,
+      end_day_open,
+      end_day_close,
     } = body;
 
-    if (!site_id || !name || !recurrence_rule || !effective_from_date) {
+    if (!site_id || !name || !event_type || !rule_type || !effective_from_date) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
 
+    // date_range_daily requires effective_to_date
+    if (rule_type === "date_range_daily" && !effective_to_date) {
+      return NextResponse.json(
+        { error: "effective_to_date is required for date_range_daily" },
+        { status: 400 }
+      );
+    }
+
     const supabase = getSupabase();
 
+    // Build insert object based on rule type
+    const insertData: Record<string, any> = {
+      site_id,
+      name,
+      event_type,
+      rule_type,
+      effective_from_date,
+      effective_to_date,
+    };
+
+    if (rule_type === "date_range_daily") {
+      // Hotel-style three time slots
+      insertData.start_day_open = start_day_open;
+      insertData.start_day_close = start_day_close;
+      insertData.middle_days_closed = middle_days_closed;
+      insertData.middle_days_open = middle_days_open;
+      insertData.middle_days_close = middle_days_close;
+      insertData.end_day_open = end_day_open;
+      insertData.end_day_close = end_day_close;
+    } else {
+      // Standard hours
+      insertData.is_closed = is_closed;
+      insertData.open_time = open_time;
+      insertData.close_time = close_time;
+    }
+
     const { error } = await supabase
-      .from("b_store_hours_exceptions_rules")   // ✅ correct table
-      .insert({
-        site_id,
-        name,
-        is_closed,
-        open_time,
-        close_time,
-        recurrence_rule,
-        effective_from_date,
-      });
+      .from("b_store_hours_exception_rules")
+      .insert(insertData);
 
     if (error) {
       console.error("rules insert error:", error);

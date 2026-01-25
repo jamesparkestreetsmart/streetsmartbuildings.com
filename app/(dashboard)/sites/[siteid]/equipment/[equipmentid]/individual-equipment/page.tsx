@@ -18,7 +18,7 @@ interface Equipment {
   equipment_name: string;
   description: string | null;
   equipment_group: string | null;
-  equipment_type: string | null;
+  equipment_type_id: string | null;
   space_name: string | null;
   manufacturer: string | null;
   model: string | null;

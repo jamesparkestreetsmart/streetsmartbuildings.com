@@ -46,7 +46,7 @@ export default async function SitePage(props: any) {
    * ============================ */
   const { data: infrastructureEquipment } = await supabase
     .from("a_equipments")
-    .select("equipment_id, equipment_name, equipment_group, equipment_type, status")
+    .select("equipment_id, equipment_name, equipment_group, equipment_type_id, status")
     .eq("site_id", id)
     .eq("equipment_group", "Infrastructure")
     .order("equipment_name");
@@ -156,7 +156,7 @@ export default async function SitePage(props: any) {
               infrastructureEquipment.map((eq, i) => (
                 <div key={i} className="grid grid-cols-4 gap-2">
                   <div>{eq.equipment_group}</div>
-                  <div>{eq.equipment_type}</div>
+                  <div>{eq.equipment_type_id}</div>
                   <div className="truncate" title={eq.equipment_name}>
                     <Link
                       href={`/sites/${id}/equipment/${eq.equipment_id}/individual-equipment`}

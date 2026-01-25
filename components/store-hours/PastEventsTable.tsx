@@ -21,12 +21,14 @@ function formatDate(iso: string | null) {
 
 function formatEventType(eventType: string) {
   switch (eventType) {
-    case "store_hours":
+    case "store_hours_schedule":
       return <span className="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-800">Store Hours</span>;
     case "planned_maintenance":
       return <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-800">Maintenance</span>;
     case "hotel_occupancy":
       return <span className="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800">Hotel</span>;
+    default:
+      return <span className="px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-800">{eventType}</span>;
   }
 }
 

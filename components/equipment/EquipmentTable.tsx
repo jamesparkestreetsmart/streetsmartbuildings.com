@@ -17,7 +17,7 @@ interface EquipmentRow {
   equipment_id: string;
   equipment_name: string;
   equipment_group: string | null;
-  equipment_type: string | null;
+  equipment_type_id: string | null;
   space_name: string | null;
   latest_temperature: number | null;
   latest_temperature_ts: string | null;
@@ -42,7 +42,7 @@ export default function EquipmentCheckupTable({ siteId }: Props) {
         .from("view_sites_equipment")
         .select("*")
         .eq("site_id", siteId)
-        .neq("equipment_group", "Inventory")
+        .not("equipment_group", "in", '("Inventory","Infrastructure","Space","HVAC","Plumbing")')
         .order("equipment_group", { ascending: true })
         .order("equipment_name", { ascending: true });
 
@@ -89,7 +89,7 @@ export default function EquipmentCheckupTable({ siteId }: Props) {
     const headers = [
       "equipment_name",
       "equipment_group",
-      "equipment_type",
+      "equipment_type_id",
       "space_name",
       "latest_temperature",
       "latest_humidity",
@@ -132,7 +132,7 @@ export default function EquipmentCheckupTable({ siteId }: Props) {
             {[
               ["equipment_name", "Equipment Name"],
               ["equipment_group", "Group"],
-              ["equipment_type", "Type"],
+              ["equipment_type_id", "Type"],
               ["space_name", "Space"],
               ["latest_temperature", "Temp (°F)"],
               ["latest_humidity", "Humidity (%)"],
@@ -164,7 +164,7 @@ export default function EquipmentCheckupTable({ siteId }: Props) {
               </td>
 
               <td className="py-3 px-4">{row.equipment_group ?? "—"}</td>
-              <td className="py-3 px-4">{row.equipment_type ?? "—"}</td>
+              <td className="py-3 px-4">{row.equipment_type_id ?? "—"}</td>
               <td className="py-3 px-4">{row.space_name ?? "—"}</td>
 
               {/* Temperature */}

@@ -27,6 +27,9 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
   // Auto-load org_id from site
   const [orgId, setOrgId] = useState<string | null>(null);
 
+  // Equipment types from library
+  const [equipmentTypes, setEquipmentTypes] = useState<string[]>([]);
+
   useEffect(() => {
     const fetchOrg = async () => {
       const { data } = await supabase
@@ -38,7 +41,24 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
       if (data?.org_id) setOrgId(data.org_id);
     };
 
+    const fetchEquipmentTypes = async () => {
+      const { data, error } = await supabase
+        .from("library_equipment_types")
+        .select("equipment_type_id")
+        .order("equipment_type_id");
+
+      if (error) {
+        console.error("Error fetching equipment types:", error);
+        return;
+      }
+
+      if (data) {
+        setEquipmentTypes(data.map((row) => row.equipment_type_id));
+      }
+    };
+
     fetchOrg();
+    fetchEquipmentTypes();
   }, [siteId]);
 
   const resetForm = () => {
@@ -93,7 +113,7 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
       org_id: orgId,
       equipment_name: equipmentName.trim(),
       equipment_group: group || null,
-      equipment_type: type || null,
+      equipment_type_id: type || null,
       space_name: space || null,
       description: description || null,
       manufacturer: manufacturer || null,
@@ -154,11 +174,18 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
               />
 
               {/* Row 2 */}
-              <Input
-                placeholder="Type (Freezer, AC Unit, etc.)"
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 value={type}
                 onChange={(e) => setType(e.target.value)}
-              />
+              >
+                <option value="">Select Equipment Type</option>
+                {equipmentTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
               <Input
                 placeholder="Space (Kitchen, Roof, Storage)"
                 value={space}

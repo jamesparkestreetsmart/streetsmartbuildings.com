@@ -89,6 +89,24 @@ export async function POST(req: NextRequest) {
         .from("a_devices")
         .update({ ha_device_id: null })
         .eq("device_id", existingBinding.device_id);
+
+      // Log that the previous device was unmapped
+      await supabase.from("b_records_log").insert({
+        org_id,
+        site_id,
+        device_id: existingBinding.device_id,
+        event_type: "configuration",
+        source: "system",
+        message: "HA device unmapped (reassigned to another device)",
+        metadata: {
+          device_name: existingBinding.device_name,
+          ha_device_id: nextHaId,
+          reassigned_to_device_id: device_id,
+          reassigned_to_device_name: targetDevice.device_name,
+        },
+        created_by: "system",
+        ha_device_id: nextHaId,
+      });
     }
   }
 

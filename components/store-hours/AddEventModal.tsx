@@ -26,6 +26,8 @@ type RuleType =
 
 type HoursType = "closed" | "special";
 
+type EventType = "store_hours_schedule" | "planned_maintenance" | "hotel_occupancy";
+
 type Weekday =
   | "sunday"
   | "monday"
@@ -93,6 +95,7 @@ export default function ExceptionModal({
 
   const [ruleType, setRuleType] = useState<RuleType>("single_date");
   const [hoursType, setHoursType] = useState<HoursType>("closed");
+  const [eventType, setEventType] = useState<EventType>("store_hours_schedule");
   const [name, setName] = useState("");
 
   // single_date
@@ -110,11 +113,19 @@ export default function ExceptionModal({
   // weekly_days
   const [weeklyDays, setWeeklyDays] = useState<Weekday[]>([]);
 
-  // date_range_daily
+  // date_range_daily - three time slots: start day, middle days, end day
   const [rangeStart, setRangeStart] = useState("");
-  const [rangeStartTime, setRangeStartTime] = useState("15:00"); // hotel-style default
   const [rangeEnd, setRangeEnd] = useState("");
-  const [rangeEndTime, setRangeEndTime] = useState("11:00");
+  // Start day (check-in): open at check-in time, close at end of day
+  const [startDayOpen, setStartDayOpen] = useState("15:00");
+  const [startDayClose, setStartDayClose] = useState("23:59");
+  // Middle days
+  const [middleDaysClosed, setMiddleDaysClosed] = useState(true);
+  const [middleDaysOpen, setMiddleDaysOpen] = useState("00:00");
+  const [middleDaysClose, setMiddleDaysClose] = useState("23:59");
+  // End day (check-out): open at start of day, close at check-out time
+  const [endDayOpen, setEndDayOpen] = useState("00:00");
+  const [endDayClose, setEndDayClose] = useState("11:00");
 
   // interval
   const [intervalValue, setIntervalValue] = useState<number>(1);
@@ -134,6 +145,7 @@ export default function ExceptionModal({
 
   function resetForm() {
     setRuleType("single_date");
+    setEventType("store_hours_schedule");
     setName("");
     setSingleDate("");
     setFixedMonth("");
@@ -143,9 +155,14 @@ export default function ExceptionModal({
     setNthMonth("");
     setWeeklyDays([]);
     setRangeStart("");
-    setRangeStartTime("15:00");
     setRangeEnd("");
-    setRangeEndTime("11:00");
+    setStartDayOpen("15:00");
+    setStartDayClose("23:59");
+    setMiddleDaysClosed(true);
+    setMiddleDaysOpen("00:00");
+    setMiddleDaysClose("23:59");
+    setEndDayOpen("00:00");
+    setEndDayClose("11:00");
     setIntervalValue(1);
     setIntervalUnit("weeks");
     setIntervalStartDate("");
@@ -202,13 +219,11 @@ export default function ExceptionModal({
         return { type: "weekly_days", days: weeklyDays };
 
       case "date_range_daily":
-        if (!rangeStart || !rangeEnd || !rangeStartTime || !rangeEndTime) return null;
+        if (!rangeStart || !rangeEnd) return null;
         return {
           type: "date_range_daily",
           start_date: rangeStart,
-          start_time: rangeStartTime,
           end_date: rangeEnd,
-          end_time: rangeEndTime,
         };
 
       case "interval":
@@ -256,17 +271,52 @@ export default function ExceptionModal({
     setError(null);
 
     try {
-      const recurrence_rule = buildRule();
+      // Determine effective dates based on rule type
+      let effective_from_date: string;
+      let effective_to_date: string | null;
 
-      const payload = {
+      switch (ruleType) {
+        case "single_date":
+          effective_from_date = singleDate;
+          effective_to_date = singleDate; // same date for single
+          break;
+        case "date_range_daily":
+          effective_from_date = rangeStart;
+          effective_to_date = rangeEnd;
+          break;
+        default:
+          effective_from_date = todayYYYYMMDD();
+          effective_to_date = null; // indefinite
+      }
+
+      // Build payload based on rule type
+      console.log("Submitting with eventType:", eventType); // DEBUG
+      const payload: Record<string, any> = {
         site_id: siteId,
         name: name.trim(),
-        is_closed: hoursType === "closed",
-        open_time: hoursType === "special" ? openTime : null,
-        close_time: hoursType === "special" ? closeTime : null,
-        effective_from_date: ruleType === "single_date" ? singleDate : todayYYYYMMDD(),
-        recurrence_rule,
+        event_type: eventType,
+        effective_from_date,
+        effective_to_date,
+        rule_type: ruleType,
       };
+
+      // Add hours based on rule type
+      if (ruleType === "date_range_daily") {
+        // Three time slots for hotel-style scheduling
+        payload.start_day_open = startDayOpen;
+        // For hotel_occupancy, force end of day / start of day
+        payload.start_day_close = eventType === "hotel_occupancy" ? "23:59" : startDayClose;
+        payload.middle_days_closed = middleDaysClosed;
+        payload.middle_days_open = middleDaysClosed ? null : middleDaysOpen;
+        payload.middle_days_close = middleDaysClosed ? null : middleDaysClose;
+        payload.end_day_open = eventType === "hotel_occupancy" ? "00:00" : endDayOpen;
+        payload.end_day_close = endDayClose;
+      } else {
+        // Standard hours for other rule types
+        payload.is_closed = hoursType === "closed";
+        payload.open_time = hoursType === "special" ? openTime : null;
+        payload.close_time = hoursType === "special" ? closeTime : null;
+      }
 
       const res = await fetch("/api/store-hours/rules", {
         method: "POST",
@@ -319,6 +369,20 @@ export default function ExceptionModal({
           </div>
         )}
 
+        {/* Event Type */}
+        <div className="mb-5">
+          <label className="font-semibold block mb-2">Event Type</label>
+          <select
+            className="border rounded px-3 py-2 w-full"
+            value={eventType}
+            onChange={(e) => setEventType(e.target.value as EventType)}
+          >
+            <option value="store_hours_schedule">Store Hours</option>
+            <option value="planned_maintenance">Planned Maintenance</option>
+            <option value="hotel_occupancy">Hotel Occupancy</option>
+          </select>
+        </div>
+
         {/* Event Name */}
         <div className="mb-5">
           <label className="font-semibold block mb-2">Event Name</label>
@@ -347,9 +411,23 @@ export default function ExceptionModal({
           </select>
         </div>
 
+        {/* Single Date */}
+        {ruleType === "single_date" && (
+          <div className="mb-5">
+            <label className="font-semibold block mb-2">Date</label>
+            <input
+              type="date"
+              className="border rounded px-3 py-2 w-full"
+              value={singleDate}
+              onChange={(e) => setSingleDate(e.target.value)}
+            />
+          </div>
+        )}
+
         {/* Date Range Daily */}
         {ruleType === "date_range_daily" && (
-          <div className="mb-5 space-y-3">
+          <div className="mb-5 space-y-4">
+            {/* Date Range */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="font-semibold block mb-2">Start Date</label>
@@ -361,18 +439,6 @@ export default function ExceptionModal({
                 />
               </div>
               <div>
-                <label className="font-semibold block mb-2">Start Time</label>
-                <input
-                  type="time"
-                  className="border rounded px-3 py-2 w-full"
-                  value={rangeStartTime}
-                  onChange={(e) => setRangeStartTime(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
                 <label className="font-semibold block mb-2">End Date</label>
                 <input
                   type="date"
@@ -381,19 +447,112 @@ export default function ExceptionModal({
                   onChange={(e) => setRangeEnd(e.target.value)}
                 />
               </div>
-              <div>
-                <label className="font-semibold block mb-2">End Time</label>
+            </div>
+
+            {/* Start Day (Check-in) Hours */}
+            <div className="border rounded p-3 bg-blue-50">
+              <label className="font-semibold block mb-2 text-blue-800">
+                {eventType === "hotel_occupancy" ? "Check-in Time" : "Start Day Hours"}
+              </label>
+              <div className={eventType === "hotel_occupancy" ? "" : "grid grid-cols-2 gap-3"}>
+                <div>
+                  <label className="text-sm text-gray-600 block mb-1">
+                    {eventType === "hotel_occupancy" ? "Check-in" : "Open"}
+                  </label>
+                  <input
+                    type="time"
+                    className="border rounded px-3 py-2 w-full"
+                    value={startDayOpen}
+                    onChange={(e) => setStartDayOpen(e.target.value)}
+                  />
+                </div>
+                {eventType !== "hotel_occupancy" && (
+                  <div>
+                    <label className="text-sm text-gray-600 block mb-1">Close</label>
+                    <input
+                      type="time"
+                      className="border rounded px-3 py-2 w-full"
+                      value={startDayClose}
+                      onChange={(e) => setStartDayClose(e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+              {eventType === "hotel_occupancy" && (
+                <p className="text-xs text-gray-500 mt-2">Closes at end of day (11:59 PM)</p>
+              )}
+            </div>
+
+            {/* Middle Days Hours */}
+            <div className="border rounded p-3 bg-gray-50">
+              <label className="font-semibold block mb-2 text-gray-800">Middle Days Hours</label>
+              <label className="flex items-center gap-2 mb-2">
                 <input
-                  type="time"
-                  className="border rounded px-3 py-2 w-full"
-                  value={rangeEndTime}
-                  onChange={(e) => setRangeEndTime(e.target.value)}
+                  type="checkbox"
+                  checked={middleDaysClosed}
+                  onChange={(e) => setMiddleDaysClosed(e.target.checked)}
                 />
+                Closed all day
+              </label>
+              {!middleDaysClosed && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm text-gray-600 block mb-1">Open</label>
+                    <input
+                      type="time"
+                      className="border rounded px-3 py-2 w-full"
+                      value={middleDaysOpen}
+                      onChange={(e) => setMiddleDaysOpen(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm text-gray-600 block mb-1">Close</label>
+                    <input
+                      type="time"
+                      className="border rounded px-3 py-2 w-full"
+                      value={middleDaysClose}
+                      onChange={(e) => setMiddleDaysClose(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* End Day (Check-out) Hours */}
+            <div className="border rounded p-3 bg-green-50">
+              <label className="font-semibold block mb-2 text-green-800">
+                {eventType === "hotel_occupancy" ? "Check-out Time" : "End Day Hours"}
+              </label>
+              {eventType === "hotel_occupancy" && (
+                <p className="text-xs text-gray-500 mb-2">Opens at start of day (12:00 AM)</p>
+              )}
+              <div className={eventType === "hotel_occupancy" ? "" : "grid grid-cols-2 gap-3"}>
+                {eventType !== "hotel_occupancy" && (
+                  <div>
+                    <label className="text-sm text-gray-600 block mb-1">Open</label>
+                    <input
+                      type="time"
+                      className="border rounded px-3 py-2 w-full"
+                      value={endDayOpen}
+                      onChange={(e) => setEndDayOpen(e.target.value)}
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="text-sm text-gray-600 block mb-1">
+                    {eventType === "hotel_occupancy" ? "Check-out" : "Close"}</label>
+                  <input
+                    type="time"
+                    className="border rounded px-3 py-2 w-full"
+                    value={endDayClose}
+                    onChange={(e) => setEndDayClose(e.target.value)}
+                  />
+                </div>
               </div>
             </div>
 
             <p className="text-xs text-gray-500">
-              Example: Hotel closure from check-in (3:00 PM) to checkout (11:00 AM)
+              Example: Hotel closure - check-in day (3 PM - 11 PM), middle days closed, check-out day (6 AM - 11 AM)
             </p>
           </div>
         )}

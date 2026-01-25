@@ -26,7 +26,7 @@ interface EditEquipmentFormProps {
     equipment_name: string;
     description: string | null;
     equipment_group: string | null;
-    equipment_type: string | null;
+    equipment_type_id: string | null;
     space_name: string | null;
     manufacturer: string | null;
     model: string | null;
@@ -54,7 +54,7 @@ export default function EditEquipmentForm({
     equipment_name: equipment.equipment_name ?? "",
     description: equipment.description ?? "",
     equipment_group: equipment.equipment_group ?? "",
-    equipment_type: equipment.equipment_type ?? "",
+    equipment_type_id: equipment.equipment_type_id ?? "",
     space_name: equipment.space_name ?? "",
     manufacturer: equipment.manufacturer ?? "",
     model: equipment.model ?? "",
@@ -81,7 +81,7 @@ export default function EditEquipmentForm({
       equipment_name: form.equipment_name.trim(),
       description: form.description.trim() || null,
       equipment_group: form.equipment_group.trim() || null,
-      equipment_type: form.equipment_type.trim() || null,
+      equipment_type_id: form.equipment_type_id.trim() || null,
       space_name: form.space_name.trim() || null,
       manufacturer: form.manufacturer.trim() || null,
       model: form.model.trim() || null,
@@ -188,9 +188,9 @@ export default function EditEquipmentForm({
             <div>
               <Label>Type</Label>
               <Input
-                value={form.equipment_type}
+                value={form.equipment_type_id}
                 onChange={(e) =>
-                  handleChange("equipment_type", e.target.value)
+                  handleChange("equipment_type_id", e.target.value)
                 }
               />
             </div>

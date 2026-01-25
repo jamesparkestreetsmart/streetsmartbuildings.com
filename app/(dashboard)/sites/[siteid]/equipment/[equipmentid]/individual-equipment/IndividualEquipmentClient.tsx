@@ -63,7 +63,7 @@ export default function IndividualEquipmentClient(props: any) {
           <div>
             <h1 className="text-2xl font-bold">{equipment.equipment_name}</h1>
             <p className="text-sm opacity-90">
-              {equipment.equipment_group} • {equipment.equipment_type}
+              {equipment.equipment_group} • {equipment.equipment_type_id}
             </p>
           </div>
 
@@ -92,7 +92,7 @@ export default function IndividualEquipmentClient(props: any) {
           <div className="space-y-2">
             <h2 className="text-lg font-semibold">Equipment Details</h2>
             <p><strong>Group:</strong> {equipment.equipment_group || "—"}</p>
-            <p><strong>Type:</strong> {equipment.equipment_type || "—"}</p>
+            <p><strong>Type:</strong> {equipment.equipment_type_id || "—"}</p>
             <p><strong>Space:</strong> {equipment.space_name || "—"}</p>
             {equipment.description && (
               <p className="text-sm text-gray-700">
