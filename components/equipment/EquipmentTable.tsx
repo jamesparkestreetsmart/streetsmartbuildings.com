@@ -11,7 +11,6 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import AddEquipmentButton from "@/components/equipment/AddEquipmentButton";
 
 interface EquipmentRow {
   equipment_id: string;
@@ -118,12 +117,9 @@ export default function EquipmentCheckupTable({ siteId }: Props) {
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold">Equipment Checkup</h2>
 
-        <div className="flex gap-2">
-          <AddEquipmentButton siteId={siteId} />
-          <Button variant="outline" onClick={exportCSV}>
-            <Download className="mr-2 h-4 w-4" /> Export CSV
-          </Button>
-        </div>
+        <Button variant="outline" onClick={exportCSV}>
+          <Download className="mr-2 h-4 w-4" /> Export CSV
+        </Button>
       </div>
 
       <table className="w-full text-sm">

@@ -1,8 +1,17 @@
+//app/(dashboard)/sites/page.tsx
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 interface Site {
   site_id: string;
@@ -19,6 +28,7 @@ interface Site {
 
 interface SiteFormData {
   name: string;
+  industry_id: string;
   brand: string;
   customer_identifier: string;
   address_line1: string;
@@ -29,7 +39,18 @@ interface SiteFormData {
   country: string;
   site_email: string;
   phone_number: string;
-  total_area_sqft: string; // keep as string in UI, cast before insert
+  total_area_sqft: string;
+}
+
+interface Industry {
+  industry_id: string;
+  name: string;
+}
+
+interface Brand {
+  brand_id: string;
+  industry_id: string;
+  name: string;
 }
 
 // Helper type for cleaning form payloads (no `any`)
@@ -43,8 +64,17 @@ export default function SitesPage() {
   const [sortColumn, setSortColumn] = useState<keyof Site>("site_name");
   const [sortAsc, setSortAsc] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  
+  // Industry & Brand data
+  const [industries, setIndustries] = useState<Industry[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [filteredBrands, setFilteredBrands] = useState<Brand[]>([]);
+  const [loadingIndustries, setLoadingIndustries] = useState(true);
+  const [loadingBrands, setLoadingBrands] = useState(true);
+
   const [formData, setFormData] = useState<SiteFormData>({
     name: "",
+    industry_id: "",
     brand: "",
     customer_identifier: "",
     address_line1: "",
@@ -88,12 +118,61 @@ export default function SitesPage() {
     }
   };
 
+  // ===== Fetch Industries =====
+  const fetchIndustries = async () => {
+    const { data, error } = await supabase
+      .from("library_industries")
+      .select("industry_id, name")
+      .order("name");
+
+    if (error) {
+      console.error("Error fetching industries:", error);
+    } else {
+      setIndustries(data || []);
+    }
+    setLoadingIndustries(false);
+  };
+
+  // ===== Fetch Brands =====
+  const fetchBrands = async () => {
+    const { data, error } = await supabase
+      .from("library_brands")
+      .select("brand_id, industry_id, name")
+      .order("name");
+
+    if (error) {
+      console.error("Error fetching brands:", error);
+    } else {
+      setBrands(data || []);
+    }
+    setLoadingBrands(false);
+  };
+
   // Load once on page mount
   useEffect(() => {
-    (async () => {
-      await fetchSites();
-    })();
+    fetchSites();
+    fetchIndustries();
+    fetchBrands();
   }, []);
+
+  // Filter brands when industry changes
+  useEffect(() => {
+    if (formData.industry_id) {
+      const filtered = brands.filter(b => b.industry_id === formData.industry_id);
+      setFilteredBrands(filtered);
+    } else {
+      setFilteredBrands([]);
+    }
+  }, [formData.industry_id, brands]);
+
+  // Handle industry change - clear brand when industry changes
+  const handleIndustryChange = (industryId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      industry_id: industryId,
+      brand: "", // Clear brand when industry changes
+    }));
+  };
 
   // ===== Sorting Logic =====
   const handleSort = (col: keyof Site) => {
@@ -171,7 +250,24 @@ export default function SitesPage() {
     link.click();
   };
 
-  console.log("Modal state:", showModal);
+  // Reset form
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      industry_id: "",
+      brand: "",
+      customer_identifier: "",
+      address_line1: "",
+      address_line2: "",
+      city: "",
+      state: "",
+      postal_code: "",
+      country: "",
+      site_email: "",
+      phone_number: "",
+      total_area_sqft: "",
+    });
+  };
 
   return (
     <div className="p-6">
@@ -313,15 +409,37 @@ export default function SitesPage() {
       {/* ===== Add Site Modal ===== */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[200]">
-          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md relative">
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md relative max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">Add New Site</h2>
 
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
 
+                // Validation
+                if (!formData.industry_id) {
+                  alert("Please select an industry");
+                  return;
+                }
+                if (!formData.brand) {
+                  alert("Please select a brand");
+                  return;
+                }
+
                 const base: Cleanable = {
-                  ...formData,
+                  name: formData.name,
+                  industry_id: formData.industry_id,
+                  brand: formData.brand,
+                  customer_identifier: formData.customer_identifier,
+                  address_line1: formData.address_line1,
+                  address_line2: formData.address_line2,
+                  city: formData.city,
+                  state: formData.state,
+                  postal_code: formData.postal_code,
+                  country: formData.country,
+                  site_email: formData.site_email,
+                  phone_number: formData.phone_number,
+                  total_area_sqft: formData.total_area_sqft,
                   timezone: "America/Chicago",
                   org_id: "75d9a833-0359-4042-b760-4e5d587798e6",
                 };
@@ -339,172 +457,272 @@ export default function SitesPage() {
 
                 if (error) {
                   console.error("Error adding site:", error);
-                  alert("❌ Failed to add site.");
+                  alert("❌ Failed to add site: " + error.message);
                 } else {
                   alert("✅ Site added successfully!");
                   setShowModal(false);
-                  setFormData({
-                    name: "",
-                    brand: "",
-                    customer_identifier: "",
-                    address_line1: "",
-                    address_line2: "",
-                    city: "",
-                    state: "",
-                    postal_code: "",
-                    country: "",
-                    site_email: "",
-                    phone_number: "",
-                    total_area_sqft: "",
-                  });
+                  resetForm();
                   fetchSites();
                 }
               }}
               className="space-y-3"
             >
-              <input
-                name="name"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                placeholder="Site Name"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-                required
-              />
-              <input
-                name="brand"
-                value={formData.brand}
-                onChange={(e) =>
-                  setFormData({ ...formData, brand: e.target.value })
-                }
-                placeholder="Brand (optional)"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-              />
-              <input
-                name="customer_identifier"
-                value={formData.customer_identifier}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    customer_identifier: e.target.value,
-                  })
-                }
-                placeholder="Customer Identifier (optional)"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-              />
-              <input
-                name="address_line1"
-                value={formData.address_line1}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    address_line1: e.target.value,
-                  })
-                }
-                placeholder="Address Line 1"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-                required
-              />
-              <input
-                name="address_line2"
-                value={formData.address_line2}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    address_line2: e.target.value,
-                  })
-                }
-                placeholder="Address Line 2 (optional)"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-              />
-              <div className="flex gap-2">
+              {/* Site Name */}
+              <div>
+                <Label className="text-sm font-medium">Site Name *</Label>
                 <input
-                  name="city"
-                  value={formData.city}
+                  name="name"
+                  value={formData.name}
                   onChange={(e) =>
-                    setFormData({ ...formData, city: e.target.value })
+                    setFormData({ ...formData, name: e.target.value })
                   }
-                  placeholder="City"
-                  className="flex-1 border rounded-md px-3 py-2 text-sm"
+                  placeholder="e.g., Wendy's #24 - Oneida"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  required
                 />
+              </div>
+
+              {/* Industry Dropdown */}
+              <div>
+                <Label className="text-sm font-medium">Industry *</Label>
+                {loadingIndustries ? (
+                  <div className="w-full border rounded-md px-3 py-2 text-sm text-gray-500">
+                    Loading...
+                  </div>
+                ) : (
+                  <Select
+                    value={formData.industry_id}
+                    onValueChange={handleIndustryChange}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue placeholder="Select industry" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px] overflow-y-auto bg-white border-2 border-gray-300 shadow-xl z-[250]">
+                      {industries.map((ind) => (
+                        <SelectItem
+                          key={ind.industry_id}
+                          value={ind.industry_id}
+                          className="bg-white hover:bg-blue-50 cursor-pointer"
+                        >
+                          {ind.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {/* Brand Dropdown (filtered by industry) */}
+              <div>
+                <Label className="text-sm font-medium">Brand *</Label>
+                {loadingBrands ? (
+                  <div className="w-full border rounded-md px-3 py-2 text-sm text-gray-500">
+                    Loading...
+                  </div>
+                ) : !formData.industry_id ? (
+                  <div className="w-full border rounded-md px-3 py-2 text-sm text-gray-400 bg-gray-50">
+                    Select industry first
+                  </div>
+                ) : (
+                  <Select
+                    value={formData.brand}
+                    onValueChange={(val) =>
+                      setFormData({ ...formData, brand: val })
+                    }
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue placeholder="Select brand" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px] overflow-y-auto bg-white border-2 border-gray-300 shadow-xl z-[250]">
+                      {filteredBrands.map((brand) => (
+                        <SelectItem
+                          key={brand.brand_id}
+                          value={brand.name}
+                          className="bg-white hover:bg-blue-50 cursor-pointer"
+                        >
+                          {brand.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
+              {/* Customer Identifier */}
+              <div>
+                <Label className="text-sm font-medium">Customer Identifier (optional)</Label>
                 <input
-                  name="state"
-                  value={formData.state}
-                  onChange={(e) =>
-                    setFormData({ ...formData, state: e.target.value })
-                  }
-                  placeholder="State"
-                  className="w-24 border rounded-md px-3 py-2 text-sm"
-                />
-                <input
-                  name="postal_code"
-                  value={formData.postal_code}
+                  name="customer_identifier"
+                  value={formData.customer_identifier}
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      postal_code: e.target.value,
+                      customer_identifier: e.target.value,
                     })
                   }
-                  placeholder="ZIP"
-                  className="w-28 border rounded-md px-3 py-2 text-sm"
+                  placeholder="e.g., Store #24"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
                 />
               </div>
-              <input
-                name="country"
-                value={formData.country}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    country: e.target.value,
-                  })
-                }
-                placeholder="Country (optional)"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-              />
-              <input
-                name="site_email"
-                type="email"
-                value={formData.site_email}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    site_email: e.target.value,
-                  })
-                }
-                placeholder="Site Email (optional)"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-              />
-              <input
-                name="phone_number"
-                value={formData.phone_number}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    phone_number: e.target.value,
-                  })
-                }
-                placeholder="Phone Number"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-              />
-              <input
-                name="total_area_sqft"
-                type="number"
-                value={formData.total_area_sqft}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    total_area_sqft: e.target.value,
-                  })
-                }
-                placeholder="Total Area (sqft)"
-                className="w-full border rounded-md px-3 py-2 text-sm"
-              />
+
+              {/* Address Line 1 */}
+              <div>
+                <Label className="text-sm font-medium">Address Line 1 *</Label>
+                <input
+                  name="address_line1"
+                  value={formData.address_line1}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      address_line1: e.target.value,
+                    })
+                  }
+                  placeholder="Street address"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  required
+                />
+              </div>
+
+              {/* Address Line 2 */}
+              <div>
+                <Label className="text-sm font-medium">Address Line 2 (optional)</Label>
+                <input
+                  name="address_line2"
+                  value={formData.address_line2}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      address_line2: e.target.value,
+                    })
+                  }
+                  placeholder="Suite, unit, building, floor, etc."
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* City / State / ZIP */}
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Label className="text-sm font-medium">City *</Label>
+                  <input
+                    name="city"
+                    value={formData.city}
+                    onChange={(e) =>
+                      setFormData({ ...formData, city: e.target.value })
+                    }
+                    placeholder="City"
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    required
+                  />
+                </div>
+                <div className="w-20">
+                  <Label className="text-sm font-medium">State *</Label>
+                  <input
+                    name="state"
+                    value={formData.state}
+                    onChange={(e) =>
+                      setFormData({ ...formData, state: e.target.value })
+                    }
+                    placeholder="TN"
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    required
+                  />
+                </div>
+                <div className="w-24">
+                  <Label className="text-sm font-medium">ZIP *</Label>
+                  <input
+                    name="postal_code"
+                    value={formData.postal_code}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        postal_code: e.target.value,
+                      })
+                    }
+                    placeholder="37207"
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Country */}
+              <div>
+                <Label className="text-sm font-medium">Country (optional)</Label>
+                <input
+                  name="country"
+                  value={formData.country}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      country: e.target.value,
+                    })
+                  }
+                  placeholder="USA"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Site Email */}
+              <div>
+                <Label className="text-sm font-medium">Site Email (optional)</Label>
+                <input
+                  name="site_email"
+                  type="email"
+                  value={formData.site_email}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      site_email: e.target.value,
+                    })
+                  }
+                  placeholder="manager@site.com"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Phone Number */}
+              <div>
+                <Label className="text-sm font-medium">Phone Number (optional)</Label>
+                <input
+                  name="phone_number"
+                  value={formData.phone_number}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      phone_number: e.target.value,
+                    })
+                  }
+                  placeholder="615-555-1234"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+
+              {/* Total Area */}
+              <div>
+                <Label className="text-sm font-medium">Total Area (sqft) (optional)</Label>
+                <input
+                  name="total_area_sqft"
+                  type="number"
+                  value={formData.total_area_sqft}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      total_area_sqft: e.target.value,
+                    })
+                  }
+                  placeholder="2500"
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
 
               <div className="flex justify-end gap-3 mt-4">
                 <Button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={() => {
+                    setShowModal(false);
+                    resetForm();
+                  }}
                   className="bg-gray-200 text-gray-800"
                 >
                   Cancel

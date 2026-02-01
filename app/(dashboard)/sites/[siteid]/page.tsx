@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import TabClientWrapper from "./tab-client-wrapper";
+import AddEquipmentButton from "@/components/equipment/AddEquipmentButton";
 
 export const dynamic = "force-dynamic";
 
@@ -134,6 +135,8 @@ export default async function SitePage(props: any) {
             >
               Sync Devices & Gateways
             </Link>
+
+            <AddEquipmentButton siteId={id} />
           </div>
         </div>
 

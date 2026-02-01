@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
     equipment_id?: string | null;
     device_id?: string | null;
     note?: string;
+    event_date?: string;
   };
 
   try {
@@ -26,6 +27,7 @@ export async function POST(req: NextRequest) {
     equipment_id = null,
     device_id = null,
     note,
+    event_date,
   } = body;
 
   if (!note || !note.trim()) {
@@ -49,7 +51,7 @@ export async function POST(req: NextRequest) {
     }
   );
 
-  const { error } = await supabase.from("b_records_log").insert({
+  const insertData = {
     org_id,
     site_id,
     equipment_id,
@@ -61,7 +63,12 @@ export async function POST(req: NextRequest) {
       note: note.trim(),
     },
     created_by: "ui",
-  });
+    event_date: event_date || new Date().toISOString().split("T")[0],
+  };
+
+  console.log("Inserting record note:", insertData);
+
+  const { error } = await supabase.from("b_records_log").insert(insertData);
 
   if (error) {
     console.error("Add record note error:", error);
@@ -70,6 +77,8 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+
+  console.log("Record note inserted successfully");
 
   return NextResponse.json({ success: true });
 }

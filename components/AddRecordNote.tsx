@@ -9,6 +9,7 @@ export default function AddRecordNote({ orgId, siteId, equipmentId }: {
 }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [eventDate, setEventDate] = useState(new Date().toISOString().split("T")[0]);
   const [loading, setLoading] = useState(false);
 
   const submitNote = async () => {
@@ -16,7 +17,7 @@ export default function AddRecordNote({ orgId, siteId, equipmentId }: {
 
     setLoading(true);
 
-    await fetch("/api/records/add-note", {
+    const response = await fetch("/api/records/add-note", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -25,8 +26,17 @@ export default function AddRecordNote({ orgId, siteId, equipmentId }: {
         equipment_id: equipmentId,
         device_id: null,
         note,
+        event_date: eventDate,
       }),
     });
+
+    const result = await response.json();
+    console.log("Add note response:", { response: response.status, result });
+
+    if (!response.ok) {
+      console.error("Failed to add note:", result);
+      alert("Failed to save note: " + (result.error || "Unknown error"));
+    }
 
     setLoading(false);
     setNote("");
@@ -54,6 +64,16 @@ export default function AddRecordNote({ orgId, siteId, equipmentId }: {
             className="w-full border rounded p-2 text-sm"
             rows={3}
           />
+
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">Date:</label>
+            <input
+              type="date"
+              value={eventDate}
+              onChange={(e) => setEventDate(e.target.value)}
+              className="border rounded p-1 text-sm"
+            />
+          </div>
 
           <div className="flex gap-2">
             <button

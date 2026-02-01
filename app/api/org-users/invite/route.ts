@@ -92,7 +92,7 @@ export async function POST(req: Request) {
       // Check if membership already exists
       const { data: existingMembership, error: membershipError } =
         await supabase
-          .from("library_users_org_memberships")
+          .from("library_users_orgs_memberships")
           .select("*")
           .eq("user_id", userId)
           .eq("org_id", orgId)
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
       const permissions = existingUser.permissions ?? "viewer";
 
       const { error: insertMembershipError } = await supabase
-        .from("library_users_org_memberships")
+        .from("library_users_orgs_memberships")
         .insert({
           user_id: userId,
           org_id: orgId,

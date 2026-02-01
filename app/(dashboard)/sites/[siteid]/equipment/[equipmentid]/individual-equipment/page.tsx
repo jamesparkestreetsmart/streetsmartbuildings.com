@@ -167,11 +167,12 @@ export default async function IndividualEquipmentPage({
     }
   }
 
-  /* ---------- ACTIVITY ---------- */
+  /* ---------- RECORDS LOG ---------- */
   const { data: records } = await supabase
     .from("b_records_log")
     .select("*")
     .eq("equipment_id", equipmentid)
+    .order("event_date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(15);
 

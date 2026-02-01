@@ -141,9 +141,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) Insert into library_users_org_memberships
+    // 4) Insert into library_users_orgs_memberships
     const { error: membershipError } = await supabase
-      .from("library_users_org_memberships")
+      .from("library_users_orgs_memberships")
       .insert({
         user_id: authUserId,
         org_id: orgId,

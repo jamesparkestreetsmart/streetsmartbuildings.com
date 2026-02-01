@@ -3,7 +3,38 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+interface EquipmentType {
+  equipment_type_id: string;
+  name: string;
+  equipment_group: string;
+  description: string | null;
+}
+
+interface EquipmentModel {
+  model_id: string;
+  manufacturer: string;
+  model: string;
+  equipment_type_id: string;
+  voltage: string | null;
+  tonnage: number | null;
+  btuh: number | null;
+}
+
+interface Space {
+  space_id: string;
+  name: string;
+  space_type: string;
+}
 
 export default function AddEquipmentButton({ siteId }: { siteId: string }) {
   const [open, setOpen] = useState(false);
@@ -12,8 +43,8 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
   // Form fields
   const [equipmentName, setEquipmentName] = useState("");
   const [group, setGroup] = useState("");
-  const [type, setType] = useState("");
-  const [space, setSpace] = useState("");
+  const [typeId, setTypeId] = useState("");
+  const [spaceId, setSpaceId] = useState("");
   const [description, setDescription] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [model, setModel] = useState("");
@@ -27,8 +58,13 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
   // Auto-load org_id from site
   const [orgId, setOrgId] = useState<string | null>(null);
 
-  // Equipment types from library
-  const [equipmentTypes, setEquipmentTypes] = useState<string[]>([]);
+  // Data from library/site
+  const [equipmentTypes, setEquipmentTypes] = useState<EquipmentType[]>([]);
+  const [equipmentModels, setEquipmentModels] = useState<EquipmentModel[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [loadingTypes, setLoadingTypes] = useState(true);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [loadingSpaces, setLoadingSpaces] = useState(true);
 
   useEffect(() => {
     const fetchOrg = async () => {
@@ -44,28 +80,92 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
     const fetchEquipmentTypes = async () => {
       const { data, error } = await supabase
         .from("library_equipment_types")
-        .select("equipment_type_id")
-        .order("equipment_type_id");
+        .select("equipment_type_id, name, equipment_group, description")
+        .order("equipment_group")
+        .order("name");
 
       if (error) {
         console.error("Error fetching equipment types:", error);
-        return;
+      } else {
+        setEquipmentTypes(data || []);
       }
+      setLoadingTypes(false);
+    };
 
-      if (data) {
-        setEquipmentTypes(data.map((row) => row.equipment_type_id));
+    const fetchSpaces = async () => {
+      const { data, error } = await supabase
+        .from("a_spaces")
+        .select("space_id, name, space_type")
+        .eq("site_id", siteId)
+        .order("name");
+
+      if (error) {
+        console.error("Error fetching spaces:", error);
+      } else {
+        setSpaces(data || []);
       }
+      setLoadingSpaces(false);
     };
 
     fetchOrg();
     fetchEquipmentTypes();
+    fetchSpaces();
   }, [siteId]);
+
+  // Fetch models when equipment type changes
+  async function fetchModelsForType(equipmentTypeId: string) {
+    if (!equipmentTypeId) {
+      setEquipmentModels([]);
+      return;
+    }
+
+    setLoadingModels(true);
+    const { data, error } = await supabase
+      .from("library_equipment_models")
+      .select("model_id, manufacturer, model, equipment_type_id, voltage, tonnage, btuh")
+      .eq("equipment_type_id", equipmentTypeId)
+      .order("manufacturer")
+      .order("model");
+
+    if (error) {
+      console.error("Error fetching models:", error);
+    } else {
+      setEquipmentModels(data || []);
+    }
+    setLoadingModels(false);
+  }
+
+  // Handle type selection - auto-populate group
+  function handleTypeChange(selectedTypeId: string) {
+    const selectedType = equipmentTypes.find(t => t.equipment_type_id === selectedTypeId);
+    setTypeId(selectedTypeId);
+    setGroup(selectedType?.equipment_group || "");
+    
+    // Clear model-related fields when type changes
+    setManufacturer("");
+    setModel("");
+    setVoltage("");
+    
+    // Fetch models for this type
+    fetchModelsForType(selectedTypeId);
+  }
+
+  // Handle model selection - auto-fill specs
+  function handleModelChange(modelId: string) {
+    const selectedModel = equipmentModels.find(m => m.model_id === modelId);
+    
+    if (selectedModel) {
+      setManufacturer(selectedModel.manufacturer);
+      setModel(selectedModel.model);
+      setVoltage(selectedModel.voltage || "");
+    }
+  }
 
   const resetForm = () => {
     setEquipmentName("");
     setGroup("");
-    setType("");
-    setSpace("");
+    setTypeId("");
+    setSpaceId("");
     setDescription("");
     setManufacturer("");
     setModel("");
@@ -75,6 +175,7 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
     setVoltage("");
     setAmperage("");
     setMaintenanceIntervalDays("");
+    setEquipmentModels([]);
   };
 
   const handleSave = async () => {
@@ -85,7 +186,7 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
 
     setLoading(true);
 
-    // 1️⃣ Duplicate check before insert
+    // Duplicate check before insert
     const { data: existing, error: checkErr } = await supabase
       .from("a_equipments")
       .select("equipment_id")
@@ -107,42 +208,51 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
       return;
     }
 
-    // 2️⃣ Perform insert
+    // Perform insert
     const { error } = await supabase.from("a_equipments").insert({
       site_id: siteId,
       org_id: orgId,
       equipment_name: equipmentName.trim(),
       equipment_group: group || null,
-      equipment_type_id: type || null,
-      space_name: space || null,
+      equipment_type_id: typeId || null,
+      space_id: spaceId || null,
       description: description || null,
       manufacturer: manufacturer || null,
       model: model || null,
       serial_number: serialNumber || null,
       manufacture_date: manufactureDate || null,
       install_date: installDate || null,
-      voltage: voltage ? parseInt(voltage) : null,
-      amperage: amperage ? parseInt(amperage) : null,
+      voltage: voltage || null,
+      amperage: amperage || null,
       maintenance_interval_days: maintenanceIntervalDays
         ? parseInt(maintenanceIntervalDays)
         : null,
       status: "inactive",
-      status_updated_at: new Date().toISOString(),
     });
 
     if (error) {
       console.error("Supabase Insert Error:", error);
-      alert("Failed to add equipment.");
+      alert("Failed to add equipment: " + error.message);
       setLoading(false);
       return;
     }
 
-    // 3️⃣ Cleanup
+    // Cleanup
     resetForm();
     setLoading(false);
     setOpen(false);
     window.location.reload();
   };
+
+  // Group equipment types by group
+  const typesByGroup = equipmentTypes.reduce((acc, type) => {
+    const grp = type.equipment_group || "Other";
+    if (!acc[grp]) acc[grp] = [];
+    acc[grp].push(type);
+    return acc;
+  }, {} as Record<string, EquipmentType[]>);
+
+  const sortedGroups = Object.keys(typesByGroup).sort();
 
   return (
     <>
@@ -160,105 +270,218 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 overflow-y-auto max-h-[90vh]">
             <h2 className="text-xl font-semibold mb-4">Add New Equipment</h2>
 
-            <div className="grid grid-cols-2 gap-4">
-              {/* Row 1 */}
-              <Input
-                placeholder="Equipment Name *"
-                value={equipmentName}
-                onChange={(e) => setEquipmentName(e.target.value)}
-              />
-              <Input
-                placeholder="Group (Refrigeration, HVAC, etc.)"
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-              />
-
-              {/* Row 2 */}
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-              >
-                <option value="">Select Equipment Type</option>
-                {equipmentTypes.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-              <Input
-                placeholder="Space (Kitchen, Roof, Storage)"
-                value={space}
-                onChange={(e) => setSpace(e.target.value)}
-              />
-
-              {/* Row 3 */}
-              <Input
-                placeholder="Manufacturer"
-                value={manufacturer}
-                onChange={(e) => setManufacturer(e.target.value)}
-              />
-              <Input
-                placeholder="Model"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              />
-
-              {/* Row 4 */}
-              <Input
-                placeholder="Serial Number"
-                value={serialNumber}
-                onChange={(e) => setSerialNumber(e.target.value)}
-              />
-
-              <div className="flex flex-col">
-                <label className="text-sm font-medium text-gray-700 mb-1">
-                  Manufacture Date
-                </label>
-                <Input
-                  type="date"
-                  value={manufactureDate}
-                  onChange={(e) => setManufactureDate(e.target.value)}
-                />
+            <div className="space-y-4">
+              {/* Row 1: Name + Status placeholder */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Equipment Name *</Label>
+                  <Input
+                    placeholder="e.g., Walk-in Freezer #1"
+                    value={equipmentName}
+                    onChange={(e) => setEquipmentName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Group</Label>
+                  <Input
+                    value={group}
+                    disabled
+                    className="bg-gray-100 cursor-not-allowed"
+                    placeholder="Auto-filled from type"
+                  />
+                </div>
               </div>
 
-              {/* Row 5 */}
-              <div className="flex flex-col">
-                <label className="text-sm font-medium text-gray-700 mb-1">
-                  Install Date
-                </label>
-                <Input
-                  type="date"
-                  value={installDate}
-                  onChange={(e) => setInstallDate(e.target.value)}
-                />
+              {/* Row 2: Type + Space */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Type</Label>
+                  {loadingTypes ? (
+                    <Input value="Loading..." disabled />
+                  ) : (
+                    <Select value={typeId} onValueChange={handleTypeChange}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Select equipment type" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px] overflow-y-auto bg-white border-2 border-gray-300 shadow-xl z-[60]">
+                        {sortedGroups.map((grp) => (
+                          <div key={grp}>
+                            <div className="px-2 py-1.5 text-xs font-semibold text-gray-700 uppercase bg-gray-100 sticky top-0">
+                              {grp}
+                            </div>
+                            {typesByGroup[grp].map((type) => (
+                              <SelectItem
+                                key={type.equipment_type_id}
+                                value={type.equipment_type_id}
+                                className="bg-white hover:bg-blue-50 cursor-pointer"
+                              >
+                                {type.name}
+                              </SelectItem>
+                            ))}
+                          </div>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">Installed Location</Label>
+                  {loadingSpaces ? (
+                    <Input value="Loading..." disabled />
+                  ) : (
+                    <Select value={spaceId} onValueChange={setSpaceId}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Select space" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px] overflow-y-auto bg-white border-2 border-gray-300 shadow-xl z-[60]">
+                        {spaces.map((space) => (
+                          <SelectItem
+                            key={space.space_id}
+                            value={space.space_id}
+                            className={`bg-white hover:bg-blue-50 cursor-pointer ${
+                              space.name === "Unassigned" ? "text-gray-500" : ""
+                            }`}
+                          >
+                            {space.name}
+                            {space.name !== "Unassigned" && (
+                              <span className="text-xs text-gray-500 ml-2">
+                                — {space.space_type}
+                              </span>
+                            )}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
               </div>
 
-              <Input
-                placeholder="Voltage"
-                value={voltage}
-                onChange={(e) => setVoltage(e.target.value)}
-              />
-              <Input
-                placeholder="Amperage"
-                value={amperage}
-                onChange={(e) => setAmperage(e.target.value)}
-              />
+              {/* Model Selection */}
+              <div className="border-t pt-4">
+                <Label className="text-sm font-medium">Select Model (optional - auto-fills specs)</Label>
+                {loadingModels ? (
+                  <p className="text-sm text-gray-500 mt-1">Loading models...</p>
+                ) : equipmentModels.length > 0 ? (
+                  <Select onValueChange={handleModelChange}>
+                    <SelectTrigger className="bg-white mt-1">
+                      <SelectValue placeholder="Select a model to auto-fill specs" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[200px] overflow-y-auto bg-white border-2 border-gray-300 shadow-xl z-[60]">
+                      {equipmentModels.map((m) => (
+                        <SelectItem
+                          key={m.model_id}
+                          value={m.model_id}
+                          className="bg-white hover:bg-blue-50 cursor-pointer"
+                        >
+                          {m.manufacturer} - {m.model}
+                          {m.tonnage && (
+                            <span className="text-xs text-gray-500 ml-1">
+                              ({m.tonnage} ton)
+                            </span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : typeId ? (
+                  <p className="text-sm text-gray-500 mt-1">No models in library for this equipment type</p>
+                ) : (
+                  <p className="text-sm text-gray-500 mt-1">Select equipment type first</p>
+                )}
+              </div>
 
-              {/* Row 6 */}
-              <Input
-                placeholder="Maintenance Interval (Days)"
-                value={maintenanceIntervalDays}
-                onChange={(e) => setMaintenanceIntervalDays(e.target.value)}
-              />
+              {/* Row 3: Manufacturer + Model + Serial */}
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Manufacturer</Label>
+                  <Input
+                    value={manufacturer}
+                    disabled
+                    className="bg-gray-100 cursor-not-allowed"
+                    placeholder="Auto-filled from model"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Model</Label>
+                  <Input
+                    value={model}
+                    disabled
+                    className="bg-gray-100 cursor-not-allowed"
+                    placeholder="Auto-filled from model"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Serial Number</Label>
+                  <Input
+                    placeholder="Unique per unit"
+                    value={serialNumber}
+                    onChange={(e) => setSerialNumber(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Row 4: Dates + Maintenance */}
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Manufacture Date</Label>
+                  <Input
+                    type="date"
+                    value={manufactureDate}
+                    onChange={(e) => setManufactureDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Install Date</Label>
+                  <Input
+                    type="date"
+                    value={installDate}
+                    onChange={(e) => setInstallDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Maintenance Interval (days)</Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g., 90"
+                    value={maintenanceIntervalDays}
+                    onChange={(e) => setMaintenanceIntervalDays(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Row 5: Electrical */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Voltage</Label>
+                  <Input
+                    value={voltage}
+                    disabled
+                    className="bg-gray-100 cursor-not-allowed"
+                    placeholder="Auto-filled from model"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Amperage</Label>
+                  <Input
+                    value={amperage}
+                    disabled
+                    className="bg-gray-100 cursor-not-allowed"
+                    placeholder="Auto-filled from model"
+                  />
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <Label className="text-sm font-medium">Description</Label>
+                <Input
+                  placeholder="Optional notes about this equipment"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
             </div>
-
-            <Input
-              className="mt-4"
-              placeholder="Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
 
             {/* Buttons */}
             <div className="flex justify-end gap-3 mt-6">

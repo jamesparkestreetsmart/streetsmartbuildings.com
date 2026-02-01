@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     // Enforce org membership / permission
     // -------------------------------
     const { data: membership } = await supabase
-      .from("library_users_org_memberships")
+      .from("library_users_orgs_memberships")
       .select("role")
       .eq("user_id", changed_by)
       .eq("org_id", org_id)

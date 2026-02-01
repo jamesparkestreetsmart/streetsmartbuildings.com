@@ -26,16 +26,20 @@ import { ArrowLeft, ArrowUpRight } from "lucide-react";
 interface SyncEntityRow {
   site_id: string;
   entity_id: string;
-  sensor_type: string | null;
+  domain: string | null;
+  device_class: string | null;
   ha_device_id: string | null;
-
   ha_device_display_name: string | null;
   business_device_name: string | null;
-
   device_id: string | null;
   equipment_id: string | null;
   equipment_name: string | null;
-
+  sensor_role: string | null;
+  mapped_entity_id: string | null;
+  space_id: string | null;
+  space_name: string | null;
+  space_weight: number | null;
+  space_label: string | null;
   last_state: string | null;
   unit_of_measurement: string | null;
   last_seen_at: string | null;
@@ -44,24 +48,44 @@ interface SyncEntityRow {
 interface Equipment {
   equipment_id: string;
   equipment_name: string;
+  equipment_type_id: string | null;
   status?: string | null;
   org_id?: string | null;
 }
 
-interface BusinessDevice {
+interface SensorRequirement {
+  equipment_type_id: string;
+  sensor_role: string;
+  sensor_type: string;
+  domain: string | null;
+  device_class: string | null;
+  unit: string | null;
+  required: boolean;
+  description: string | null;
+}
+
+interface Space {
+  space_id: string;
+  name: string;
+  space_type: string;
+}
+
+interface DeviceRecord {
   device_id: string;
+  ha_device_id: string;
   device_name: string;
   equipment_id: string | null;
-  ha_device_id: string | null;
-  status?: string | null;
+  sensor_role: string | null;
+  entity_id: string | null;
+  space_id: string | null;
+  weight: number | null;
+  label: string | null;
 }
 
 interface DeviceGroup {
   ha_device_id: string;
   ha_device_display_name: string;
-  equipment_id: string | null;
-  equipment_name: string | null;
-  business_device_name: string | null;
+  device_record: DeviceRecord | null;
   entities: SyncEntityRow[];
 }
 
@@ -73,7 +97,6 @@ const lastSeenClass = (date: string | null) => {
   if (!date) return "text-red-400";
   const ageMs = Date.now() - new Date(date).getTime();
   const hours = ageMs / 36e5;
-
   if (hours >= 24) return "text-red-400";
   if (hours >= 6) return "text-amber-300";
   return "text-emerald-300";
@@ -92,12 +115,10 @@ const formatRelativeTime = (date: string | null) => {
 
 const formatValue = (value: string | null, unit: string | null) => {
   if (!value) return "—";
-
   const isIso =
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(
       value
     );
-
   if (isIso) {
     const d = new Date(value);
     if (!isNaN(d.getTime())) {
@@ -110,7 +131,6 @@ const formatValue = (value: string | null, unit: string | null) => {
       });
     }
   }
-
   return unit ? `${value} ${unit}` : value;
 };
 
@@ -123,7 +143,9 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
 
   const [rows, setRows] = useState<SyncEntityRow[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
-  const [devices, setDevices] = useState<BusinessDevice[]>([]);
+  const [devices, setDevices] = useState<DeviceRecord[]>([]);
+  const [sensorRequirements, setSensorRequirements] = useState<SensorRequirement[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [editingHaDevice, setEditingHaDevice] = useState<string | null>(null);
@@ -134,16 +156,14 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
    Navigation helpers
   ====================================================== */
 
-  const goToDevice = (deviceId: string) => {
-    router.push(
-      `/settings/devices/${deviceId}?returnTo=/sites/${siteid}/gateways`
-    );
-  };
-
   const goToEquipment = (equipmentId: string) => {
     router.push(
       `/sites/${siteid}/equipment/${equipmentId}/individual-equipment?returnTo=gateways`
     );
+  };
+
+  const goToSpace = (spaceId: string) => {
+    router.push(`/sites/${siteid}/spaces/${spaceId}`);
   };
 
   /* ======================================================
@@ -157,40 +177,68 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
       if (!r.ha_device_id || !r.ha_device_display_name) return;
 
       if (!map.has(r.ha_device_id)) {
+        // Find the device record from a_devices
+        const deviceRecord = devices.find(d => d.ha_device_id === r.ha_device_id);
+
         map.set(r.ha_device_id, {
           ha_device_id: r.ha_device_id,
           ha_device_display_name: r.ha_device_display_name,
-          equipment_id: r.equipment_id ?? null,
-          equipment_name: r.equipment_name ?? null,
-          business_device_name: r.business_device_name ?? null,
+          device_record: deviceRecord || null,
           entities: [],
         });
       }
 
-      map.get(r.ha_device_id)!.entities.push(r);
+      const device = map.get(r.ha_device_id)!;
+
+      // Only add entity if it's not already in the list (deduplicate by entity_id)
+      if (!device.entities.some((e) => e.entity_id === r.entity_id)) {
+        device.entities.push(r);
+      }
     });
 
     return Array.from(map.values());
-  }, [rows]);
+  }, [rows, devices]);
 
   /* ======================================================
-   Group business devices by equipment (A → Z)
+   Group sensor requirements by equipment type
   ====================================================== */
 
-  const devicesByEquipment = useMemo(() => {
-    const map = new Map<string, BusinessDevice[]>();
-
-    devices.forEach((d) => {
-      if (!d.equipment_id) return;
-      if (!map.has(d.equipment_id)) {
-        map.set(d.equipment_id, []);
+  const requirementsByType = useMemo(() => {
+    const map = new Map<string, SensorRequirement[]>();
+    
+    sensorRequirements.forEach((req) => {
+      if (!map.has(req.equipment_type_id)) {
+        map.set(req.equipment_type_id, []);
       }
-      map.get(d.equipment_id)!.push(d);
+      map.get(req.equipment_type_id)!.push(req);
     });
 
-    map.forEach((list) =>
-      list.sort((a, b) => a.device_name.localeCompare(b.device_name))
-    );
+    // Sort each list: required first, then alphabetically
+    map.forEach((list) => {
+      list.sort((a, b) => {
+        if (a.required !== b.required) return a.required ? -1 : 1;
+        return a.sensor_role.localeCompare(b.sensor_role);
+      });
+    });
+
+    return map;
+  }, [sensorRequirements]);
+
+  /* ======================================================
+   Get assigned roles for each equipment
+  ====================================================== */
+
+  const assignedRolesByEquipment = useMemo(() => {
+    const map = new Map<string, Map<string, string>>(); // equipment_id -> (sensor_role -> ha_device_id)
+    
+    devices.forEach((d) => {
+      if (d.equipment_id && d.sensor_role && d.ha_device_id) {
+        if (!map.has(d.equipment_id)) {
+          map.set(d.equipment_id, new Map());
+        }
+        map.get(d.equipment_id)!.set(d.sensor_role, d.ha_device_id);
+      }
+    });
 
     return map;
   }, [devices]);
@@ -203,27 +251,49 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     [equipments]
   );
 
+  const sortedSpaces = useMemo(
+    () =>
+      [...spaces]
+        .filter((s) => s.name !== "Unassigned")
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [spaces]
+  );
+
   /* ======================================================
    Fetch (15-min auto refresh)
   ====================================================== */
 
   const fetchAll = useCallback(async () => {
-    const [{ data: entities }, { data: eqs }, { data: devs }] =
-      await Promise.all([
-        supabase.from("view_entity_sync").select("*").eq("site_id", siteid),
-        supabase
-          .from("a_equipments")
-          .select("equipment_id, equipment_name, status, org_id")
-          .eq("site_id", siteid),
-        supabase
-          .from("a_devices")
-          .select("device_id, device_name, equipment_id, ha_device_id, status")
-          .eq("site_id", siteid),
-      ]);
+    const [
+      { data: entities },
+      { data: eqs },
+      { data: devs },
+      { data: reqs },
+      { data: spcs },
+    ] = await Promise.all([
+      supabase.from("view_entity_sync").select("*").eq("site_id", siteid),
+      supabase
+        .from("a_equipments")
+        .select("equipment_id, equipment_name, equipment_type_id, status, org_id")
+        .eq("site_id", siteid),
+      supabase
+        .from("a_devices")
+        .select("device_id, ha_device_id, device_name, equipment_id, sensor_role, entity_id, space_id, weight, label")
+        .eq("site_id", siteid),
+      supabase
+        .from("library_equipment_sensor_requirements")
+        .select("equipment_type_id, sensor_role, sensor_type, domain, device_class, unit, required, description"),
+      supabase
+        .from("a_spaces")
+        .select("space_id, name, space_type")
+        .eq("site_id", siteid),
+    ]);
 
     setRows((entities ?? []) as SyncEntityRow[]);
     setEquipments((eqs ?? []) as Equipment[]);
-    setDevices((devs ?? []) as BusinessDevice[]);
+    setDevices((devs ?? []) as DeviceRecord[]);
+    setSensorRequirements((reqs ?? []) as SensorRequirement[]);
+    setSpaces((spcs ?? []) as Space[]);
 
     if (eqs && eqs.length > 0) {
       setOrgId(eqs[0].org_id ?? null);
@@ -239,59 +309,200 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   }, [fetchAll]);
 
   /* ======================================================
-   Submit mapping (SAFE)
+   Submit mapping - unified a_devices table
   ====================================================== */
 
   const submitMapping = async (
     ha_device_id: string,
-    device_id?: string | null
+    ha_device_name: string,
+    currentDeviceRecord: DeviceRecord | null
   ) => {
     if (!selectedValue || !orgId) return;
 
-    let res: Response;
-
+    // Handle unmap - clear the ha_device_id, don't delete the record
     if (selectedValue === "__UNMAP__") {
-      if (!device_id) {
-        alert("No mapped device found to unmap.");
-        return;
+      if (currentDeviceRecord) {
+        const { error } = await supabase
+          .from("a_devices")
+          .update({
+            ha_device_id: null,
+            equipment_id: null,
+            sensor_role: null,
+            entity_id: null,
+            space_id: null,
+            weight: null,
+            label: null,
+          })
+          .eq("device_id", currentDeviceRecord.device_id);
+
+        if (error) {
+          alert(`Failed to unmap: ${error.message}`);
+          return;
+        }
       }
 
-      res = await fetch("/api/device-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_id: siteid,
-          org_id: orgId,
-          device_id,
-          ha_device_id: null, // critical for unmapping
-          note: "HA device unmapped via gateway UI",
-        }),
-      });
-    } else {
-      const [, mapped_device_id] = selectedValue.split("::");
-
-      res = await fetch("/api/device-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_id: siteid,
-          org_id: orgId,
-          ha_device_id,
-          device_id: mapped_device_id,
-          note: "HA device mapped via gateway UI",
-        }),
-      });
+      setEditingHaDevice(null);
+      setSelectedValue(null);
+      fetchAll();
+      return;
     }
 
-    if (!res.ok) {
-      const err = await res.json();
-      alert(err?.error ?? "Device mapping failed");
-      return;
+    // Check if mapping to space
+    if (selectedValue.startsWith("SPACE::")) {
+      const spaceId = selectedValue.replace("SPACE::", "");
+
+      if (currentDeviceRecord) {
+        // Update existing record - switch to space mapping
+        const { error } = await supabase
+          .from("a_devices")
+          .update({
+            space_id: spaceId,
+            weight: 3,
+            label: null,
+            equipment_id: null,
+            sensor_role: null,
+            entity_id: null,
+          })
+          .eq("device_id", currentDeviceRecord.device_id);
+
+        if (error) {
+          alert(`Failed to update mapping: ${error.message}`);
+          return;
+        }
+      } else {
+        // Create new record for space mapping
+        const { error } = await supabase
+          .from("a_devices")
+          .insert({
+            site_id: siteid,
+            org_id: orgId,
+            ha_device_id: ha_device_id,
+            device_name: ha_device_name,
+            space_id: spaceId,
+            weight: 3,
+            label: null,
+            equipment_id: null,
+            sensor_role: null,
+            entity_id: null,
+            status: 'active',
+          });
+
+        if (error) {
+          alert(`Failed to create mapping: ${error.message}`);
+          return;
+        }
+      }
+    } else {
+      // Mapping to equipment with sensor role
+      // Format: EQUIP::{equipment_id}::{sensor_role}
+      const parts = selectedValue.split("::");
+      const equipmentId = parts[1];
+      const sensorRole = parts[2];
+
+      // Find the equipment and its type
+      const equipment = equipments.find(e => e.equipment_id === equipmentId);
+      const deviceName = currentDeviceRecord?.device_name || `${equipment?.equipment_name || 'Device'} - ${sensorRole}`;
+
+      // Find the sensor requirement to get domain + device_class for auto-matching
+      const requirement = sensorRequirements.find(
+        r => r.equipment_type_id === equipment?.equipment_type_id && r.sensor_role === sensorRole
+      );
+
+      // Auto-match entity based on domain + device_class
+      let matchedEntityId: string | null = null;
+      if (requirement?.domain) {
+        // Find the device's entities from rows
+        const deviceEntities = rows.filter(r => r.ha_device_id === ha_device_id);
+        
+        // Find matching entity by domain and device_class
+        const matchedEntity = deviceEntities.find(e => {
+          const domainMatch = e.domain === requirement.domain;
+          const deviceClassMatch = !requirement.device_class || e.device_class === requirement.device_class;
+          return domainMatch && deviceClassMatch;
+        });
+        
+        matchedEntityId = matchedEntity?.entity_id || null;
+      }
+
+      if (currentDeviceRecord) {
+        // Update existing record - switch to equipment mapping
+        const { error } = await supabase
+          .from("a_devices")
+          .update({
+            equipment_id: equipmentId,
+            sensor_role: sensorRole,
+            entity_id: matchedEntityId,
+            space_id: null,
+            weight: null,
+            label: null,
+          })
+          .eq("device_id", currentDeviceRecord.device_id);
+
+        if (error) {
+          alert(`Failed to update mapping: ${error.message}`);
+          return;
+        }
+      } else {
+        // Create new record for equipment mapping
+        const { error } = await supabase
+          .from("a_devices")
+          .insert({
+            site_id: siteid,
+            org_id: orgId,
+            ha_device_id: ha_device_id,
+            device_name: deviceName,
+            equipment_id: equipmentId,
+            sensor_role: sensorRole,
+            entity_id: matchedEntityId,
+            space_id: null,
+            weight: null,
+            label: null,
+            status: 'active',
+          });
+
+        if (error) {
+          alert(`Failed to create mapping: ${error.message}`);
+          return;
+        }
+      }
     }
 
     setEditingHaDevice(null);
     setSelectedValue(null);
     fetchAll();
+  };
+
+  /* ======================================================
+   Get mapping display info
+  ====================================================== */
+
+  const getMappingDisplay = (d: DeviceGroup) => {
+    const record = d.device_record;
+    if (!record) return null;
+
+    // Check equipment mapping
+    if (record.equipment_id) {
+      const equipment = equipments.find(e => e.equipment_id === record.equipment_id);
+      return {
+        type: "equipment" as const,
+        equipmentName: equipment?.equipment_name || "Unknown Equipment",
+        equipmentId: record.equipment_id,
+        sensorRole: record.sensor_role,
+      };
+    }
+
+    // Check space mapping
+    if (record.space_id) {
+      const space = spaces.find(s => s.space_id === record.space_id);
+      return {
+        type: "space" as const,
+        spaceName: space?.name || "Unknown Space",
+        spaceId: record.space_id,
+        weight: record.weight,
+      };
+    }
+
+    return null;
   };
 
   /* ======================================================
@@ -316,13 +527,13 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         <p>Loading…</p>
       ) : (
         haDevices.map((d) => {
-          const deviceId = d.entities[0]?.device_id;
+          const mapping = getMappingDisplay(d);
 
           return (
             <Card key={d.ha_device_id} className="bg-white border">
               <CardHeader>
                 <CardTitle className="space-y-2">
-                  <div className="text-emerald-700 font-semibold">
+                  <div className="font-semibold" style={{ color: '#12723A' }}>
                     {d.ha_device_display_name}
                   </div>
 
@@ -330,29 +541,58 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                     HA ID: {d.ha_device_id}
                   </div>
 
-                  {d.equipment_name &&
-                    d.business_device_name &&
-                    deviceId && (
-                      <div className="text-sm text-gray-600">
-                        Mapped to:{" "}
+                  {mapping && (
+                    <div className="text-sm text-gray-600">
+                      Mapped to:{" "}
+                      {mapping.type === "equipment" ? (
                         <span className="font-medium">
                           <button
-                            onClick={() => goToEquipment(d.equipment_id!)}
-                            className="text-emerald-700 hover:underline"
+                            onClick={() => goToEquipment(mapping.equipmentId)}
+                            className="hover:underline"
+                            style={{ color: '#12723A' }}
                           >
-                            {d.equipment_name}
-                          </button>{" "}
-                          →{" "}
+                            {mapping.equipmentName}
+                          </button>
+                          {mapping.sensorRole && (
+                            <span className="ml-1 text-gray-600">
+                              → <span className="font-semibold">{mapping.sensorRole}</span>
+                            </span>
+                          )}
+                          <span 
+                            className="ml-2 text-xs px-2 py-0.5 rounded"
+                            style={{ backgroundColor: '#12723A20', color: '#12723A' }}
+                          >
+                            Equipment
+                          </span>
+                          {d.device_record?.entity_id && (
+                            <div className="mt-1 text-xs text-gray-500">
+                              Entity: <span className="font-mono">{d.device_record.entity_id}</span>
+                            </div>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="font-medium">
                           <button
-                            onClick={() => goToDevice(deviceId)}
-                            className="inline-flex items-center gap-1 text-emerald-700 hover:underline cursor-pointer"
+                            onClick={() => goToSpace(mapping.spaceId)}
+                            className="inline-flex items-center gap-1 hover:underline"
+                            style={{ color: '#80B52C' }}
                           >
-                            {d.business_device_name}
+                            {mapping.spaceName}
                             <ArrowUpRight className="w-3 h-3 opacity-70" />
                           </button>
+                          <span 
+                            className="ml-2 text-xs px-2 py-0.5 rounded"
+                            style={{ backgroundColor: '#80B52C20', color: '#5a8020' }}
+                          >
+                            Space
+                          </span>
+                          <span className="ml-1 text-xs text-gray-500">
+                            (Weight: {mapping.weight})
+                          </span>
                         </span>
-                      </div>
-                    )}
+                      )}
+                    </div>
+                  )}
 
                   {editingHaDevice === d.ha_device_id ? (
                     <div className="space-y-2 mt-2">
@@ -360,41 +600,128 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                         value={selectedValue ?? ""}
                         onValueChange={setSelectedValue}
                       >
-                        <SelectTrigger className="bg-slate-800 text-white">
-                          <SelectValue placeholder="Select equipment & device" />
+                        <SelectTrigger className="bg-white border-gray-300">
+                          <SelectValue placeholder="Select equipment role or space" />
                         </SelectTrigger>
 
-                        <SelectContent className="bg-slate-800 text-white">
+                        <SelectContent className="bg-white border-2 border-gray-300 shadow-xl max-h-[400px] overflow-y-auto">
                           <SelectItem
                             value="__UNMAP__"
-                            className="text-red-400"
+                            className="text-red-600 hover:bg-red-50"
                           >
-                            — Unmap HA Device —
+                            — Unmap Device —
                           </SelectItem>
 
-                          {sortedEquipments.map((eq) => (
-                            <div key={eq.equipment_id}>
-                              <div className="px-3 py-1 text-xs text-slate-400 uppercase">
-                                {eq.equipment_name}
-                              </div>
+                          {/* Equipment Section with Sensor Roles */}
+                          <div 
+                            className="px-3 py-2 text-xs font-bold uppercase sticky top-0"
+                            style={{ backgroundColor: '#12723A15', color: '#12723A' }}
+                          >
+                            📦 Equipment & Sensor Roles
+                          </div>
+                          
+                          {sortedEquipments.map((eq) => {
+                            const roles = eq.equipment_type_id 
+                              ? requirementsByType.get(eq.equipment_type_id) || []
+                              : [];
+                            const assignedRoles = assignedRolesByEquipment.get(eq.equipment_id);
 
-                              {(devicesByEquipment.get(eq.equipment_id) ??
-                                []).map((bd) => (
-                                <SelectItem
-                                  key={bd.device_id}
-                                  value={`${eq.equipment_id}::${bd.device_id}`}
-                                  className={
-                                    bd.ha_device_id
-                                      ? "text-amber-400"
-                                      : "text-emerald-400"
-                                  }
-                                >
-                                  {bd.device_name}
-                                  {bd.ha_device_id ? " (mapped)" : ""}
-                                </SelectItem>
-                              ))}
-                            </div>
-                          ))}
+                            return (
+                              <div key={eq.equipment_id}>
+                                <div className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-100">
+                                  {eq.equipment_name}
+                                  {eq.equipment_type_id && (
+                                    <span className="text-gray-400 ml-1">
+                                      ({eq.equipment_type_id})
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                {roles.length === 0 ? (
+                                  <div className="px-6 py-1 text-xs text-gray-400 italic">
+                                    No sensor roles defined for this equipment type
+                                  </div>
+                                ) : (
+                                  roles.map((role) => {
+                                    const assignedTo = assignedRoles?.get(role.sensor_role);
+                                    const isAssignedToThis = assignedTo === d.ha_device_id;
+                                    const isAssignedToOther = !!(assignedTo && assignedTo !== d.ha_device_id);
+
+                                    return (
+                                      <SelectItem
+                                        key={`${eq.equipment_id}::${role.sensor_role}`}
+                                        value={`EQUIP::${eq.equipment_id}::${role.sensor_role}`}
+                                        disabled={isAssignedToOther}
+                                        className={`pl-6 ${
+                                          isAssignedToThis
+                                            ? "bg-green-50 text-green-700"
+                                            : isAssignedToOther
+                                            ? "text-gray-400 cursor-not-allowed"
+                                            : "hover:bg-gray-50"
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-mono text-xs">→</span>
+                                          <span className={role.required ? "font-semibold" : ""}>
+                                            {role.sensor_role}
+                                          </span>
+                                          {role.required && (
+                                            <span className="text-xs text-red-500">*</span>
+                                          )}
+                                          {role.description && (
+                                            <span className="text-xs text-gray-400">
+                                              — {role.description}
+                                            </span>
+                                          )}
+                                          {isAssignedToThis && (
+                                            <span className="text-xs text-green-600">(current)</span>
+                                          )}
+                                          {isAssignedToOther && (
+                                            <span className="text-xs text-gray-400">(assigned)</span>
+                                          )}
+                                        </div>
+                                      </SelectItem>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            );
+                          })}
+
+                          {/* Spaces Section */}
+                          <div 
+                            className="px-3 py-2 text-xs font-bold uppercase sticky top-0 mt-2"
+                            style={{ backgroundColor: '#80B52C15', color: '#5a8020' }}
+                          >
+                            🏠 Spaces (Ambient Sensors)
+                          </div>
+                          
+                          {sortedSpaces.map((space) => {
+                            const isCurrentMapping =
+                              d.device_record?.space_id === space.space_id;
+
+                            return (
+                              <SelectItem
+                                key={space.space_id}
+                                value={`SPACE::${space.space_id}`}
+                                className={
+                                  isCurrentMapping
+                                    ? "bg-green-50 text-green-700"
+                                    : "hover:bg-gray-50"
+                                }
+                              >
+                                {space.name}
+                                <span className="text-xs text-gray-400 ml-2">
+                                  ({space.space_type})
+                                </span>
+                                {isCurrentMapping && (
+                                  <span className="text-xs text-green-600 ml-1">
+                                    (current)
+                                  </span>
+                                )}
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
 
@@ -403,16 +730,22 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                           onClick={() =>
                             submitMapping(
                               d.ha_device_id,
-                              d.entities[0]?.device_id
+                              d.ha_device_display_name,
+                              d.device_record
                             )
                           }
                           disabled={!selectedValue}
+                          style={{ backgroundColor: '#12723A' }}
+                          className="hover:opacity-90"
                         >
                           Save
                         </Button>
                         <Button
                           variant="outline"
-                          onClick={() => setEditingHaDevice(null)}
+                          onClick={() => {
+                            setEditingHaDevice(null);
+                            setSelectedValue(null);
+                          }}
                         >
                           Cancel
                         </Button>
@@ -424,7 +757,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                       size="sm"
                       onClick={() => setEditingHaDevice(d.ha_device_id)}
                     >
-                      Reassign Device
+                      {mapping ? "Reassign Device" : "Assign Device"}
                     </Button>
                   )}
                 </CardTitle>
@@ -435,38 +768,39 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                   <thead className="bg-slate-800">
                     <tr>
                       <th className="px-3 py-2 text-left">Entity</th>
-                      <th className="px-3 py-2 text-left">Type</th>
+                      <th className="px-3 py-2 text-left">Domain</th>
+                      <th className="px-3 py-2 text-left">Device Class</th>
                       <th className="px-3 py-2 text-left">Last Seen</th>
                       <th className="px-3 py-2 text-left">Value</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {d.entities.map((e) => (
-                      <tr
-                        key={e.entity_id}
-                        className="border-t border-slate-700"
-                      >
-                        <td className="px-3 py-2 font-mono text-xs">
-                          {e.entity_id}
-                        </td>
-                        <td className="px-3 py-2">
-                          {e.sensor_type ?? "—"}
-                        </td>
-                        <td
-                          className={`px-3 py-2 ${lastSeenClass(
-                            e.last_seen_at
-                          )}`}
+                    {d.entities.map((e) => {
+                      const isMappedEntity = d.device_record?.entity_id === e.entity_id;
+                      return (
+                        <tr
+                          key={e.entity_id}
+                          className={`border-t border-slate-700 ${isMappedEntity ? 'bg-green-900/30' : ''}`}
                         >
-                          {formatRelativeTime(e.last_seen_at)}
-                        </td>
-                        <td className="px-3 py-2">
-                          {formatValue(
-                            e.last_state,
-                            e.unit_of_measurement
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {isMappedEntity && (
+                              <span className="text-green-400 mr-2">✓</span>
+                            )}
+                            {e.entity_id}
+                          </td>
+                          <td className="px-3 py-2">{e.domain ?? "—"}</td>
+                          <td className="px-3 py-2">{e.device_class ?? "—"}</td>
+                          <td
+                            className={`px-3 py-2 ${lastSeenClass(e.last_seen_at)}`}
+                          >
+                            {formatRelativeTime(e.last_seen_at)}
+                          </td>
+                          <td className="px-3 py-2">
+                            {formatValue(e.last_state, e.unit_of_measurement)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </CardContent>

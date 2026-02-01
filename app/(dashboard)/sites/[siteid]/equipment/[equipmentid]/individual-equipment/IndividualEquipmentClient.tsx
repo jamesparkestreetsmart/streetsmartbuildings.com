@@ -1,7 +1,17 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { supabase } from "@/lib/supabaseClient";
 import AddRecordNote from "@/components/AddRecordNote";
+
+/* ---------- Types ---------- */
+
+interface ServedSpace {
+  space_id: string;
+  name: string;
+  space_type: string;
+}
 
 /* ---------- Helpers ---------- */
 
@@ -24,6 +34,11 @@ function formatCategoryLabel(raw: string | null): string {
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : "Other";
 }
 
+function isHvacEquipment(equipmentTypeId: string | null): boolean {
+  if (!equipmentTypeId) return false;
+  return equipmentTypeId.toLowerCase().includes('hvac');
+}
+
 export default function IndividualEquipmentClient(props: any) {
   const {
     siteid,
@@ -35,6 +50,57 @@ export default function IndividualEquipmentClient(props: any) {
     orgId,
     returnTo,
   } = props;
+
+  const [servedSpaces, setServedSpaces] = useState<ServedSpace[]>([]);
+  const [loadingServedSpaces, setLoadingServedSpaces] = useState(false);
+  const [installedLocation, setInstalledLocation] = useState<string | null>(null);
+
+  /* ---------- Fetch served spaces ---------- */
+  useEffect(() => {
+    if (!equipment) return;
+
+    const fetchServedSpaces = async () => {
+      setLoadingServedSpaces(true);
+
+      // Fetch served spaces with space names
+      const { data, error } = await supabase
+        .from('a_equipment_served_spaces')
+        .select(`
+          space_id,
+          a_spaces (
+            name,
+            space_type
+          )
+        `)
+        .eq('equipment_id', equipment.equipment_id);
+
+      if (error) {
+        console.error('Error fetching served spaces:', error);
+      } else {
+        const spaces: ServedSpace[] = (data || []).map((row: any) => ({
+          space_id: row.space_id,
+          name: row.a_spaces?.name || 'Unknown',
+          space_type: row.a_spaces?.space_type || '',
+        }));
+        setServedSpaces(spaces);
+      }
+
+      // Fetch installed location name if space_id exists
+      if (equipment.space_id) {
+        const { data: spaceData } = await supabase
+          .from('a_spaces')
+          .select('name')
+          .eq('space_id', equipment.space_id)
+          .single();
+        
+        setInstalledLocation(spaceData?.name || null);
+      }
+
+      setLoadingServedSpaces(false);
+    };
+
+    fetchServedSpaces();
+  }, [equipment]);
 
   /* ---------- Defensive guard ---------- */
   if (!equipment) {
@@ -54,6 +120,8 @@ export default function IndividualEquipmentClient(props: any) {
       </div>
     );
   }
+
+  const showHvacSection = isHvacEquipment(equipment.equipment_type_id);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -93,7 +161,10 @@ export default function IndividualEquipmentClient(props: any) {
             <h2 className="text-lg font-semibold">Equipment Details</h2>
             <p><strong>Group:</strong> {equipment.equipment_group || "—"}</p>
             <p><strong>Type:</strong> {equipment.equipment_type_id || "—"}</p>
-            <p><strong>Space:</strong> {equipment.space_name || "—"}</p>
+            <p>
+              <strong>Installed Location:</strong>{" "}
+              {installedLocation || "—"}
+            </p>
             {equipment.description && (
               <p className="text-sm text-gray-700">
                 <strong>Description:</strong> {equipment.description}
@@ -112,6 +183,43 @@ export default function IndividualEquipmentClient(props: any) {
           </div>
         </section>
 
+        {/* Served Spaces - Only show for HVAC */}
+        {showHvacSection && (
+          <section className="bg-white rounded-xl shadow p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Serves Spaces</h2>
+              <Link
+                href={`/sites/${siteid}/equipment/${equipment.equipment_id}/edit`}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                Edit →
+              </Link>
+            </div>
+
+            {loadingServedSpaces ? (
+              <p className="text-sm text-gray-500">Loading...</p>
+            ) : servedSpaces.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                No spaces assigned. <Link href={`/sites/${siteid}/equipment/${equipment.equipment_id}/edit`} className="text-blue-600 hover:underline">Add spaces</Link> this equipment conditions.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {servedSpaces.map((space) => (
+                  <span
+                    key={space.space_id}
+                    className="inline-flex items-center bg-emerald-100 text-emerald-800 text-sm px-3 py-1 rounded-full"
+                  >
+                    {space.name}
+                    <span className="text-xs text-emerald-600 ml-1">
+                      ({space.space_type})
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Devices */}
         <section className="bg-white rounded-xl shadow p-6">
           <h2 className="text-lg font-semibold mb-4">Devices</h2>
@@ -125,7 +233,13 @@ export default function IndividualEquipmentClient(props: any) {
                   entitiesByHaDevice[device.ha_device_id]) ||
                 [];
 
-              const grouped = entities.reduce((acc: any, e: any) => {
+              // Deduplicate entities by entity_id
+              const uniqueEntities = entities.filter(
+                (e: any, index: number, self: any[]) => 
+                  index === self.findIndex((ent: any) => ent.entity_id === e.entity_id)
+              );
+
+              const grouped = uniqueEntities.reduce((acc: any, e: any) => {
                 const key = e.sensor_type || "measurement";
                 if (!acc[key]) acc[key] = [];
                 acc[key].push(e);
@@ -152,7 +266,7 @@ export default function IndividualEquipmentClient(props: any) {
                     )}
                   </div>
 
-                  {entities.length > 0 && (
+                  {uniqueEntities.length > 0 && (
                     <div className="grid md:grid-cols-2 gap-3">
                       {Object.entries(grouped).map(([cat, list]: any) => (
                         <div key={cat} className="bg-gray-50 border rounded-lg p-3">
