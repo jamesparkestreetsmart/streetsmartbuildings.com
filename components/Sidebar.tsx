@@ -5,8 +5,7 @@ import { usePathname } from "next/navigation";
 import { Users } from "lucide-react";
 
 const links = [
-  { href: "/live", label: "Live Alerts" },
-  { href: "/history", label: "Alert History" },
+  { href: "/live", label: "Alerts (Live & History)", activeMatch: ["/live", "/history"] },
   { href: "/sites", label: "Sites" },
   { href: "/benchmark", label: "Equipment Benchmarking" },
   { href: "/journey", label: "My Journey" },
@@ -22,8 +21,10 @@ export default function Sidebar() {
         Eagle Eyes
       </div>
       <nav className="flex-1">
-        {links.map(({ href, label, icon }) => {
-          const active = pathname.startsWith(href);
+        {links.map(({ href, label, icon, activeMatch }) => {
+          const active = activeMatch
+            ? activeMatch.some((path) => pathname.startsWith(path))
+            : pathname.startsWith(href);
           return (
             <Link
               key={href}

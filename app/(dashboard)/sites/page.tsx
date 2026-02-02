@@ -24,6 +24,8 @@ interface Site {
   status: string;
   last_status_change: string;
   created_at: string;
+  industry: string | null;
+  brand: string | null;
 }
 
 interface SiteFormData {
@@ -210,6 +212,8 @@ export default function SitesPage() {
 
     const header = [
       "Site Name",
+      "Industry",
+      "Brand",
       "Address",
       "Postal Code",
       "Active Alerts",
@@ -222,6 +226,8 @@ export default function SitesPage() {
 
     const rows = sorted.map((s) => [
       s.site_name,
+      s.industry || "",
+      s.brand || "",
       s.address,
       s.postal_code,
       s.active_alerts,
@@ -309,6 +315,8 @@ export default function SitesPage() {
             <tr>
               {[
                 ["site_name", "Site Name"],
+                ["industry", "Industry"],
+                ["brand", "Brand"],
                 ["address", "Address"],
                 ["postal_code", "Postal Code"],
                 ["active_alerts", "Active Alerts"],
@@ -333,7 +341,7 @@ export default function SitesPage() {
           <tbody>
             {sorted.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center py-6 text-gray-500">
+                <td colSpan={11} className="text-center py-6 text-gray-500">
                   No sites found
                 </td>
               </tr>
@@ -348,6 +356,8 @@ export default function SitesPage() {
                   <td className="py-2 px-3 text-emerald-700 font-medium hover:underline">
                     <a href={`/sites/${s.site_id}`}>{s.site_name}</a>
                   </td>
+                  <td className="py-2 px-3">{s.industry || "-"}</td>
+                  <td className="py-2 px-3">{s.brand || "-"}</td>
                   <td className="py-2 px-3">{s.address}</td>
                   <td className="py-2 px-3">{s.postal_code}</td>
                   <td className="py-2 px-3 text-center">

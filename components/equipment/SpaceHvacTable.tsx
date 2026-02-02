@@ -310,8 +310,19 @@ export default function SpaceHvacTable({ siteId }: Props) {
         };
       });
 
-      // Sort by space name
-      rows.sort((a, b) => a.space.name.localeCompare(b.space.name));
+      // Sort: Spaces with HVAC first (alphabetically), then spaces without HVAC (alphabetically)
+      rows.sort((a, b) => {
+        const aHasHvac = a.hvac_equipments.length > 0 ? 1 : 0;
+        const bHasHvac = b.hvac_equipments.length > 0 ? 1 : 0;
+        
+        // First sort by whether they have HVAC (with HVAC first)
+        if (bHasHvac !== aHasHvac) {
+          return bHasHvac - aHasHvac;
+        }
+        
+        // Then sort alphabetically by space name
+        return a.space.name.localeCompare(b.space.name);
+      });
 
       setSpaceRows(rows);
       setLoading(false);
