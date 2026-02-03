@@ -82,7 +82,7 @@ If you didn't expect this invitation, you can safely ignore this email.
 
   try {
     await transporter.sendMail({
-      from: `"Eagle Eyes" <${process.env.SMTP_USER}>`,
+      from: `"Eagle Eyes" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
       to,
       subject: `You've been invited to join ${orgName} on Eagle Eyes`,
       text,
@@ -161,7 +161,7 @@ If you didn't expect this invitation, you can safely ignore this email.
 
   try {
     await transporter.sendMail({
-      from: `"Eagle Eyes" <${process.env.SMTP_USER}>`,
+      from: `"Eagle Eyes" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
       to,
       subject: `Reminder: Complete your Eagle Eyes signup for ${orgName}`,
       text,
@@ -174,29 +174,3 @@ If you didn't expect this invitation, you can safely ignore this email.
     return { success: false, error: error.message };
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
