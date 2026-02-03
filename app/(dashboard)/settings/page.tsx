@@ -365,7 +365,7 @@ export default function SettingsPage() {
         .from("a_users")
         .select("user_id")
         .eq("email", email)
-        .single();
+        .maybeSingle();
 
       if (existingUser) {
         // User exists - check if they already have a membership in this org
@@ -374,7 +374,7 @@ export default function SettingsPage() {
           .select("membership_id")
           .eq("user_id", existingUser.user_id)
           .eq("org_id", org.org_id)
-          .single();
+          .maybeSingle();
 
         if (existingMembership) {
           setInviteError("This user is already a member of this organization.");
@@ -398,7 +398,6 @@ export default function SettingsPage() {
           setInviteError("Failed to add user: " + membershipError.message);
         } else {
           setInviteMessage("User added to organization successfully!");
-          resetInviteForm();
           await fetchData();
         }
       } else {
@@ -408,14 +407,31 @@ export default function SettingsPage() {
           .select("invite_id")
           .eq("invite_email", email)
           .eq("org_id", org.org_id)
-          .single();
+          .maybeSingle();
 
         if (existingInvite) {
-          // TODO: Send reminder email
-          setInviteMessage("An invite already exists for this email. A reminder will be sent.");
+          // Send reminder email
+          try {
+            const res = await fetch("/api/send-invite-email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email,
+                orgId: org.org_id,
+                isReminder: true,
+              }),
+            });
+            if (res.ok) {
+              setInviteMessage("A reminder email has been sent to this user.");
+            } else {
+              setInviteMessage("An invite already exists. Reminder email could not be sent.");
+            }
+          } catch {
+            setInviteMessage("An invite already exists. Reminder email could not be sent.");
+          }
         } else {
           // Create new invite
-          const { error: inviteError } = await supabase
+          const { error: inviteDbError } = await supabase
             .from("a_org_invites")
             .insert({
               org_id: org.org_id,
@@ -427,11 +443,32 @@ export default function SettingsPage() {
               created_by_user: profile?.user_id,
             });
 
-          if (inviteError) {
-            setInviteError("Failed to create invite: " + inviteError.message);
+          if (inviteDbError) {
+            setInviteError("Failed to create invite: " + inviteDbError.message);
           } else {
-            setInviteMessage("Invite created! User will be added when they sign up with the org code.");
-            resetInviteForm();
+            // Send invite email
+            try {
+              const res = await fetch("/api/send-invite-email", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email,
+                  orgId: org.org_id,
+                  isReminder: false,
+                  invitedByUserId: profile?.user_id,
+                }),
+              });
+              if (res.ok) {
+                setInviteMessage("Invite created and email sent! User will be added when they sign up.");
+              } else {
+                const errData = await res.json();
+                console.error("Email send error:", errData);
+                setInviteMessage("Invite created but email could not be sent. User can still sign up with the org code.");
+              }
+            } catch (emailErr) {
+              console.error("Email fetch error:", emailErr);
+              setInviteMessage("Invite created but email could not be sent. User can still sign up with the org code.");
+            }
           }
         }
       }
@@ -974,116 +1011,143 @@ export default function SettingsPage() {
           >
             <h3 className="text-lg font-semibold mb-4">Add User</h3>
 
-            <form onSubmit={addUser} className="space-y-4 text-sm">
-              {/* Email */}
-              <div>
-                <label className="block text-gray-600 mb-1">
-                  Email<span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="user@example.com"
-                  className="w-full border rounded-md p-2 text-sm"
-                />
-              </div>
-
-              {/* Job Title */}
-              <div>
-                <label className="block text-gray-600 mb-1">
-                  Job Title<span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={inviteJobTitle}
-                  onChange={(e) => setInviteJobTitle(e.target.value)}
-                  className="w-full border rounded-md px-2 py-2 text-sm"
-                >
-                  <option value="">— Select Job Title —</option>
-                  {jobTitles.map((jt) => (
-                    <option key={jt.job_title_key} value={jt.job_title_key}>
-                      {jt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Role */}
-              <div>
-                <label className="block text-gray-600 mb-1">
-                  Role<span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="w-full border rounded-md px-2 py-2 text-sm"
-                >
-                  <option value="">— Select Role —</option>
-                  {roles.map((r) => (
-                    <option key={r.role} value={r.role}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Access Level */}
-              <div>
-                <label className="block text-gray-600 mb-1">
-                  Access Level<span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={inviteCapabilityPreset}
-                  onChange={(e) => setInviteCapabilityPreset(e.target.value)}
-                  className="w-full border rounded-md px-2 py-2 text-sm"
-                >
-                  <option value="">— Select Access Level —</option>
-                  {capabilityPresets.map((cp) => (
-                    <option key={cp.preset_key} value={cp.preset_key}>
-                      {cp.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <p className="text-xs text-gray-500 mt-2">
-                • If the user already has an account, they'll be added immediately.<br />
-                • If not, an invite will be created and they'll be added when they sign up.
-              </p>
-
-              {inviteError && (
-                <div className="bg-red-100 text-red-700 text-xs rounded-md px-3 py-2">
-                  {inviteError}
-                </div>
-              )}
-
-              {inviteMessage && (
-                <div className="bg-emerald-50 text-emerald-700 text-xs rounded-md px-3 py-2">
+            {inviteMessage ? (
+              // Success state
+              <div className="space-y-4">
+                <div className="bg-emerald-50 text-emerald-700 text-sm rounded-md px-4 py-3 border border-emerald-200">
                   {inviteMessage}
                 </div>
-              )}
 
-              <div className="flex justify-end gap-3 pt-2 border-t">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddUser(false);
-                    resetInviteForm();
-                  }}
-                  className="px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800"
-                >
-                  Cancel
-                </button>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddUser(false);
+                      resetInviteForm();
+                    }}
+                    className="px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    Close
+                  </button>
 
-                <button
-                  type="submit"
-                  disabled={inviteLoading}
-                  className="px-4 py-1.5 text-sm text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-400 disabled:opacity-60"
-                >
-                  {inviteLoading ? "Processing..." : "Add User"}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetInviteForm();
+                    }}
+                    className="px-4 py-1.5 text-sm text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-400"
+                  >
+                    Add Another
+                  </button>
+                </div>
               </div>
-            </form>
+            ) : (
+              // Form state
+              <form onSubmit={addUser} className="space-y-4 text-sm">
+                {/* Email */}
+                <div>
+                  <label className="block text-gray-600 mb-1">
+                    Email<span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="user@example.com"
+                    className="w-full border rounded-md p-2 text-sm"
+                  />
+                </div>
+
+                {/* Job Title */}
+                <div>
+                  <label className="block text-gray-600 mb-1">
+                    Job Title<span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={inviteJobTitle}
+                    onChange={(e) => setInviteJobTitle(e.target.value)}
+                    className="w-full border rounded-md px-2 py-2 text-sm"
+                  >
+                    <option value="">— Select Job Title —</option>
+                    {jobTitles.map((jt) => (
+                      <option key={jt.job_title_key} value={jt.job_title_key}>
+                        {jt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Role */}
+                <div>
+                  <label className="block text-gray-600 mb-1">
+                    Role<span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="w-full border rounded-md px-2 py-2 text-sm"
+                  >
+                    <option value="">— Select Role —</option>
+                    {roles.map((r) => (
+                      <option key={r.role} value={r.role}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Access Level */}
+                <div>
+                  <label className="block text-gray-600 mb-1">
+                    Access Level<span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={inviteCapabilityPreset}
+                    onChange={(e) => setInviteCapabilityPreset(e.target.value)}
+                    className="w-full border rounded-md px-2 py-2 text-sm"
+                  >
+                    <option value="">— Select Access Level —</option>
+                    {capabilityPresets.map((cp) => (
+                      <option key={cp.preset_key} value={cp.preset_key}>
+                        {cp.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <p className="text-xs text-gray-500 mt-2">
+                  • If the user already has an account, they'll be added immediately.<br />
+                  • If not, an invite will be created and they'll be added when they sign up.
+                </p>
+
+                {inviteError && (
+                  <div className="bg-red-100 text-red-700 text-xs rounded-md px-3 py-2">
+                    {inviteError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2 border-t">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddUser(false);
+                      resetInviteForm();
+                    }}
+                    className="px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={inviteLoading}
+                    className="px-4 py-1.5 text-sm text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-400 disabled:opacity-60"
+                  >
+                    {inviteLoading ? "Processing..." : "Add User"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
