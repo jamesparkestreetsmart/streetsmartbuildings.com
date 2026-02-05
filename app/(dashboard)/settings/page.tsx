@@ -290,7 +290,7 @@ export default function SettingsPage() {
 
   // =================== SAVE MEMBER EDIT ===================
   const saveMember = async () => {
-    if (!editingMember) return;
+    if (!editingMember || !org) return;
 
     const { error } = await supabase
       .from("a_orgs_users_memberships")
@@ -300,6 +300,7 @@ export default function SettingsPage() {
         capability_preset: memberDraft.capability_preset,
         status: memberDraft.status,
         last_updated_at: new Date().toISOString(),
+        last_updated_by: profile?.user_id,
       })
       .eq("membership_id", editingMember.membership_id);
 

@@ -203,6 +203,8 @@ export async function POST(req: Request) {
         .eq("invite_id", invite.invite_id);
     }
 
+    // Note: The membership INSERT trigger automatically logs the "user_joined" event
+
     return NextResponse.json({
       success: true,
       redirectTo: "/live",

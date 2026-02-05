@@ -34,7 +34,7 @@ export default function UsersPage() {
   useEffect(() => {
     async function fetchOrgAndUsers() {
       const { data: orgData } = await supabase
-        .from("a_orgs")
+        .from("a_organizations")
         .select("*")
         .limit(1)
         .single();
