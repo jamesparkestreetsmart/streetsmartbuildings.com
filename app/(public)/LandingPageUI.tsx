@@ -7,7 +7,7 @@ type Persona = "facilities" | "cfo" | "residential";
 
 export default function LandingPageUI() {
   const [leadEmail, setLeadEmail] = useState("");
-  const [orgName, setOrgName] = useState("");
+  const [firstName, setFirstName] = useState("");
   const [persona, setPersona] = useState<Persona>("facilities");
 
   const [message, setMessage] = useState<string | null>(null);
@@ -35,7 +35,7 @@ export default function LandingPageUI() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: leadEmail,
-          organization_name: orgName,
+          first_name: firstName,
           source_page: "landing",
           persona,
         }),
@@ -49,7 +49,7 @@ export default function LandingPageUI() {
 
       setMessage("Thanks! We'll reach out shortly.");
       setLeadEmail("");
-      setOrgName("");
+      setFirstName("");
       setVideos([]);
     } catch {
       setError("Unexpected error. Please try again.");
@@ -163,10 +163,10 @@ export default function LandingPageUI() {
           <div className="flex gap-2 mb-2">
             <input
               type="text"
-              placeholder="Organization / Property name"
+              placeholder="First name"
               className="flex-1 p-2 rounded text-black text-sm"
-              value={orgName}
-              onChange={(e) => setOrgName(e.target.value)}
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
               required
             />
             <input

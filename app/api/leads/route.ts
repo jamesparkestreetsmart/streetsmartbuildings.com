@@ -16,6 +16,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Email is required" }, { status: 400 });
   }
 
+  const first_name = body?.first_name?.trim();
+  if (!first_name) {
+    return NextResponse.json({ error: "First name is required" }, { status: 400 });
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -26,6 +31,8 @@ export async function POST(req: Request) {
 
   const payload = {
     email,
+    first_name,
+    organization_name: body?.organization_name?.trim() ?? null,
     source_page: body?.source_page ?? "landing",
     utm_campaign: body?.utm?.campaign ?? null,
     utm_medium: body?.utm?.medium ?? null,
