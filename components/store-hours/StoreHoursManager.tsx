@@ -5,7 +5,7 @@ import WeeklyStoreHours from "./WeeklyStoreHours";
 import UpcomingEventsTable from "./UpcomingEventsTable";
 import { PastEventsTable } from "./PastEventsTable";
 
-import ExceptionModal, { ExceptionModalMode } from "./AddEventModal";
+import AddEventModal, { AddEventModalMode } from "./AddEventModal";
 import { useFutureExceptions, FutureException } from "./useFutureExceptions";
 import { usePastStoreHours } from "./usePastStoreHours";
 
@@ -23,7 +23,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
   const past = usePastStoreHours(siteId);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<ExceptionModalMode>("create");
+  const [modalMode, setModalMode] = useState<AddEventModalMode>("create");
   const [modalInitialData, setModalInitialData] = useState<any>(null);
 
   if (upcoming.loading || past.loading) return <div>Loading store hours…</div>;
@@ -105,7 +105,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
       </div>
 
       {modalOpen && (
-        <ExceptionModal
+        <AddEventModal
           open={modalOpen}
           siteId={siteId}
           mode={modalMode}
