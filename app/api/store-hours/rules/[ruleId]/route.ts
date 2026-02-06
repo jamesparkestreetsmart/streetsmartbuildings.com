@@ -8,12 +8,12 @@ const supabase = createClient(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { rule_id: string } }
+  { params }: { params: Promise<{ ruleId: string }> }
 ) {
-  const ruleId = params.rule_id;
+  const { ruleId } = await params;
 
   if (!ruleId) {
-    return NextResponse.json({ error: "Missing rule_id" }, { status: 400 });
+    return NextResponse.json({ error: "Missing ruleId" }, { status: 400 });
   }
 
   try {
