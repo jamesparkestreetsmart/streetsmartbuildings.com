@@ -28,7 +28,12 @@ export default function LoginForm() {
         return;
       }
 
-      router.push("/live");
+      // Redirect admin users to /admin, others to /live
+      if (email.toLowerCase().endsWith("@streetsmartbuildings.com")) {
+        router.push("/admin");
+      } else {
+        router.push("/live");
+      }
     } catch (err) {
       console.error(err);
       setError("Unexpected error. Please try again.");
@@ -51,7 +56,7 @@ export default function LoginForm() {
         <input
           type="email"
           className="w-full border rounded px-3 py-2 text-sm"
-          placeholder="you@example.com"
+          placeholder="E-mail"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoComplete="email"

@@ -63,23 +63,46 @@ export default function SignupPage() {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col md:flex-row">
 
         {/* LEFT SIDE — BRANDING */}
-        <div className="hidden md:flex flex-col justify-between bg-gradient-to-b from-green-700 to-emerald-600 text-white p-8 w-1/2">
-          <div>
-            <h1 className="text-3xl font-bold">Street Smart Buildings</h1>
-            <p className="mt-2 text-sm text-emerald-100">
-              Remote facility management powered by Eagle Eyes.
+        <div className="hidden md:flex flex-col justify-between bg-gradient-to-b from-green-800 to-green-700 text-white p-8 w-1/2 relative overflow-hidden">
+
+          <div className="relative z-10">
+            <p className="text-xs tracking-widest uppercase text-yellow-300 font-semibold">
+              Eagle Eyes Building Solutions LLC
+            </p>
+            <h1 className="text-3xl font-bold mt-2">Street Smart Buildings</h1>
+            <p className="mt-3 text-sm text-green-100 leading-relaxed">
+              Our Facility Communication Platform provides{" "}
+              <span className="text-yellow-300 font-semibold">more Reliable</span> &{" "}
+              <span className="text-yellow-300 font-semibold">more Affordable</span>{" "}
+              Remote Asset Monitoring & Control
             </p>
           </div>
 
-          <ul className="text-sm text-emerald-100 space-y-2 mt-8">
-            <li>• Predictive failures via energy signatures</li>
-            <li>• Real-time monitoring & alerts</li>
-            <li>• Multi-site QSR intelligence</li>
-          </ul>
+          <div className="relative z-10">
+            <p className="text-sm font-bold tracking-widest uppercase text-yellow-300">
+              How We Think
+            </p>
+            <div className="grid grid-cols-2 gap-3 mt-2 text-xs">
+              <div className="bg-white/10 rounded p-2.5">
+                <span className="font-semibold text-yellow-300">Data</span>
+                <p className="text-green-200 mt-0.5">Sensors & meters across your facility</p>
+              </div>
+              <div className="bg-white/10 rounded p-2.5">
+                <span className="font-semibold text-yellow-300">Information</span>
+                <p className="text-green-200 mt-0.5">Context against schedules & setpoints</p>
+              </div>
+              <div className="bg-white/10 rounded p-2.5">
+                <span className="font-semibold text-yellow-300">Knowledge</span>
+                <p className="text-green-200 mt-0.5">Anomalies, waste & degradation detected</p>
+              </div>
+              <div className="bg-white/10 rounded p-2.5">
+                <span className="font-semibold text-yellow-300">Wisdom</span>
+                <p className="text-green-200 mt-0.5">Actions that reduce cost & extend life</p>
+              </div>
+            </div>
+          </div>
 
-          <p className="mt-8 text-xs text-emerald-200">
-            You need <span className="font-semibold">Eagle Eyes</span> — we'll bring the ladder.
-          </p>
+          <div className="relative z-10" />
         </div>
 
         {/* RIGHT SIDE — SIGNUP FORM */}
@@ -101,8 +124,6 @@ export default function SignupPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-
-            {/* NAME ROW */}
             <div className="flex gap-3">
               <input
                 className="border p-2 rounded w-1/2"
@@ -120,25 +141,24 @@ export default function SignupPage() {
               />
             </div>
 
-            {/* EMAIL */}
             <input
               className="border p-2 rounded w-full"
-              placeholder="Email"
+              placeholder="E-mail"
               type="email"
               value={form.email}
               onChange={(e) => handleChange("email", e.target.value)}
               required
             />
 
-            {/* PHONE NUMBER */}
             <input
               className="border p-2 rounded w-full"
-              placeholder="Phone Number (optional)"
+              placeholder="Phone Number"
+              type="tel"
               value={form.phone_number}
               onChange={(e) => handleChange("phone_number", e.target.value)}
+              required
             />
 
-            {/* PASSWORD */}
             <input
               type="password"
               className="border p-2 rounded w-full"
@@ -149,7 +169,6 @@ export default function SignupPage() {
               minLength={8}
             />
 
-            {/* ORG CODE */}
             <input
               className="border p-2 rounded w-full tracking-[0.25em] uppercase"
               placeholder="4-Letter Org Code"
@@ -159,7 +178,6 @@ export default function SignupPage() {
               required
             />
 
-            {/* PREFERENCES ROW */}
             <div className="flex gap-3">
               <select
                 className="border p-2 rounded w-1/2"
@@ -180,7 +198,6 @@ export default function SignupPage() {
               </select>
             </div>
 
-            {/* SUBMIT */}
             <button
               type="submit"
               disabled={loading}

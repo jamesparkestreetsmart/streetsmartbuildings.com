@@ -1,11 +1,10 @@
-//app/(dashboard)/layout.tsx
 import "../globals.css";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Sidebar from "@/components/Sidebar";
 import ActivityTracker from "@/components/activitytracker";
-import { getCurrentUserId } from "@/lib/auth";
-import LogoutButton from "@/components/LogoutButton"; // <-- NEW
+import { getCurrentUserId, getCurrentUserEmail } from "@/lib/auth";
+import LogoutButton from "@/components/LogoutButton";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,6 +27,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const userId = await getCurrentUserId();
+  const userEmail = await getCurrentUserEmail();
 
   return (
     <html lang="en">
@@ -37,17 +37,13 @@ export default async function RootLayout({
         {userId && <ActivityTracker userId={userId} />}
 
         <div className="flex h-screen w-screen overflow-hidden">
-          {/* LEFT SIDEBAR AREA */}
           <div className="flex flex-col h-full">
-            <Sidebar />
-
-            {/* Logout Button (client component) */}
+            <Sidebar userEmail={userEmail} />
             <div className="p-4">
               <LogoutButton />
             </div>
           </div>
 
-          {/* MAIN VIEW */}
           <main className="flex-1 overflow-y-auto p-4">
             {children}
           </main>
