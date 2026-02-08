@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUserEmail } from "@/lib/auth";
 import MarketingAdminCard from "@/components/MarketingAdminCard";
+import OrganizationsAdminCard from "@/components/OrganizationsAdminCard";
 
 export default async function AdminPage() {
   const email = await getCurrentUserEmail();
@@ -18,6 +19,7 @@ export default async function AdminPage() {
         </p>
       </div>
 
+      <OrganizationsAdminCard />
       <MarketingAdminCard />
     </div>
   );
