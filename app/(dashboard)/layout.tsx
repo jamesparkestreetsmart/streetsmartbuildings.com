@@ -28,6 +28,7 @@ export default async function RootLayout({
 }) {
   const userId = await getCurrentUserId();
   const userEmail = await getCurrentUserEmail();
+  console.log("DEBUG: userId =", userId, "userEmail =", userEmail);
 
   return (
     <html lang="en">
