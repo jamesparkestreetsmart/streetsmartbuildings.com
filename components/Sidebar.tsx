@@ -22,6 +22,15 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
 
   const hasOrgSelected = !!selectedOrgId;
 
+  // Sort orgs: SSB Internal first, then alphabetical
+  const sortedOrgs = [...orgs].sort((a, b) => {
+    const aIsSSB = a.org_identifier === "SSB1";
+    const bIsSSB = b.org_identifier === "SSB1";
+    if (aIsSSB && !bIsSSB) return -1;
+    if (!aIsSSB && bIsSSB) return 1;
+    return a.org_name.localeCompare(b.org_name);
+  });
+
   // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -45,10 +54,14 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
         <div className="px-3 pt-3 pb-1" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md border bg-gray-50 hover:bg-gray-100 text-sm"
+            className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md border text-sm transition-colors ${
+              selectedOrg
+                ? "bg-green-50 border-green-200 hover:bg-green-100"
+                : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+            }`}
           >
             <div className="flex items-center gap-2 truncate">
-              <Building2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+              <Building2 className={`w-4 h-4 flex-shrink-0 ${selectedOrg ? "text-green-600" : "text-gray-400"}`} />
               <span className="truncate font-medium">
                 {loading
                   ? "Loading…"
@@ -66,36 +79,53 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
 
           {dropdownOpen && (
             <div className="mt-1 border rounded-md bg-white shadow-lg max-h-60 overflow-y-auto z-50 relative">
-              {/* Clear selection option for admins */}
+              {/* Platform Admin View option */}
               <button
                 onClick={() => {
                   setSelectedOrgId(null);
                   setDropdownOpen(false);
                 }}
                 className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
-                  !selectedOrgId ? "bg-green-50 text-green-700 font-medium" : "text-gray-500"
+                  !selectedOrgId ? "bg-green-50 text-green-700 font-semibold" : "text-gray-500"
                 }`}
               >
                 — Platform Admin View —
               </button>
               <div className="border-t" />
-              {orgs.map((org) => (
-                <button
-                  key={org.org_id}
-                  onClick={() => {
-                    setSelectedOrgId(org.org_id);
-                    setDropdownOpen(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
-                    selectedOrgId === org.org_id
-                      ? "bg-green-50 text-green-700 font-medium"
-                      : "text-gray-700"
-                  }`}
-                >
-                  <div className="font-medium">{org.org_name}</div>
-                  <div className="text-xs text-gray-400">{org.org_identifier}</div>
-                </button>
-              ))}
+
+              {sortedOrgs.map((org) => {
+                const isSSB = org.org_identifier === "SSB1";
+                const isSelected = selectedOrgId === org.org_id;
+
+                return (
+                  <button
+                    key={org.org_id}
+                    onClick={() => {
+                      setSelectedOrgId(org.org_id);
+                      setDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                      isSelected
+                        ? "bg-green-50 text-green-700 font-semibold"
+                        : isSSB
+                        ? "bg-gradient-to-r from-green-50 to-yellow-50 hover:from-green-100 hover:to-yellow-100 text-green-800"
+                        : "text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {isSSB && <span className="text-yellow-500 text-xs">★</span>}
+                      <div>
+                        <div className={`font-medium ${isSSB && !isSelected ? "text-green-700" : ""}`}>
+                          {org.org_name}
+                        </div>
+                        <div className={`text-xs ${isSSB ? "text-green-500" : "text-gray-400"}`}>
+                          {org.org_identifier}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -108,13 +138,13 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             ? activeMatch.some((path) => pathname.startsWith(path))
             : pathname.startsWith(href);
 
-          const disabled = isAdmin && !hasOrgSelected;
+          const disabled = !hasOrgSelected;
 
           if (disabled) {
             return (
               <span
                 key={href}
-                className="block px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed"
+                className="block px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed select-none"
                 title="Select an organization first"
               >
                 {icon} {label}
