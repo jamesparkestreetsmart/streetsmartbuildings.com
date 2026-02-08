@@ -5,6 +5,7 @@ import Sidebar from "@/components/Sidebar";
 import ActivityTracker from "@/components/activitytracker";
 import { getCurrentUserId, getCurrentUserEmail } from "@/lib/auth";
 import LogoutButton from "@/components/LogoutButton";
+import { OrgProvider } from "@/context/OrgContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,7 +29,6 @@ export default async function RootLayout({
 }) {
   const userId = await getCurrentUserId();
   const userEmail = await getCurrentUserEmail();
-  console.log("DEBUG: userId =", userId, "userEmail =", userEmail);
 
   return (
     <html lang="en">
@@ -37,18 +37,20 @@ export default async function RootLayout({
       >
         {userId && <ActivityTracker userId={userId} />}
 
-        <div className="flex h-screen w-screen overflow-hidden">
-          <div className="flex flex-col h-full">
-            <Sidebar userEmail={userEmail} />
-            <div className="p-4">
-              <LogoutButton />
+        <OrgProvider userEmail={userEmail}>
+          <div className="flex h-screen w-screen overflow-hidden">
+            <div className="flex flex-col h-full">
+              <Sidebar userEmail={userEmail} />
+              <div className="p-4">
+                <LogoutButton />
+              </div>
             </div>
-          </div>
 
-          <main className="flex-1 overflow-y-auto p-4">
-            {children}
-          </main>
-        </div>
+            <main className="flex-1 overflow-y-auto p-4">
+              {children}
+            </main>
+          </div>
+        </OrgProvider>
       </body>
     </html>
   );
