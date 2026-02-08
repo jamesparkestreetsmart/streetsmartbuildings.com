@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Building2, Plus, Pencil, X, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Building2, Plus, Pencil, X, Check, ChevronDown } from "lucide-react";
 
 interface Organization {
   org_id: string;
@@ -27,18 +27,14 @@ const EMPTY_ORG = {
   owner_email: "",
   owner_first_name: "",
   owner_last_name: "",
-  billing_street: "",
-  billing_city: "",
-  billing_state: "",
-  billing_postal_code: "",
-  billing_country: "US",
 };
 
 export default function OrganizationsAdminCard() {
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedOrg, setExpandedOrg] = useState<string | null>(null);
-  const [editingOrg, setEditingOrg] = useState<string | null>(null);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Organization>>({});
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -64,38 +60,41 @@ export default function OrganizationsAdminCard() {
     fetchOrgs();
   }, [fetchOrgs]);
 
-  function startEdit(org: Organization) {
-    setEditingOrg(org.org_id);
+  const selectedOrg = orgs.find((o) => o.org_id === selectedOrgId) || null;
+
+  function startEdit() {
+    if (!selectedOrg) return;
+    setEditing(true);
     setEditForm({
-      org_name: org.org_name,
-      org_identifier: org.org_identifier,
-      owner_email: org.owner_email,
-      owner_first_name: org.owner_first_name || "",
-      owner_last_name: org.owner_last_name || "",
-      billing_street: org.billing_street || "",
-      billing_city: org.billing_city || "",
-      billing_state: org.billing_state || "",
-      billing_postal_code: org.billing_postal_code || "",
-      billing_country: org.billing_country || "US",
+      org_name: selectedOrg.org_name,
+      owner_email: selectedOrg.owner_email,
+      owner_first_name: selectedOrg.owner_first_name || "",
+      owner_last_name: selectedOrg.owner_last_name || "",
+      billing_street: selectedOrg.billing_street || "",
+      billing_city: selectedOrg.billing_city || "",
+      billing_state: selectedOrg.billing_state || "",
+      billing_postal_code: selectedOrg.billing_postal_code || "",
+      billing_country: selectedOrg.billing_country || "US",
     });
   }
 
-  async function handleSaveEdit(orgId: string) {
+  async function handleSave() {
+    if (!selectedOrgId) return;
     setSaving(true);
     setSaveMessage(null);
     try {
       const res = await fetch("/api/admin/organizations", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ org_id: orgId, updates: editForm }),
+        body: JSON.stringify({ org_id: selectedOrgId, updates: editForm }),
       });
       const data = await res.json();
       if (res.ok) {
         setSaveMessage("Saved");
-        setEditingOrg(null);
+        setEditing(false);
         fetchOrgs();
       } else {
-        setSaveMessage(`Error: ${data.error || "Failed to save"}`);
+        setSaveMessage(`Error: ${data.error || "Failed"}`);
       }
     } catch {
       setSaveMessage("Error: Failed to save");
@@ -129,13 +128,12 @@ export default function OrganizationsAdminCard() {
     }
   }
 
-  function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }
+  // Sort: SSB first, then alphabetical
+  const sortedOrgs = [...orgs].sort((a, b) => {
+    if (a.org_identifier === "SSB1") return -1;
+    if (b.org_identifier === "SSB1") return 1;
+    return a.org_name.localeCompare(b.org_name);
+  });
 
   if (loading) {
     return (
@@ -156,7 +154,7 @@ export default function OrganizationsAdminCard() {
           </p>
         </div>
         <button
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => { setShowAddForm(!showAddForm); setSelectedOrgId(null); setEditing(false); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold bg-green-600 text-white hover:bg-green-700"
         >
           <Plus className="w-4 h-4" />
@@ -238,211 +236,226 @@ export default function OrganizationsAdminCard() {
           </div>
         )}
 
-        {/* Org List */}
-        {orgs.map((org) => {
-          const isExpanded = expandedOrg === org.org_id;
-          const isEditing = editingOrg === org.org_id;
+        {/* Org Selector Dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="w-full flex items-center justify-between px-4 py-2.5 border rounded-lg bg-gray-50 hover:bg-gray-100 text-sm"
+          >
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-green-600" />
+              <span className="font-medium">
+                {selectedOrg ? (
+                  <>
+                    {selectedOrg.org_name}
+                    <span className="text-gray-400 ml-2 font-normal">{selectedOrg.org_identifier}</span>
+                  </>
+                ) : (
+                  <span className="text-gray-400">Select an organization to view details…</span>
+                )}
+              </span>
+            </div>
+            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+          </button>
 
-          return (
-            <div key={org.org_id} className="border rounded-lg overflow-hidden">
-              {/* Org Header Row */}
-              <button
-                onClick={() => setExpandedOrg(isExpanded ? null : org.org_id)}
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left"
-              >
-                <div className="flex items-center gap-3">
-                  <Building2 className="w-5 h-5 text-green-600" />
-                  <div>
-                    <div className="font-semibold text-gray-900">{org.org_name}</div>
-                    <div className="text-xs text-gray-500">
-                      {org.org_identifier} · Created {formatDate(org.created_at)}
-                      {org.dummy_site_id && " · ✓ Inventory"}
+          {dropdownOpen && (
+            <div className="absolute top-full left-0 right-0 mt-1 border rounded-lg bg-white shadow-lg max-h-48 overflow-y-auto z-10">
+              {sortedOrgs.map((org) => {
+                const isSSB = org.org_identifier === "SSB1";
+                const isSelected = selectedOrgId === org.org_id;
+                return (
+                  <button
+                    key={org.org_id}
+                    onClick={() => {
+                      setSelectedOrgId(org.org_id);
+                      setDropdownOpen(false);
+                      setEditing(false);
+                    }}
+                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                      isSelected
+                        ? "bg-green-50 text-green-700 font-semibold"
+                        : isSSB
+                        ? "bg-gradient-to-r from-green-50 to-yellow-50 hover:from-green-100 hover:to-yellow-100 text-green-800"
+                        : "text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isSSB && <span className="text-yellow-500 text-xs">★</span>}
+                        <span className="font-medium">{org.org_name}</span>
+                        <span className="text-xs text-gray-400">{org.org_identifier}</span>
+                      </div>
+                      {org.dummy_site_id && (
+                        <span className="text-green-500 text-xs">✓ Inventory</span>
+                      )}
                     </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Selected Org Details */}
+        {selectedOrg && !editing && (
+          <div className="border rounded-lg p-4 bg-gray-50">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+              <div>
+                <span className="text-gray-400 text-xs">Owner</span>
+                <div className="text-gray-900">{selectedOrg.owner_first_name} {selectedOrg.owner_last_name}</div>
+              </div>
+              <div>
+                <span className="text-gray-400 text-xs">Email</span>
+                <div className="text-gray-900">{selectedOrg.owner_email}</div>
+              </div>
+              {selectedOrg.billing_street && (
+                <div className="col-span-2">
+                  <span className="text-gray-400 text-xs">Billing</span>
+                  <div className="text-gray-900">
+                    {selectedOrg.billing_street}, {selectedOrg.billing_city}, {selectedOrg.billing_state} {selectedOrg.billing_postal_code}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400">{org.owner_email}</span>
-                  {isExpanded ? (
-                    <ChevronUp className="w-4 h-4 text-gray-400" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
-                  )}
+              )}
+              <div>
+                <span className="text-gray-400 text-xs">Inventory</span>
+                <div className={selectedOrg.dummy_site_id ? "text-green-600" : "text-red-500"}>
+                  {selectedOrg.dummy_site_id ? "✓ Created" : "✗ Missing"}
                 </div>
+              </div>
+              <div>
+                <span className="text-gray-400 text-xs">Org Code</span>
+                <div className="text-gray-900 font-mono">{selectedOrg.org_identifier}</div>
+              </div>
+            </div>
+            <button
+              onClick={startEdit}
+              className="mt-3 flex items-center gap-1 px-3 py-1.5 rounded text-sm font-medium border text-gray-600 hover:bg-gray-100"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Edit
+            </button>
+          </div>
+        )}
+
+        {/* Edit Mode */}
+        {selectedOrg && editing && (
+          <div className="border rounded-lg p-4 bg-white">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Org Name</label>
+                <input
+                  type="text"
+                  value={editForm.org_name || ""}
+                  onChange={(e) => setEditForm({ ...editForm, org_name: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Org Code</label>
+                <input
+                  type="text"
+                  value={selectedOrg.org_identifier}
+                  disabled
+                  className="w-full border rounded px-2 py-1.5 text-sm bg-gray-100 text-gray-500 cursor-not-allowed uppercase tracking-widest"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Owner First Name</label>
+                <input
+                  type="text"
+                  value={editForm.owner_first_name || ""}
+                  onChange={(e) => setEditForm({ ...editForm, owner_first_name: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Owner Last Name</label>
+                <input
+                  type="text"
+                  value={editForm.owner_last_name || ""}
+                  onChange={(e) => setEditForm({ ...editForm, owner_last_name: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Owner Email</label>
+                <input
+                  type="email"
+                  value={editForm.owner_email || ""}
+                  onChange={(e) => setEditForm({ ...editForm, owner_email: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Billing Street</label>
+                <input
+                  type="text"
+                  value={editForm.billing_street || ""}
+                  onChange={(e) => setEditForm({ ...editForm, billing_street: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">City</label>
+                <input
+                  type="text"
+                  value={editForm.billing_city || ""}
+                  onChange={(e) => setEditForm({ ...editForm, billing_city: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">State</label>
+                <input
+                  type="text"
+                  value={editForm.billing_state || ""}
+                  onChange={(e) => setEditForm({ ...editForm, billing_state: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Postal Code</label>
+                <input
+                  type="text"
+                  value={editForm.billing_postal_code || ""}
+                  onChange={(e) => setEditForm({ ...editForm, billing_postal_code: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Country</label>
+                <input
+                  type="text"
+                  value={editForm.billing_country || ""}
+                  onChange={(e) => setEditForm({ ...editForm, billing_country: e.target.value })}
+                  className="w-full border rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                <Check className="w-3.5 h-3.5" />
+                {saving ? "Saving…" : "Save"}
               </button>
-
-              {/* Expanded Details */}
-              {isExpanded && (
-                <div className="border-t px-4 py-4 bg-gray-50">
-                  {isEditing ? (
-                    /* Edit Mode */
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Org Name</label>
-                          <input
-                            type="text"
-                            value={editForm.org_name || ""}
-                            onChange={(e) => setEditForm({ ...editForm, org_name: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Org Code</label>
-                          <input
-                            type="text"
-                            value={editForm.org_identifier || ""}
-                            onChange={(e) => setEditForm({ ...editForm, org_identifier: e.target.value.toUpperCase() })}
-                            className="w-full border rounded px-2 py-1.5 text-sm uppercase tracking-widest"
-                            maxLength={4}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Owner First Name</label>
-                          <input
-                            type="text"
-                            value={editForm.owner_first_name || ""}
-                            onChange={(e) => setEditForm({ ...editForm, owner_first_name: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Owner Last Name</label>
-                          <input
-                            type="text"
-                            value={editForm.owner_last_name || ""}
-                            onChange={(e) => setEditForm({ ...editForm, owner_last_name: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Owner Email</label>
-                          <input
-                            type="email"
-                            value={editForm.owner_email || ""}
-                            onChange={(e) => setEditForm({ ...editForm, owner_email: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="col-span-2">
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Billing Street</label>
-                          <input
-                            type="text"
-                            value={editForm.billing_street || ""}
-                            onChange={(e) => setEditForm({ ...editForm, billing_street: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">City</label>
-                          <input
-                            type="text"
-                            value={editForm.billing_city || ""}
-                            onChange={(e) => setEditForm({ ...editForm, billing_city: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">State</label>
-                          <input
-                            type="text"
-                            value={editForm.billing_state || ""}
-                            onChange={(e) => setEditForm({ ...editForm, billing_state: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Postal Code</label>
-                          <input
-                            type="text"
-                            value={editForm.billing_postal_code || ""}
-                            onChange={(e) => setEditForm({ ...editForm, billing_postal_code: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Country</label>
-                          <input
-                            type="text"
-                            value={editForm.billing_country || ""}
-                            onChange={(e) => setEditForm({ ...editForm, billing_country: e.target.value })}
-                            className="w-full border rounded px-2 py-1.5 text-sm"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-2">
-                        <button
-                          onClick={() => handleSaveEdit(org.org_id)}
-                          disabled={saving}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          {saving ? "Saving…" : "Save"}
-                        </button>
-                        <button
-                          onClick={() => setEditingOrg(null)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-semibold border text-gray-600 hover:bg-gray-100"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                          Cancel
-                        </button>
-                        {saveMessage && (
-                          <span className={`text-xs ${saveMessage.startsWith("Error") ? "text-red-600" : "text-green-600"}`}>
-                            {saveMessage}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    /* View Mode */
-                    <div>
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                        <div>
-                          <span className="text-gray-500">Owner:</span>{" "}
-                          <span className="text-gray-900">{org.owner_first_name} {org.owner_last_name}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Email:</span>{" "}
-                          <span className="text-gray-900">{org.owner_email}</span>
-                        </div>
-                        {org.billing_street && (
-                          <div className="col-span-2">
-                            <span className="text-gray-500">Billing:</span>{" "}
-                            <span className="text-gray-900">
-                              {org.billing_street}, {org.billing_city}, {org.billing_state} {org.billing_postal_code}
-                            </span>
-                          </div>
-                        )}
-                        <div>
-                          <span className="text-gray-500">Inventory Site:</span>{" "}
-                          <span className={org.dummy_site_id ? "text-green-600" : "text-red-500"}>
-                            {org.dummy_site_id ? "✓ Created" : "✗ Missing"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Org ID:</span>{" "}
-                          <span className="text-gray-400 text-xs font-mono">{org.org_id}</span>
-                        </div>
-                      </div>
-                      <div className="mt-3">
-                        <button
-                          onClick={() => startEdit(org)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-medium border text-gray-600 hover:bg-gray-100"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                          Edit
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <button
+                onClick={() => setEditing(false)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded text-sm font-semibold border text-gray-600 hover:bg-gray-100"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancel
+              </button>
+              {saveMessage && (
+                <span className={`text-xs ${saveMessage.startsWith("Error") ? "text-red-600" : "text-green-600"}`}>
+                  {saveMessage}
+                </span>
               )}
             </div>
-          );
-        })}
+          </div>
+        )}
       </div>
     </div>
   );

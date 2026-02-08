@@ -19,8 +19,8 @@ export default async function AdminPage() {
         </p>
       </div>
 
-      <OrganizationsAdminCard />
       <MarketingAdminCard />
+      <OrganizationsAdminCard />
     </div>
   );
 }

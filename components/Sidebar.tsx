@@ -49,9 +49,62 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
         Eagle Eyes
       </div>
 
-      {/* Org Dropdown */}
+      {/* Nav Links */}
+      <nav className="flex-1 mt-1">
+        {links.map(({ href, label, icon, activeMatch }) => {
+          const active = activeMatch
+            ? activeMatch.some((path) => pathname.startsWith(path))
+            : pathname.startsWith(href);
+
+          const disabled = !hasOrgSelected;
+
+          if (disabled) {
+            return (
+              <span
+                key={href}
+                className="block px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed select-none"
+                title="Select an organization first"
+              >
+                {icon} {label}
+              </span>
+            );
+          }
+
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`block px-4 py-2 text-sm font-medium hover:bg-gray-100 ${
+                active ? "bg-gray-200 text-black" : "text-gray-700"
+              }`}
+            >
+              {icon} {label}
+            </Link>
+          );
+        })}
+
+        {isAdmin && (
+          <>
+            <div className="border-t my-2 mx-4" />
+            <Link
+              href="/admin"
+              className={`block px-4 py-2 text-sm font-medium hover:bg-gray-100 ${
+                pathname.startsWith("/admin") ? "bg-gray-200 text-black" : "text-gray-700"
+              }`}
+            >
+              <Shield className="w-4 h-4 inline-block mr-2" />
+              Admin
+            </Link>
+          </>
+        )}
+      </nav>
+
+      {/* Org Dropdown — below nav */}
       {isAdmin && (
-        <div className="px-3 pt-3 pb-1" ref={dropdownRef}>
+        <div className="px-3 pb-3 pt-1 border-t" ref={dropdownRef}>
+          <label className="block text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1 px-1">
+            Organization
+          </label>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md border text-sm transition-colors ${
@@ -78,7 +131,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
           </button>
 
           {dropdownOpen && (
-            <div className="mt-1 border rounded-md bg-white shadow-lg max-h-60 overflow-y-auto z-50 relative">
+            <div className="mt-1 border rounded-md bg-white shadow-lg max-h-60 overflow-y-auto z-50 absolute left-3 right-3 bottom-16">
               {/* Platform Admin View option */}
               <button
                 onClick={() => {
@@ -130,56 +183,6 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
           )}
         </div>
       )}
-
-      {/* Nav Links */}
-      <nav className="flex-1 mt-1">
-        {links.map(({ href, label, icon, activeMatch }) => {
-          const active = activeMatch
-            ? activeMatch.some((path) => pathname.startsWith(path))
-            : pathname.startsWith(href);
-
-          const disabled = !hasOrgSelected;
-
-          if (disabled) {
-            return (
-              <span
-                key={href}
-                className="block px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed select-none"
-                title="Select an organization first"
-              >
-                {icon} {label}
-              </span>
-            );
-          }
-
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`block px-4 py-2 text-sm font-medium hover:bg-gray-100 ${
-                active ? "bg-gray-200 text-black" : "text-gray-700"
-              }`}
-            >
-              {icon} {label}
-            </Link>
-          );
-        })}
-
-        {isAdmin && (
-          <>
-            <div className="border-t my-2 mx-4" />
-            <Link
-              href="/admin"
-              className={`block px-4 py-2 text-sm font-medium hover:bg-gray-100 ${
-                pathname.startsWith("/admin") ? "bg-gray-200 text-black" : "text-gray-700"
-              }`}
-            >
-              <Shield className="w-4 h-4 inline-block mr-2" />
-              Admin
-            </Link>
-          </>
-        )}
-      </nav>
     </aside>
   );
 }
