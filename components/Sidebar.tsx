@@ -56,7 +56,9 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             ? activeMatch.some((path) => pathname.startsWith(path))
             : pathname.startsWith(href);
 
-          const disabled = !hasOrgSelected;
+          // Sites is always available for admins; others need org selected
+          const alwaysEnabled = isAdmin && href === "/sites";
+          const disabled = !hasOrgSelected && !alwaysEnabled;
 
           if (disabled) {
             return (
