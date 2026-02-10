@@ -131,6 +131,7 @@ export default function LandingPageUI() {
 
     try {
       // Step 1: Create the lead
+      const params = new URLSearchParams(window.location.search);
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -139,6 +140,9 @@ export default function LandingPageUI() {
           first_name: firstName,
           source_page: "landing",
           industry,
+          utm_source: params.get("utm_source") || null,
+          utm_medium: params.get("utm_medium") || null,
+          utm_campaign: params.get("utm_campaign") || null,
         }),
       });
 

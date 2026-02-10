@@ -10,7 +10,70 @@ const supabase = createClient(
 
 const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
 
-// PATCH /api/marketing/leads — update a lead's fields and log the change
+// POST /api/leads — create a new marketing lead (from landing page)
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { email, first_name, source_page, industry, utm_source, utm_medium, utm_campaign } = body;
+
+    if (!email) {
+      return NextResponse.json({ error: "Email is required" }, { status: 400 });
+    }
+
+    // Extract request metadata
+    const user_agent = request.headers.get("user-agent") || null;
+    const ip_address =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      null;
+
+    // Insert the lead
+    const { data, error } = await supabase
+      .from("z_marketing_leads")
+      .insert({
+        email,
+        first_name: first_name || null,
+        source_page: source_page || null,
+        utm_source: utm_source || null,
+        utm_medium: utm_medium || null,
+        utm_campaign: utm_campaign || null,
+        user_agent,
+        ip_address,
+        welcome_email_status: "pending",
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error("Lead insert error:", error);
+      return NextResponse.json(
+        { error: error.message || "Failed to create lead" },
+        { status: 500 }
+      );
+    }
+
+    // Log to activity
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "marketing_lead_created",
+      source: "landing_page",
+      message: `New lead: ${email}${first_name ? ` (${first_name})` : ""}${industry ? ` — ${industry}` : ""}`,
+      metadata: { lead_id: data.id, email, first_name, source_page, industry },
+      created_by: email,
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
+    return NextResponse.json({ success: true, lead_id: data.id });
+  } catch (err: any) {
+    console.error("Failed to create lead:", err);
+    return NextResponse.json(
+      { error: err.message || "Failed to create lead" },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH /api/leads — update a lead's fields and log the change
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
