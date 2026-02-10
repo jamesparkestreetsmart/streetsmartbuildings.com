@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import TabClientWrapper from "./tab-client-wrapper";
 import AddEquipmentButton from "@/components/equipment/AddEquipmentButton";
+import SiteInventoryPanel from "@/components/inventory/SiteInventoryPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -28,9 +29,6 @@ export default async function SitePage(props: any) {
     }
   );
 
-  /** ============================
-   *  FETCH SITE INFORMATION
-   * ============================ */
   const { data: site, error: siteError } = await supabase
     .from("a_sites")
     .select("*")
@@ -42,152 +40,212 @@ export default async function SitePage(props: any) {
     return <div className="p-6 text-red-600">Error loading site.</div>;
   }
 
-  /** ============================
-   *  FETCH INFRASTRUCTURE EQUIPMENT (FIXED)
-   * ============================ */
-  const { data: infrastructureEquipment } = await supabase
-    .from("a_equipments")
-    .select("equipment_id, equipment_name, equipment_group, equipment_type_id, status")
-    .eq("site_id", id)
-    .eq("equipment_group", "Infrastructure")
-    .order("equipment_name");
+  const isInventorySite = site.status === "inventory";
 
-  /** ============================
-   *  WEATHER LOOKUP
-   * ============================ */
-  let weatherSummary = "Weather data unavailable";
-
-  try {
-    const geoResponse = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-        site.city
-      )}&count=1&language=en&format=json`
-    );
-
-    const geoData = await geoResponse.json();
-    const lat = geoData.results?.[0]?.latitude;
-    const lon = geoData.results?.[0]?.longitude;
-
-    if (lat && lon) {
-      const weatherResponse = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`
-      );
-      const weatherData = await weatherResponse.json();
-
-      const tempC = weatherData?.current_weather?.temperature;
-      const wind = weatherData?.current_weather?.windspeed;
-
-      if (tempC !== undefined && wind !== undefined) {
-        const tempF = (tempC * 9) / 5 + 32;
-        weatherSummary = `🌤️ ${tempF.toFixed(1)}°F • Wind ${wind.toFixed(1)} mph`;
-      }
+  // Fetch org info
+  let orgName = "";
+  let orgAddress = "";
+  if (site.org_id) {
+    const { data: org } = await supabase
+      .from("a_organizations")
+      .select("org_name, billing_street, billing_city, billing_state, billing_postal_code")
+      .eq("org_id", site.org_id)
+      .single();
+    orgName = org?.org_name || "";
+    if (org) {
+      orgAddress = [org.billing_street, org.billing_city, org.billing_state, org.billing_postal_code]
+        .filter(Boolean)
+        .join(", ");
     }
-  } catch (err) {
-    console.error("Weather fetch error:", err);
   }
+
+  // Infrastructure equipment (operational sites only)
+  let infrastructureEquipment: any[] = [];
+  if (!isInventorySite) {
+    const { data } = await supabase
+      .from("a_equipments")
+      .select("equipment_id, equipment_name, equipment_group, equipment_type_id, status")
+      .eq("site_id", id)
+      .eq("equipment_group", "Infrastructure")
+      .order("equipment_name");
+    infrastructureEquipment = data || [];
+  }
+
+  // Weather (operational sites only)
+  let weatherSummary = "Weather data unavailable";
+  if (!isInventorySite && site.city) {
+    try {
+      const geoResponse = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+          site.city
+        )}&count=1&language=en&format=json`
+      );
+      const geoData = await geoResponse.json();
+      const lat = geoData.results?.[0]?.latitude;
+      const lon = geoData.results?.[0]?.longitude;
+
+      if (lat && lon) {
+        const weatherResponse = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`
+        );
+        const weatherData = await weatherResponse.json();
+        const tempC = weatherData?.current_weather?.temperature;
+        const wind = weatherData?.current_weather?.windspeed;
+
+        if (tempC !== undefined && wind !== undefined) {
+          const tempF = (tempC * 9) / 5 + 32;
+          weatherSummary = `🌤️ ${tempF.toFixed(1)}°F • Wind ${wind.toFixed(1)} mph`;
+        }
+      }
+    } catch (err) {
+      console.error("Weather fetch error:", err);
+    }
+  }
+
+  // Address for display
+  const addressParts = [
+    site.address_line1, site.address_line2,
+    [site.city, site.state].filter(Boolean).join(", "),
+    site.postal_code,
+  ].filter(Boolean);
+  const fullAddress = addressParts.join(", ");
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* HEADER */}
-      <header className="w-full rounded-lg bg-gradient-to-r from-green-600 to-yellow-500 p-6 grid grid-cols-1 xl:grid-cols-[1.4fr_0.8fr_0.8fr] gap-6">
-
-        {/* LEFT — Site Info */}
-        <div>
-          <h1 className="text-3xl font-bold text-white">{site.site_name}</h1>
-
-          <div className="mt-2 text-sm text-white space-y-1">
-            <p><span className="font-semibold">Brand:</span> {site.brand || "—"}</p>
-            <p><span className="font-semibold">Industry:</span> {site.industry || "—"}</p>
-          </div>
-
-          <p className="text-white mt-3">
-            {site.address_line1}
-            {site.address_line2 ? `, ${site.address_line2}` : ""},{" "}
-            {site.city}, {site.state} {site.postal_code}
-          </p>
-
-          <p className="text-white mt-1">{site.phone_number}</p>
-
-          <span className="mt-2 inline-block bg-black/40 text-white text-xs font-semibold px-3 py-1 rounded-md">
-            {site.timezone || "CST"}
-          </span>
-        </div>
-
-        {/* CENTER — Weather + Buttons */}
-        <div className="flex flex-col items-end justify-between">
-
-          <div className="text-right">
-            <h2 className="font-semibold text-white text-lg">Weather</h2>
-            <p className="text-white text-sm">{weatherSummary}</p>
-          </div>
-
-          <div className="flex flex-col gap-2 mt-4">
-            <Link
-              href={`/sites/${id}/edit`}
-              className="px-4 py-2 bg-white/90 hover:bg-white text-green-700 font-semibold rounded-md shadow text-center"
-            >
-              Edit Site
-            </Link>
-
-            <Link
-              href={`/sites/${id}/gateways`}
-              className="px-4 py-2 bg-white/90 hover:bg-white text-blue-700 font-semibold rounded-md shadow text-center"
-            >
-              Sync Devices & Gateways
-            </Link>
-
-            <AddEquipmentButton siteId={id} />
-          </div>
-        </div>
-
-        {/* RIGHT — Infrastructure Matrix */}
-        <div className="bg-white/95 rounded-md shadow p-3 text-xs">
-
-          <div className="font-semibold text-gray-800 mb-2">
-            Infrastructure Overview
-          </div>
-
-          <div className="grid grid-cols-4 font-semibold text-gray-600 border-b pb-1 mb-1">
-            <div>Group</div>
-            <div>Type</div>
-            <div>Name</div>
-            <div>Status</div>
-          </div>
-
-          <div className="max-h-28 overflow-y-auto space-y-1 font-mono text-gray-800">
-            {infrastructureEquipment?.length ? (
-              infrastructureEquipment.map((eq, i) => (
-                <div key={i} className="grid grid-cols-4 gap-2">
-                  <div>{eq.equipment_group}</div>
-                  <div>{eq.equipment_type_id}</div>
-                  <div className="truncate" title={eq.equipment_name}>
-                    <Link
-                      href={`/sites/${id}/equipment/${eq.equipment_id}/individual-equipment`}
-                      className="text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      {eq.equipment_name}
-                    </Link>
-                  </div>
-                  <div
-                    className={
-                      eq.status === "active"
-                        ? "text-green-600"
-                        : eq.status === "inactive"
-                        ? "text-yellow-600"
-                        : "text-gray-500"
-                    }
-                  >
-                    {eq.status}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="italic text-gray-500">No infrastructure equipment</div>
+      {isInventorySite ? (
+        /* ─── INVENTORY SITE HEADER ─── */
+        <header className="w-full rounded-lg bg-gradient-to-r from-green-600 to-yellow-500 p-6 flex items-start justify-between">
+          <div>
+            {orgName && (
+              <p className="text-white/80 text-sm font-medium tracking-wide uppercase mb-1">
+                {orgName}
+              </p>
             )}
+            <h1 className="text-3xl font-bold text-white">Inventory</h1>
+            {orgAddress && (
+              <p className="text-white/90 mt-2 text-sm">{orgAddress}</p>
+            )}
+            <span className="mt-2 inline-block bg-black/40 text-white text-xs font-semibold px-3 py-1 rounded-md">
+              {site.timezone || "America/Chicago"}
+            </span>
           </div>
-        </div>
 
-      </header>
+          <Link
+            href="/sites"
+            className="px-4 py-2 bg-white/90 hover:bg-white text-green-700 font-semibold rounded-md shadow text-center text-sm"
+          >
+            ← Back
+          </Link>
+        </header>
+      ) : (
+        /* ─── OPERATIONAL SITE HEADER ─── */
+        <header className="w-full rounded-lg bg-gradient-to-r from-green-600 to-yellow-500 p-6 grid grid-cols-1 xl:grid-cols-[1.4fr_0.8fr_0.8fr] gap-6">
+
+          {/* LEFT — Site Info */}
+          <div>
+            {orgName && (
+              <p className="text-white/80 text-sm font-medium tracking-wide uppercase mb-1">
+                {orgName}
+              </p>
+            )}
+
+            <h1 className="text-3xl font-bold text-white">{site.site_name}</h1>
+
+            {fullAddress && (
+              <p className="text-white/90 mt-2 text-sm">{fullAddress}</p>
+            )}
+
+            {/* Brand / Industry / Back */}
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              {site.brand && (
+                <span className="bg-white/20 text-white text-xs font-medium px-3 py-1 rounded-full backdrop-blur-sm">
+                  Brand: {site.brand}
+                </span>
+              )}
+              {site.industry && (
+                <span className="bg-white/20 text-white text-xs font-medium px-3 py-1 rounded-full backdrop-blur-sm">
+                  Industry: {site.industry}
+                </span>
+              )}
+              <Link
+                href="/sites"
+                className="bg-white/20 text-white text-xs font-medium px-3 py-1 rounded-full backdrop-blur-sm hover:bg-white/30"
+              >
+                ← Back to Sites
+              </Link>
+            </div>
+
+            <span className="mt-2 inline-block bg-black/40 text-white text-xs font-semibold px-3 py-1 rounded-md">
+              {site.timezone || "America/Chicago"}
+            </span>
+          </div>
+
+          {/* CENTER — Weather + Buttons */}
+          <div className="flex flex-col items-end justify-between">
+            <div className="text-right">
+              <h2 className="font-semibold text-white text-lg">Weather</h2>
+              <p className="text-white text-sm">{weatherSummary}</p>
+            </div>
+            <div className="flex flex-col gap-2 mt-4">
+              <Link
+                href={`/sites/${id}/edit`}
+                className="px-4 py-2 bg-white/90 hover:bg-white text-green-700 font-semibold rounded-md shadow text-center"
+              >
+                Edit Site
+              </Link>
+              <Link
+                href={`/sites/${id}/gateways`}
+                className="px-4 py-2 bg-white/90 hover:bg-white text-blue-700 font-semibold rounded-md shadow text-center"
+              >
+                Sync Devices &amp; Gateways
+              </Link>
+              <AddEquipmentButton siteId={id} />
+            </div>
+          </div>
+
+          {/* RIGHT — Infrastructure + Inventory Panels */}
+          <div className="space-y-3">
+            {/* Infrastructure Overview */}
+            <div className="bg-white/95 rounded-md shadow p-3 text-xs">
+              <div className="font-semibold text-gray-800 mb-2">
+                Infrastructure Overview
+              </div>
+              <div className="grid grid-cols-4 font-semibold text-gray-600 border-b pb-1 mb-1">
+                <div>Group</div><div>Type</div><div>Name</div><div>Status</div>
+              </div>
+              <div className="max-h-28 overflow-y-auto space-y-1 font-mono text-gray-800">
+                {infrastructureEquipment?.length ? (
+                  infrastructureEquipment.map((eq, i) => (
+                    <div key={i} className="grid grid-cols-4 gap-2">
+                      <div>{eq.equipment_group}</div>
+                      <div>{eq.equipment_type_id}</div>
+                      <div className="truncate" title={eq.equipment_name}>
+                        <Link
+                          href={`/sites/${id}/equipment/${eq.equipment_id}/individual-equipment`}
+                          className="text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          {eq.equipment_name}
+                        </Link>
+                      </div>
+                      <div className={
+                        eq.status === "active" ? "text-green-600" :
+                        eq.status === "inactive" ? "text-yellow-600" : "text-gray-500"
+                      }>
+                        {eq.status}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="italic text-gray-500">No infrastructure equipment</div>
+                )}
+              </div>
+            </div>
+
+            {/* Inventory Spaces Panel */}
+            <SiteInventoryPanel siteId={id} />
+          </div>
+        </header>
+      )}
 
       {/* MAIN CONTENT */}
       <main className="p-6">

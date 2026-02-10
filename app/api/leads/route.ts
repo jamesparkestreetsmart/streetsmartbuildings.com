@@ -1,74 +1,78 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export async function POST(req: Request) {
-  let body;
+export const dynamic = "force-dynamic";
 
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
+
+// PATCH /api/marketing/leads — update a lead's fields and log the change
+export async function PATCH(request: Request) {
   try {
-    body = await req.json();
-  } catch (err) {
-    console.error("JSON parse error:", err);
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    const body = await request.json();
+    const { id, first_name, organization_name, projected_sites, updated_by } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing lead id" }, { status: 400 });
+    }
+
+    // Fetch current values for diff
+    const { data: before } = await supabase
+      .from("z_marketing_leads")
+      .select("first_name, organization_name, projected_sites, email")
+      .eq("id", id)
+      .single();
+
+    // Update the lead
+    const { error } = await supabase
+      .from("z_marketing_leads")
+      .update({
+        first_name,
+        organization_name,
+        projected_sites,
+      })
+      .eq("id", id);
+
+    if (error) throw error;
+
+    // Build change details for the log
+    const changes: Record<string, { from: any; to: any }> = {};
+    if (before) {
+      if (before.first_name !== first_name) {
+        changes.first_name = { from: before.first_name, to: first_name };
+      }
+      if (before.organization_name !== organization_name) {
+        changes.organization_name = { from: before.organization_name, to: organization_name };
+      }
+      if (before.projected_sites !== projected_sites) {
+        changes.projected_sites = { from: before.projected_sites, to: projected_sites };
+      }
+    }
+
+    // Only log if something actually changed
+    if (Object.keys(changes).length > 0) {
+      const changedFields = Object.keys(changes).join(", ");
+      await supabase.from("b_records_log").insert({
+        org_id: SSB_ORG_ID,
+        event_type: "marketing_lead_edit",
+        source: "admin_ui",
+        message: `Updated lead ${before?.email || id}: ${changedFields}`,
+        metadata: { lead_id: id, email: before?.email, changes },
+        created_by: updated_by || "admin",
+        event_date: new Date().toISOString().split("T")[0],
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error("Failed to update lead:", err);
+    return NextResponse.json(
+      { error: err.message || "Failed to update lead" },
+      { status: 500 }
+    );
   }
-
-  const email = body?.email?.trim();
-  if (!email) {
-    return NextResponse.json({ error: "Email is required" }, { status: 400 });
-  }
-
-  const first_name = body?.first_name?.trim();
-  if (!first_name) {
-    return NextResponse.json({ error: "First name is required" }, { status: 400 });
-  }
-
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
-  const ip_address = req.headers.get("x-forwarded-for") ?? null;
-  const user_agent = req.headers.get("user-agent") ?? null;
-
-  const payload = {
-    email,
-    first_name,
-    organization_name: body?.organization_name?.trim() ?? null,
-    source_page: body?.source_page ?? "landing",
-    utm_campaign: body?.utm?.campaign ?? null,
-    utm_medium: body?.utm?.medium ?? null,
-    utm_source: body?.utm?.source ?? null,
-    ip_address,
-    user_agent,
-  };
-
-  console.log("Lead insert payload:", payload);
-
-  const { data: leadRows, error } = await supabase
-    .from("z_marketing_leads")
-    .insert(payload)
-    .select("id")
-    .single();
-
-  if (error) {
-    console.error("Supabase insert error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  /* 🔽 LINK VIDEOS TO LEAD 🔽 */
-  const { error: videoLinkError } = await supabase
-    .from("z_marketing_lead_videos")
-    .update({
-      status: "linked",
-      lead_id: leadRows.id,
-    })
-    .eq("lead_email", email)
-    .in("status", ["uploaded", "pending"]);
-
-  if (videoLinkError) {
-    console.error("Video link error:", videoLinkError);
-    // Intentionally do NOT fail the request
-  }
-  /* 🔼 END LINK 🔼 */
-
-  return NextResponse.json({ success: true });
 }

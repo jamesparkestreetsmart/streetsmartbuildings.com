@@ -76,6 +76,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
         .select("space_id, name, space_type")
         .eq("site_id", siteId)
         .neq("name", "Unassigned")
+        .neq("space_type", "inventory_storage")
         .order("name");
 
       if (spacesError) {

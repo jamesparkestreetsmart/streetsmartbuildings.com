@@ -19,7 +19,7 @@ export default async function AdminPage() {
         </p>
       </div>
 
-      <MarketingAdminCard />
+      <MarketingAdminCard userEmail={email} />
       <OrganizationsAdminCard />
     </div>
   );

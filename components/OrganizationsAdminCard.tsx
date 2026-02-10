@@ -21,16 +21,26 @@ interface Organization {
   updated_at: string;
 }
 
+interface EligibleLead {
+  id: string;
+  email: string;
+  first_name: string | null;
+  organization_name: string | null;
+  projected_sites: number | null;
+}
+
 const EMPTY_ORG = {
   org_name: "",
   org_identifier: "",
   owner_email: "",
   owner_first_name: "",
   owner_last_name: "",
+  lead_id: null as string | null,
 };
 
 export default function OrganizationsAdminCard() {
   const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [eligibleLeads, setEligibleLeads] = useState<EligibleLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -49,6 +59,7 @@ export default function OrganizationsAdminCard() {
       const res = await fetch("/api/admin/organizations");
       const data = await res.json();
       setOrgs(data.organizations || []);
+      setEligibleLeads(data.eligibleLeads || []);
     } catch (err) {
       console.error("Failed to load orgs:", err);
     } finally {
@@ -61,6 +72,27 @@ export default function OrganizationsAdminCard() {
   }, [fetchOrgs]);
 
   const selectedOrg = orgs.find((o) => o.org_id === selectedOrgId) || null;
+
+  function selectLead(leadId: string) {
+    const lead = eligibleLeads.find((l) => l.id === leadId);
+    if (!lead) return;
+
+    setNewOrg({
+      org_name: lead.organization_name || "",
+      org_identifier: (lead.organization_name || "")
+        .replace(/[^a-zA-Z]/g, "")
+        .slice(0, 4)
+        .toUpperCase(),
+      owner_email: lead.email || "",
+      owner_first_name: lead.first_name || "",
+      owner_last_name: "",
+      lead_id: lead.id,
+    });
+  }
+
+  function clearLeadSelection() {
+    setNewOrg(EMPTY_ORG);
+  }
 
   function startEdit() {
     if (!selectedOrg) return;
@@ -167,6 +199,49 @@ export default function OrganizationsAdminCard() {
         {showAddForm && (
           <div className="border-2 border-dashed border-green-300 rounded-lg p-4 bg-green-50">
             <h4 className="font-semibold text-sm text-green-800 mb-3">New Organization</h4>
+
+            {/* Lead Selector */}
+            {eligibleLeads.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Create from Marketing Lead
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={newOrg.lead_id || ""}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        selectLead(e.target.value);
+                      } else {
+                        clearLeadSelection();
+                      }
+                    }}
+                    className="flex-1 border rounded px-2 py-1.5 text-sm bg-white"
+                  >
+                    <option value="">Select a lead…</option>
+                    {eligibleLeads.map((lead) => (
+                      <option key={lead.id} value={lead.id}>
+                        {lead.organization_name} — {lead.first_name || lead.email} ({lead.projected_sites} sites)
+                      </option>
+                    ))}
+                  </select>
+                  {newOrg.lead_id && (
+                    <button
+                      onClick={clearLeadSelection}
+                      className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 border rounded"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {newOrg.lead_id && (
+                  <p className="text-xs text-green-700 mt-1">
+                    ✓ Org will be linked to this lead automatically
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Org Name *</label>

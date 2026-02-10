@@ -56,9 +56,12 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             ? activeMatch.some((path) => pathname.startsWith(path))
             : pathname.startsWith(href);
 
-          // Sites is always available for admins; others need org selected
-          const alwaysEnabled = isAdmin && href === "/sites";
-          const disabled = !hasOrgSelected && !alwaysEnabled;
+          // When SSB Internal is selected, only Sites is clickable
+          // When another org is selected, all links are active
+          // When no org selected, all grayed out
+          const isSSBOrg = selectedOrg?.org_identifier === "SSB1";
+          const alwaysEnabled = href === "/sites" && (isAdmin || hasOrgSelected);
+          const disabled = !hasOrgSelected || (isSSBOrg && href !== "/sites");
 
           if (disabled) {
             return (
@@ -100,6 +103,14 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
           </>
         )}
       </nav>
+
+      {/* User Email */}
+      {userEmail && (
+        <div className="px-4 py-2 border-t">
+          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Logged in as</div>
+          <div className="text-xs text-gray-600 truncate" title={userEmail}>{userEmail}</div>
+        </div>
+      )}
 
       {/* Org Dropdown — below nav */}
       {isAdmin && (

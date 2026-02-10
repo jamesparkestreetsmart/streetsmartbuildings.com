@@ -8,6 +8,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
+
 // GET /api/marketing/config — fetch all marketing config
 export async function GET() {
   try {
@@ -38,7 +40,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
-    const { updates } = body as { updates: Record<string, string> };
+    const { updates, updated_by } = body as { updates: Record<string, string>; updated_by?: string };
 
     if (!updates || typeof updates !== "object") {
       return NextResponse.json(
@@ -53,7 +55,19 @@ export async function PUT(req: NextRequest) {
       "welcome_email_body",
     ];
 
+    // Fetch current values for diff
+    const { data: currentConfig } = await supabase
+      .from("z_marketing_config")
+      .select("key, value")
+      .in("key", allowedKeys);
+
+    const currentValues: Record<string, string> = {};
+    currentConfig?.forEach((row) => {
+      currentValues[row.key] = row.value;
+    });
+
     const results: Record<string, string> = {};
+    const changes: Record<string, { from: string; to: string }> = {};
 
     for (const [key, value] of Object.entries(updates)) {
       if (!allowedKeys.includes(key)) {
@@ -81,7 +95,34 @@ export async function PUT(req: NextRequest) {
         results[key] = `error: ${error.message}`;
       } else {
         results[key] = "updated";
+
+        // Track if value actually changed
+        if (currentValues[key] !== value) {
+          changes[key] = { from: currentValues[key] || "", to: value };
+        }
       }
+    }
+
+    // Log changes to audit log
+    if (Object.keys(changes).length > 0) {
+      const changedKeys = Object.keys(changes);
+      // Summarize — don't log full body text in message
+      const summary = changedKeys.map((k) => {
+        if (k === "welcome_email_body") return "email body";
+        if (k === "welcome_email_subject") return "email subject";
+        if (k === "welcome_email_delay_hours") return `delay → ${changes[k].to}h`;
+        return k;
+      }).join(", ");
+
+      await supabase.from("b_records_log").insert({
+        org_id: SSB_ORG_ID,
+        event_type: "marketing_config_update",
+        source: "admin_ui",
+        message: `Updated config: ${summary}`,
+        metadata: { changes },
+        created_by: updated_by || "admin",
+        event_date: new Date().toISOString().split("T")[0],
+      });
     }
 
     return NextResponse.json({ results });

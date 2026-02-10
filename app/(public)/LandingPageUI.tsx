@@ -22,7 +22,7 @@ const INDUSTRY_PITCH: Record<Industry, { headline: string; body: string; highlig
       "Refrigeration & freezer monitoring with real-time alerts to prevent product loss",
       "Water usage monitoring that detects leaks, stuck valves, and overnight waste",
       "Portfolio benchmarking across locations to identify underperforming stores and hidden savings opportunities",
-            ],
+    ],
   },
   hospitality: {
     headline: "Guest Comfort Meets Operational Efficiency",
@@ -77,12 +77,60 @@ export default function LandingPageUI() {
     setVideos((prev) => [...prev, ...files]);
   }
 
+  async function uploadVideos(email: string, leadId: string) {
+    for (const video of videos) {
+      try {
+        // Get duration
+        const duration = await getVideoDuration(video);
+
+        // Get signed upload URL
+        const res = await fetch("/api/leads/upload-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email,
+            lead_id: leadId,
+            filename: video.name,
+            contentType: video.type,
+            fileSizeBytes: video.size,
+            durationSeconds: Math.round(duration),
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          console.error("Upload URL error:", data.error);
+          continue;
+        }
+
+        // Upload the file
+        await fetch(data.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": video.type },
+          body: video,
+        });
+      } catch (err) {
+        console.error("Video upload failed:", err);
+      }
+    }
+
+    // Confirm uploads
+    if (videos.length > 0) {
+      await fetch("/api/leads/confirm-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+    }
+  }
+
   async function handleLeadSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
+      // Step 1: Create the lead
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -98,6 +146,11 @@ export default function LandingPageUI() {
       if (!res.ok) {
         setError(data.error || "Unable to submit.");
         return;
+      }
+
+      // Step 2: Upload videos with lead_id
+      if (videos.length > 0 && data.lead_id) {
+        await uploadVideos(leadEmail, data.lead_id);
       }
 
       setMessage("Thanks! We'll reach out shortly.");
@@ -278,4 +331,18 @@ export default function LandingPageUI() {
       </div>
     </div>
   );
+}
+
+// Helper to get video duration
+function getVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(video.src);
+      resolve(video.duration);
+    };
+    video.onerror = () => reject(new Error("Failed to load video metadata"));
+    video.src = URL.createObjectURL(file);
+  });
 }

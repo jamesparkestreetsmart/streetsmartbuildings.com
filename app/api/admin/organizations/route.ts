@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// GET /api/admin/organizations — fetch all orgs
+// GET /api/admin/organizations — fetch all orgs + eligible leads for linking
 export async function GET() {
   try {
     const { data, error } = await supabase
@@ -18,7 +18,19 @@ export async function GET() {
 
     if (error) throw error;
 
-    return NextResponse.json({ organizations: data });
+    // Fetch leads eligible for org creation: have org name + projected sites, no org_id yet
+    const { data: eligibleLeads } = await supabase
+      .from("z_marketing_leads")
+      .select("id, email, first_name, organization_name, projected_sites")
+      .not("organization_name", "is", null)
+      .not("projected_sites", "is", null)
+      .is("org_id", null)
+      .order("organization_name");
+
+    return NextResponse.json({
+      organizations: data,
+      eligibleLeads: eligibleLeads || [],
+    });
   } catch (err: any) {
     console.error("Failed to fetch orgs:", err);
     return NextResponse.json(
@@ -28,11 +40,11 @@ export async function GET() {
   }
 }
 
-// POST /api/admin/organizations — create new org
+// POST /api/admin/organizations — create new org, optionally linked to a lead
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { org_name, org_identifier, owner_email, owner_first_name, owner_last_name } = body;
+    const { org_name, org_identifier, owner_email, owner_first_name, owner_last_name, lead_id } = body;
 
     if (!org_name || !org_identifier) {
       return NextResponse.json(
@@ -41,6 +53,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Create the org
     const { data, error } = await supabase
       .from("a_organizations")
       .insert({
@@ -50,11 +63,54 @@ export async function POST(req: NextRequest) {
         owner_first_name: owner_first_name || null,
         owner_last_name: owner_last_name || null,
         billing_country: "US",
+        marketing_lead_id: lead_id || null,
       })
       .select()
       .single();
 
     if (error) throw error;
+
+    // If created from a lead, link the lead back to the org
+    if (lead_id && data?.org_id) {
+      await supabase
+        .from("z_marketing_leads")
+        .update({ org_id: data.org_id })
+        .eq("id", lead_id);
+    }
+
+    // Log to SSB org activity
+    const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
+    const today = new Date().toISOString().split("T")[0];
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "marketing_org_created",
+      source: "admin_ui",
+      message: `Created organization ${org_name} (${org_identifier.toUpperCase()})${lead_id ? " from marketing lead" : ""}`,
+      metadata: {
+        new_org_id: data.org_id,
+        org_name,
+        org_identifier: org_identifier.toUpperCase(),
+        lead_id: lead_id || null,
+      },
+      created_by: owner_email || "admin",
+      event_date: today,
+    });
+
+    // Log to the new org's activity (shows on their My Journey)
+    await supabase.from("b_records_log").insert({
+      org_id: data.org_id,
+      event_type: "org_created",
+      source: "admin_ui",
+      message: `Organization created — welcome to Eagle Eyes`,
+      metadata: {
+        org_name,
+        org_identifier: org_identifier.toUpperCase(),
+        created_from_lead: !!lead_id,
+      },
+      created_by: "Eagle Eyes Team",
+      event_date: today,
+    });
 
     return NextResponse.json({ organization: data });
   } catch (err: any) {
@@ -79,7 +135,6 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    // Only allow specific fields to be updated
     const allowedFields = [
       "org_name",
       "org_identifier",

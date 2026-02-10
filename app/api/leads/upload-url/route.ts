@@ -66,10 +66,19 @@ export async function POST(req: Request) {
     );
   }
 
+  // Look up lead_id from email
+  const { data: lead } = await supabase
+    .from("z_marketing_leads")
+    .select("id")
+    .eq("email", email)
+    .limit(1)
+    .single();
+
   const { error: insertError } = await supabase
     .from("z_marketing_lead_videos")
     .insert({
       lead_email: email,
+      lead_id: lead?.id || null,
       storage_path: storagePath,
       duration_seconds: durationSeconds,
       file_size_bytes: fileSizeBytes,

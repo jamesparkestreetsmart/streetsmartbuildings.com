@@ -1,7 +1,7 @@
-//app/(dashboard)/sites/page.tsx
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useOrg } from "@/context/OrgContext";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import {
@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 
 interface Site {
   site_id: string;
+  org_id: string;
   site_name: string;
   address: string;
   postal_code: string;
@@ -61,6 +62,7 @@ type Cleanable = {
 };
 
 export default function SitesPage() {
+  const { selectedOrgId } = useOrg();
   const [sites, setSites] = useState<Site[]>([]);
   const [search, setSearch] = useState("");
   const [sortColumn, setSortColumn] = useState<keyof Site>("site_name");
@@ -89,15 +91,19 @@ export default function SitesPage() {
     phone_number: "",
     total_area_sqft: "",
   });
+  const [siteType, setSiteType] = useState<"Pending" | "inventory">("Pending");
 
-  // Helper: trim strings and turn "" -> null, without using `any`
+  // NOT NULL columns that must keep "" instead of becoming null
+  const notNullStringCols = new Set(["site_email", "address_line1", "country"]);
+
+  // Helper: trim strings and turn "" -> null (except NOT NULL cols)
   const cleanAndTrim = (obj: Cleanable): Cleanable => {
     const cleaned: Cleanable = {};
     for (const key in obj) {
       const value = obj[key];
       if (typeof value === "string") {
         const trimmed = value.trim();
-        cleaned[key] = trimmed === "" ? null : trimmed;
+        cleaned[key] = trimmed === "" ? (notNullStringCols.has(key) ? "" : null) : trimmed;
       } else {
         cleaned[key] = value;
       }
@@ -107,9 +113,15 @@ export default function SitesPage() {
 
   // ===== Fetch Sites (using view_sites_summary) =====
   const fetchSites = async () => {
+    if (!selectedOrgId) {
+      setSites([]);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("view_sites_summary")
       .select("*")
+      .eq("org_id", selectedOrgId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -150,9 +162,13 @@ export default function SitesPage() {
     setLoadingBrands(false);
   };
 
-  // Load once on page mount
+  // Re-fetch sites when org changes
   useEffect(() => {
     fetchSites();
+  }, [selectedOrgId]);
+
+  // Load industries and brands once
+  useEffect(() => {
     fetchIndustries();
     fetchBrands();
   }, []);
@@ -176,6 +192,10 @@ export default function SitesPage() {
     }));
   };
 
+  // ===== Separate inventory site from real sites =====
+  const inventorySite = sites.find((s) => s.status === "inventory");
+  const realSites = sites.filter((s) => s.status !== "inventory");
+
   // ===== Sorting Logic =====
   const handleSort = (col: keyof Site) => {
     if (sortColumn === col) setSortAsc(!sortAsc);
@@ -185,9 +205,9 @@ export default function SitesPage() {
     }
   };
 
-  // ===== Search & Sorting =====
+  // ===== Search & Sorting (real sites only) =====
   const query = search.toLowerCase();
-  const sorted = [...sites]
+  const sorted = [...realSites]
     .filter((s) =>
       query === ""
         ? true
@@ -273,6 +293,7 @@ export default function SitesPage() {
       phone_number: "",
       total_area_sqft: "",
     });
+    setSiteType("Pending");
   };
 
   return (
@@ -307,6 +328,27 @@ export default function SitesPage() {
           </Button>
         </div>
       </div>
+
+      {/* ===== Inventory Site Banner ===== */}
+      {inventorySite && (
+        <div className="mb-4 border rounded-lg bg-amber-50 border-amber-200 shadow-sm">
+          <a
+            href={`/sites/${inventorySite.site_id}`}
+            className="flex items-center justify-between px-4 py-3 hover:bg-amber-100 transition rounded-lg"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-md bg-amber-200 flex items-center justify-center">
+                <span className="text-amber-700 text-sm font-bold">📦</span>
+              </div>
+              <div>
+                <div className="font-semibold text-amber-800 text-sm">Inventory</div>
+                <div className="text-xs text-amber-600">Unassigned equipment &amp; devices</div>
+              </div>
+            </div>
+            <div className="text-xs text-amber-500">View →</div>
+          </a>
+        </div>
+      )}
 
       {/* ===== Table ===== */}
       <div className="overflow-x-auto border rounded-lg bg-white shadow-sm">
@@ -426,6 +468,11 @@ export default function SitesPage() {
               onSubmit={async (e) => {
                 e.preventDefault();
 
+                if (!selectedOrgId) {
+                  alert("Please select an organization first");
+                  return;
+                }
+
                 // Validation
                 if (!formData.industry_id) {
                   alert("Please select an industry");
@@ -437,21 +484,21 @@ export default function SitesPage() {
                 }
 
                 const base: Cleanable = {
-                  name: formData.name,
-                  industry_id: formData.industry_id,
+                  site_name: formData.name,
+                  industry: formData.industry_id,
                   brand: formData.brand,
-                  customer_identifier: formData.customer_identifier,
-                  address_line1: formData.address_line1,
+                  customer_identifier_number: formData.customer_identifier,
+                  address_line1: formData.address_line1 || "",
                   address_line2: formData.address_line2,
                   city: formData.city,
                   state: formData.state,
                   postal_code: formData.postal_code,
-                  country: formData.country,
-                  site_email: formData.site_email,
+                  country: formData.country || "",
+                  site_email: formData.site_email || "",
                   phone_number: formData.phone_number,
                   total_area_sqft: formData.total_area_sqft,
                   timezone: "America/Chicago",
-                  org_id: "75d9a833-0359-4042-b760-4e5d587798e6",
+                  org_id: selectedOrgId,
                 };
 
                 const cleaned = cleanAndTrim(base);
@@ -673,40 +720,7 @@ export default function SitesPage() {
                 />
               </div>
 
-              {/* Site Email */}
-              <div>
-                <Label className="text-sm font-medium">Site Email (optional)</Label>
-                <input
-                  name="site_email"
-                  type="email"
-                  value={formData.site_email}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      site_email: e.target.value,
-                    })
-                  }
-                  placeholder="manager@site.com"
-                  className="w-full border rounded-md px-3 py-2 text-sm"
-                />
-              </div>
-
               {/* Phone Number */}
-              <div>
-                <Label className="text-sm font-medium">Phone Number (optional)</Label>
-                <input
-                  name="phone_number"
-                  value={formData.phone_number}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      phone_number: e.target.value,
-                    })
-                  }
-                  placeholder="615-555-1234"
-                  className="w-full border rounded-md px-3 py-2 text-sm"
-                />
-              </div>
 
               {/* Total Area */}
               <div>

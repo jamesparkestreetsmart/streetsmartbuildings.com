@@ -9,62 +9,100 @@ import SpaceHvacTable from "@/components/equipment/SpaceHvacTable";
 import PlumbingTable from "@/components/equipment/PlumbingTable";
 import StoreHoursManager from "@/components/store-hours/StoreHoursManager";
 import HvacZoneSetpointsTable from "@/components/equipment/HvacZoneSetpointsTable";
+import InventoryTab from "@/components/inventory/InventoryTab";
 
 export default function TabClientWrapper({ siteId }: { siteId: string }) {
   const router = useRouter();
   const params = useSearchParams();
 
-  const initialTab = params.get("tab") || "equipment";
-  const [tab, setTab] = useState(initialTab);
+  const [tab, setTab] = useState(params.get("tab") || "");
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [siteStatus, setSiteStatus] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
-  // Fetch org_id from site
   useEffect(() => {
-    const fetchOrgId = async () => {
+    const fetchSiteInfo = async () => {
       const { data } = await supabase
         .from("a_sites")
-        .select("org_id")
+        .select("org_id, status")
         .eq("site_id", siteId)
         .single();
-      
-      if (data?.org_id) {
+
+      if (data) {
         setOrgId(data.org_id);
+        setSiteStatus(data.status);
       }
+      setLoaded(true);
     };
-    fetchOrgId();
+    fetchSiteInfo();
   }, [siteId]);
 
-  // Update URL without full reload
+  useEffect(() => {
+    if (!loaded || !siteStatus) return;
+
+    const urlTab = params.get("tab");
+    const isInventorySite = siteStatus === "inventory";
+
+    if (isInventorySite) {
+      setTab("inventory");
+    } else if (!urlTab) {
+      setTab("equipment");
+    } else {
+      setTab(urlTab);
+    }
+  }, [loaded, siteStatus, params]);
+
   const updateTab = (value: string) => {
     setTab(value);
     router.replace(`?tab=${value}`, { scroll: false });
   };
 
+  if (!loaded) {
+    return <div className="text-gray-500 text-sm py-4">Loading...</div>;
+  }
+
+  const isInventorySite = siteStatus === "inventory";
+
+  const tabOptions = isInventorySite
+    ? [{ label: "Inventory", value: "inventory" }]
+    : [
+        { label: "Equipment Checkup", value: "equipment" },
+        { label: "Space & HVAC", value: "space-hvac" },
+        { label: "Plumbing", value: "plumbing" },
+        { label: "Store Hours", value: "hours" },
+      ];
+
   return (
     <>
-      {/* TABS */}
-      <SegmentedControl
-        value={tab}
-        onChange={updateTab}
-        options={[
-          { label: "Equipment Checkup", value: "equipment" },
-          { label: "Space & HVAC", value: "space-hvac" },
-          { label: "Plumbing", value: "plumbing" },
-          { label: "Store Hours", value: "hours" },
-        ]}
-        className="mb-6"
-      />
+      {tabOptions.length > 1 ? (
+        <SegmentedControl
+          value={tab}
+          onChange={updateTab}
+          options={tabOptions}
+          className="mb-6"
+        />
+      ) : (
+        <div className="mb-6" />
+      )}
 
-      {/* TAB CONTENT */}
-      {tab === "equipment" && <EquipmentTable siteId={siteId} />}
-      {tab === "space-hvac" && (
+      {tab === "equipment" && !isInventorySite && (
+        <EquipmentTable siteId={siteId} />
+      )}
+      {tab === "space-hvac" && !isInventorySite && (
         <>
           <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />
           <SpaceHvacTable siteId={siteId} />
         </>
       )}
-      {tab === "plumbing" && <PlumbingTable siteId={siteId} />}
-      {tab === "hours" && <StoreHoursManager siteId={siteId} />}
+      {tab === "inventory" && isInventorySite && (
+        <InventoryTab siteId={siteId} mode="org" />
+      )}
+      {tab === "plumbing" && !isInventorySite && (
+        <PlumbingTable siteId={siteId} />
+      )}
+      {tab === "hours" && !isInventorySite && (
+        <StoreHoursManager siteId={siteId} />
+      )}
     </>
   );
 }
