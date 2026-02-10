@@ -13,6 +13,7 @@ export async function POST(req: Request) {
 
   const {
     email,
+    lead_id,
     filename,
     contentType,
     fileSizeBytes,
@@ -66,19 +67,24 @@ export async function POST(req: Request) {
     );
   }
 
-  // Look up lead_id from email
-  const { data: lead } = await supabase
-    .from("z_marketing_leads")
-    .select("id")
-    .eq("email", email)
-    .limit(1)
-    .single();
+  // Use lead_id if provided, otherwise look up by email as fallback
+  let resolvedLeadId = lead_id || null;
+  if (!resolvedLeadId && email) {
+    const { data: lead } = await supabase
+      .from("z_marketing_leads")
+      .select("id")
+      .eq("email", email)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    resolvedLeadId = lead?.id || null;
+  }
 
   const { error: insertError } = await supabase
     .from("z_marketing_lead_videos")
     .insert({
       lead_email: email,
-      lead_id: lead?.id || null,
+      lead_id: resolvedLeadId,
       storage_path: storagePath,
       duration_seconds: durationSeconds,
       file_size_bytes: fileSizeBytes,

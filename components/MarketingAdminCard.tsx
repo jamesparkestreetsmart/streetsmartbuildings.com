@@ -438,7 +438,23 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
                     <tr>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Email</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">First Name</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-600">Organization</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">
+                        <div>Organization</div>
+                        <div className="flex items-center gap-3 mt-1 font-normal">
+                          <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                            Linked
+                          </span>
+                          <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            High value
+                          </span>
+                          <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                            Duplicate?
+                          </span>
+                        </div>
+                      </th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Projected Sites</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Videos</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Welcome Email</th>
@@ -485,7 +501,7 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
                                 const status = getOrgStatus(lead);
                                 const dotColor = status === "linked" ? "bg-green-500" : status === "similar" ? "bg-blue-400" : "bg-amber-500";
                                 const textColor = status === "linked" ? "text-green-700" : status === "similar" ? "text-blue-700" : "text-amber-700";
-                                const tooltip = status === "linked" ? "Linked to organization" : status === "similar" ? "Similar to existing org — possible duplicate" : "Not yet in system";
+                                const tooltip = status === "linked" ? "Linked to organization" : status === "similar" ? "Similar to existing org — possible duplicate" : "High value lead — ready for onboarding";
                                 return (
                                   <span className={`inline-flex items-center gap-1.5 text-sm ${textColor}`} title={tooltip}>
                                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />

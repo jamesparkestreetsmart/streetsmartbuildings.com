@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useOrg } from "@/context/OrgContext";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, Archive } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -68,6 +68,7 @@ export default function SitesPage() {
   const [sortColumn, setSortColumn] = useState<keyof Site>("site_name");
   const [sortAsc, setSortAsc] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
   
   // Industry & Brand data
   const [industries, setIndustries] = useState<Industry[]>([]);
@@ -129,6 +130,48 @@ export default function SitesPage() {
     } else {
       console.log("✅ Sites fetched:", data);
       setSites((data as Site[]) || []);
+    }
+  };
+
+  // ===== Retire Site =====
+  const handleRetireSite = async (site: Site) => {
+    const confirmed = window.confirm(
+      `Retire "${site.site_name}"?\n\nThis site will remain visible for 90 days, then disappear from the list. Data is preserved.`
+    );
+    if (!confirmed) return;
+
+    setDeleting(site.site_id);
+    try {
+      const { error } = await supabase
+        .from("a_sites")
+        .update({ status: "Retired" })
+        .eq("site_id", site.site_id);
+
+      if (error) {
+        console.error("Error retiring site:", error);
+        alert(`❌ Failed to retire site: ${error.message}`);
+      } else {
+        // Log to audit trail
+        await supabase.from("b_records_log").insert({
+          org_id: site.org_id,
+          site_id: site.site_id,
+          event_type: "site_retired",
+          source: "sites_ui",
+          message: `Site retired: ${site.site_name}`,
+          metadata: {
+            site_name: site.site_name,
+            previous_status: site.status,
+          },
+          created_by: "admin",
+          event_date: new Date().toISOString().split("T")[0],
+        });
+        fetchSites();
+      }
+    } catch (err) {
+      console.error("Retire error:", err);
+      alert("❌ Unexpected error retiring site");
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -194,7 +237,18 @@ export default function SitesPage() {
 
   // ===== Separate inventory site from real sites =====
   const inventorySite = sites.find((s) => s.status === "inventory");
-  const realSites = sites.filter((s) => s.status !== "inventory");
+  const now = new Date();
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+  const realSites = sites.filter((s) => {
+    if (s.status === "inventory") return false;
+    if (s.status === "Retired") {
+      // Show retired sites for 90 days after retirement
+      const changed = new Date(s.last_status_change);
+      return changed >= ninetyDaysAgo;
+    }
+    return true;
+  });
 
   // ===== Sorting Logic =====
   const handleSort = (col: keyof Site) => {
@@ -377,13 +431,14 @@ export default function SitesPage() {
                   {sortColumn === key && (sortAsc ? " ▲" : " ▼")}
                 </th>
               ))}
+              <th className="py-3 px-3 w-10"></th>
             </tr>
           </thead>
 
           <tbody>
             {sorted.length === 0 ? (
               <tr>
-                <td colSpan={11} className="text-center py-6 text-gray-500">
+                <td colSpan={12} className="text-center py-6 text-gray-500">
                   No sites found
                 </td>
               </tr>
@@ -426,6 +481,8 @@ export default function SitesPage() {
                         ? "text-yellow-600"
                         : s.status === "Active"
                         ? "text-green-600"
+                        : s.status === "Retired"
+                        ? "text-red-400 line-through"
                         : "text-gray-500"
                     }`}
                   >
@@ -450,6 +507,47 @@ export default function SitesPage() {
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    {s.status === "Retired" ? (
+                      <button
+                        onClick={async () => {
+                          const confirmed = window.confirm(`Restore "${s.site_name}" to Pending?`);
+                          if (!confirmed) return;
+                          const { error } = await supabase
+                            .from("a_sites")
+                            .update({ status: "Pending" })
+                            .eq("site_id", s.site_id);
+                          if (error) {
+                            alert(`❌ Failed: ${error.message}`);
+                          } else {
+                            await supabase.from("b_records_log").insert({
+                              org_id: s.org_id,
+                              site_id: s.site_id,
+                              event_type: "site_restored",
+                              source: "sites_ui",
+                              message: `Site restored: ${s.site_name}`,
+                              metadata: { site_name: s.site_name, previous_status: "Retired" },
+                              created_by: "admin",
+                              event_date: new Date().toISOString().split("T")[0],
+                            });
+                            fetchSites();
+                          }
+                        }}
+                        className="text-[10px] text-blue-500 hover:text-blue-700 underline"
+                      >
+                        restore
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleRetireSite(s)}
+                        disabled={deleting === s.site_id}
+                        className="text-gray-400 hover:text-amber-600 transition disabled:opacity-50"
+                        title={`Retire ${s.site_name}`}
+                      >
+                        <Archive className="w-4 h-4" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))
@@ -508,14 +606,34 @@ export default function SitesPage() {
                   cleaned.total_area_sqft = Number(cleaned.total_area_sqft);
                 }
 
-                const { error } = await supabase
+                const { data: newSite, error } = await supabase
                   .from("a_sites")
-                  .insert([cleaned]);
+                  .insert([cleaned])
+                  .select("site_id, site_name")
+                  .single();
 
                 if (error) {
                   console.error("Error adding site:", error);
                   alert("❌ Failed to add site: " + error.message);
                 } else {
+                  // Log to audit trail
+                  await supabase.from("b_records_log").insert({
+                    org_id: selectedOrgId,
+                    site_id: newSite.site_id,
+                    event_type: "site_created",
+                    source: "sites_ui",
+                    message: `Site created: ${newSite.site_name}`,
+                    metadata: {
+                      site_name: newSite.site_name,
+                      industry: formData.industry_id,
+                      brand: formData.brand,
+                      address: formData.address_line1,
+                      postal_code: formData.postal_code,
+                    },
+                    created_by: "admin",
+                    event_date: new Date().toISOString().split("T")[0],
+                  });
+
                   alert("✅ Site added successfully!");
                   setShowModal(false);
                   resetForm();

@@ -10,6 +10,7 @@ import PlumbingTable from "@/components/equipment/PlumbingTable";
 import StoreHoursManager from "@/components/store-hours/StoreHoursManager";
 import HvacZoneSetpointsTable from "@/components/equipment/HvacZoneSetpointsTable";
 import InventoryTab from "@/components/inventory/InventoryTab";
+import SiteActivityLog from "@/components/SiteActivityLog";
 
 export default function TabClientWrapper({ siteId }: { siteId: string }) {
   const router = useRouter();
@@ -70,6 +71,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
         { label: "Space & HVAC", value: "space-hvac" },
         { label: "Plumbing", value: "plumbing" },
         { label: "Store Hours", value: "hours" },
+        { label: "Activity Log", value: "activity" },
       ];
 
   return (
@@ -102,6 +104,9 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
       )}
       {tab === "hours" && !isInventorySite && (
         <StoreHoursManager siteId={siteId} />
+      )}
+      {tab === "activity" && !isInventorySite && (
+        <SiteActivityLog siteId={siteId} />
       )}
     </>
   );
