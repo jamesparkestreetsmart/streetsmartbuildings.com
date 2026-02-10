@@ -1,5 +1,4 @@
 "use client";
-
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 
 interface Organization {
@@ -15,6 +14,7 @@ interface OrgContextType {
   setSelectedOrgId: (id: string | null) => void;
   loading: boolean;
   isAdmin: boolean;
+  userEmail: string | null;
 }
 
 const OrgContext = createContext<OrgContextType>({
@@ -24,6 +24,7 @@ const OrgContext = createContext<OrgContextType>({
   setSelectedOrgId: () => {},
   loading: true,
   isAdmin: false,
+  userEmail: null,
 });
 
 export function useOrg() {
@@ -77,18 +78,13 @@ export function OrgProvider({
     fetchOrgs();
   }, [fetchOrgs]);
 
-  // Try to restore selection from sessionStorage, or default to SSB1 for admins
+  // Try to restore selection from sessionStorage
   useEffect(() => {
-    if (orgs.length === 0) return;
     const saved = sessionStorage.getItem("selectedOrgId");
     if (saved && orgs.some((o) => o.org_id === saved)) {
       setSelectedOrgId(saved);
-    } else if (isAdmin) {
-      // Default to SSB Internal org
-      const ssb = orgs.find((o) => o.org_identifier === "SSB1");
-      if (ssb) setSelectedOrgId(ssb.org_id);
     }
-  }, [orgs, isAdmin]);
+  }, [orgs]);
 
   // Persist selection
   useEffect(() => {
@@ -101,7 +97,15 @@ export function OrgProvider({
 
   return (
     <OrgContext.Provider
-      value={{ orgs, selectedOrgId, selectedOrg, setSelectedOrgId, loading, isAdmin }}
+      value={{
+        orgs,
+        selectedOrgId,
+        selectedOrg,
+        setSelectedOrgId,
+        loading,
+        isAdmin,
+        userEmail: userEmail || null,
+      }}
     >
       {children}
     </OrgContext.Provider>

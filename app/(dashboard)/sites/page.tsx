@@ -62,7 +62,7 @@ type Cleanable = {
 };
 
 export default function SitesPage() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, userEmail } = useOrg();
   const [sites, setSites] = useState<Site[]>([]);
   const [search, setSearch] = useState("");
   const [sortColumn, setSortColumn] = useState<keyof Site>("site_name");
@@ -162,7 +162,7 @@ export default function SitesPage() {
             site_name: site.site_name,
             previous_status: site.status,
           },
-          created_by: "admin",
+          created_by: userEmail || "unknown",
           event_date: new Date().toISOString().split("T")[0],
         });
         fetchSites();
@@ -528,7 +528,7 @@ export default function SitesPage() {
                               source: "sites_ui",
                               message: `Site restored: ${s.site_name}`,
                               metadata: { site_name: s.site_name, previous_status: "Retired" },
-                              created_by: "admin",
+                              created_by: userEmail || "unknown",
                               event_date: new Date().toISOString().split("T")[0],
                             });
                             fetchSites();
@@ -630,7 +630,7 @@ export default function SitesPage() {
                       address: formData.address_line1,
                       postal_code: formData.postal_code,
                     },
-                    created_by: "admin",
+                    created_by: userEmail || "unknown",
                     event_date: new Date().toISOString().split("T")[0],
                   });
 
