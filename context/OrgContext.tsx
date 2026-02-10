@@ -1,5 +1,4 @@
 "use client";
-
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 
 interface Organization {
@@ -15,6 +14,7 @@ interface OrgContextType {
   setSelectedOrgId: (id: string | null) => void;
   loading: boolean;
   isAdmin: boolean;
+  userEmail: string | null;
 }
 
 const OrgContext = createContext<OrgContextType>({
@@ -24,6 +24,7 @@ const OrgContext = createContext<OrgContextType>({
   setSelectedOrgId: () => {},
   loading: true,
   isAdmin: false,
+  userEmail: null,
 });
 
 export function useOrg() {
@@ -96,7 +97,15 @@ export function OrgProvider({
 
   return (
     <OrgContext.Provider
-      value={{ orgs, selectedOrgId, selectedOrg, setSelectedOrgId, loading, isAdmin }}
+      value={{
+        orgs,
+        selectedOrgId,
+        selectedOrg,
+        setSelectedOrgId,
+        loading,
+        isAdmin,
+        userEmail: userEmail || null,
+      }}
     >
       {children}
     </OrgContext.Provider>
