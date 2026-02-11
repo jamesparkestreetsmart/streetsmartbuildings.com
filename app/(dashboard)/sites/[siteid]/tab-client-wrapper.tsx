@@ -11,6 +11,7 @@ import StoreHoursManager from "@/components/store-hours/StoreHoursManager";
 import HvacZoneSetpointsTable from "@/components/equipment/HvacZoneSetpointsTable";
 import InventoryTab from "@/components/inventory/InventoryTab";
 import SiteActivityLog from "@/components/SiteActivityLog";
+import LogicMapTimeline from "@/components/equipment/LogicMapTimeline";
 
 export default function TabClientWrapper({ siteId }: { siteId: string }) {
   const router = useRouter();
@@ -69,6 +70,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
     : [
         { label: "Equipment Checkup", value: "equipment" },
         { label: "Space & HVAC", value: "space-hvac" },
+        { label: "Logic Map", value: "logic-map" },
         { label: "Plumbing", value: "plumbing" },
         { label: "Store Hours", value: "hours" },
         { label: "Activity Log", value: "activity" },
@@ -95,6 +97,9 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
           <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />
           <SpaceHvacTable siteId={siteId} />
         </>
+      )}
+      {tab === "logic-map" && !isInventorySite && (
+        <LogicMapTimeline siteId={siteId} />
       )}
       {tab === "inventory" && isInventorySite && (
         <InventoryTab siteId={siteId} mode="org" />

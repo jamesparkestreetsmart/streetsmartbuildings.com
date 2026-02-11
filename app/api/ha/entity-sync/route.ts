@@ -47,11 +47,11 @@ export async function POST(req: NextRequest) {
 
   const { org_id, site_id, equipment_id, entities } = body ?? {};
 
-  if (!org_id || !site_id || !equipment_id) {
+  if (!org_id || !site_id) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Missing org_id, site_id, or equipment_id",
+        error: "Missing org_id or site_id",
       },
       { status: 400 }
     );
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     .map((e) => ({
       org_id,
       site_id,
-      equipment_id,
+      equipment_id: equipment_id || null,
       entity_id: e.entity_id,
 
       friendly_name: e.friendly_name ?? null,
@@ -118,8 +118,7 @@ export async function POST(req: NextRequest) {
   const { error } = await supabase
     .from("b_entity_sync")
     .upsert(rows, {
-      // Match your PK: (org_id, site_id, equipment_id, entity_id)
-      onConflict: "org_id,site_id,equipment_id,entity_id",
+      onConflict: "site_id,entity_id",
     });
 
   if (error) {
