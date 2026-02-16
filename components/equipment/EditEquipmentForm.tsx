@@ -50,6 +50,11 @@ interface Space {
   space_type: string;
 }
 
+interface PhaseConfig {
+  phase_code: string;
+  description: string;
+}
+
 interface EditEquipmentFormProps {
   equipment: {
     equipment_id: string;
@@ -79,7 +84,7 @@ export default function EditEquipmentForm({
   const router = useRouter();
 
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [retiring, setRetiring] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [equipmentTypes, setEquipmentTypes] = useState<EquipmentType[]>([]);
   const [equipmentModels, setEquipmentModels] = useState<EquipmentModel[]>([]);
@@ -88,6 +93,12 @@ export default function EditEquipmentForm({
   const [loadingModels, setLoadingModels] = useState(false);
   const [loadingSpaces, setLoadingSpaces] = useState(true);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+
+  // Phase configuration
+  const [phaseConfigurations, setPhaseConfigurations] = useState<PhaseConfig[]>([]);
+  const [phaseConfig, setPhaseConfig] = useState<string | null>(null);
+  const [energyMeterDeviceId, setEnergyMeterDeviceId] = useState<string | null>(null);
+  const [loadingPhase, setLoadingPhase] = useState(true);
 
   // Served spaces (many-to-many)
   const [servedSpaceIds, setServedSpaceIds] = useState<Set<string>>(new Set());
@@ -170,6 +181,47 @@ export default function EditEquipmentForm({
     fetchServedSpaces();
   }, [equipment.equipment_id]);
 
+  // Fetch phase configuration from linked energy meter device
+  useEffect(() => {
+    const fetchPhaseConfig = async () => {
+      // Get phase configs list
+      const { data: phases } = await supabase
+        .from("library_phase_configurations")
+        .select("phase_code, description")
+        .order("sort_order");
+
+      setPhaseConfigurations((phases || []) as PhaseConfig[]);
+
+      // Get energy meter device linked to this equipment
+      const { data: devs } = await supabase
+        .from("a_devices")
+        .select("device_id, phase_configuration, library_device_id")
+        .eq("equipment_id", equipment.equipment_id);
+
+      if (devs && devs.length > 0) {
+        // Find the device with a library_device_id (energy meter)
+        const meterDev = devs.find((d: any) => d.library_device_id);
+        if (meterDev) {
+          // Verify it's an energy meter
+          const { data: libDev } = await supabase
+            .from("library_devices")
+            .select("device_role")
+            .eq("library_device_id", meterDev.library_device_id)
+            .single();
+
+          if (libDev?.device_role === "energy_meter") {
+            setEnergyMeterDeviceId(meterDev.device_id);
+            setPhaseConfig(meterDev.phase_configuration || null);
+          }
+        }
+      }
+
+      setLoadingPhase(false);
+    };
+
+    fetchPhaseConfig();
+  }, [equipment.equipment_id]);
+
   // Fetch models on mount if equipment type already set
   useEffect(() => {
     if (equipment.equipment_type_id) {
@@ -181,7 +233,6 @@ export default function EditEquipmentForm({
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  // Handle equipment type change and auto-populate group
   function handleEquipmentTypeChange(typeId: string) {
     const selectedType = equipmentTypes.find(t => t.equipment_type_id === typeId);
     
@@ -191,11 +242,9 @@ export default function EditEquipmentForm({
       equipment_group: selectedType?.equipment_group || prev.equipment_group,
     }));
 
-    // Fetch models for this equipment type
     fetchModelsForType(typeId);
   }
 
-  // Fetch models filtered by equipment type
   async function fetchModelsForType(typeId: string) {
     if (!typeId) {
       setEquipmentModels([]);
@@ -218,7 +267,6 @@ export default function EditEquipmentForm({
     setLoadingModels(false);
   }
 
-  // Handle model selection and auto-fill specs
   function handleModelChange(modelId: string) {
     const selectedModel = equipmentModels.find(m => m.model_id === modelId);
     
@@ -233,7 +281,6 @@ export default function EditEquipmentForm({
     }
   }
 
-  // Toggle served space
   function toggleServedSpace(spaceId: string) {
     setServedSpaceIds((prev) => {
       const newSet = new Set(prev);
@@ -246,38 +293,39 @@ export default function EditEquipmentForm({
     });
   }
 
-  // Delete equipment
-  async function handleDelete() {
-    if (!confirm(`Are you sure you want to delete "${equipment.equipment_name}"?\n\nThis will also remove all device mappings and served spaces associations.\n\nThis action cannot be undone.`)) {
+  // Retire equipment
+  async function handleRetire() {
+    if (!confirm(
+      `Are you sure you want to retire "${equipment.equipment_name}"?\n\nThe equipment will be marked as retired and hidden from active views. Historical data will be preserved.\n\nYou can reactivate it later by changing the status.`
+    )) {
       return;
     }
 
-    setDeleting(true);
+    setRetiring(true);
     setErrorMsg(null);
 
-    // Delete served spaces first (FK constraint)
-    await supabase
-      .from("a_equipment_served_spaces")
-      .delete()
-      .eq("equipment_id", equipment.equipment_id);
-
-    // Clear equipment_id from any mapped devices
-    await supabase
-      .from("a_devices")
-      .update({ equipment_id: null, sensor_role: null, entity_id: null })
-      .eq("equipment_id", equipment.equipment_id);
-
-    // Delete the equipment
     const { error } = await supabase
       .from("a_equipments")
-      .delete()
+      .update({ status: "retired" })
       .eq("equipment_id", equipment.equipment_id);
 
     if (error) {
-      setErrorMsg(`Failed to delete: ${error.message}`);
-      setDeleting(false);
+      setErrorMsg(`Failed to retire: ${error.message}`);
+      setRetiring(false);
       return;
     }
+
+    // Log the retirement
+    await supabase.from("b_records_log").insert({
+      org_id: null,
+      site_id: equipment.site_id,
+      equipment_id: equipment.equipment_id,
+      event_type: "equipment_retired",
+      source: "edit_form",
+      message: `Equipment "${equipment.equipment_name}" was retired`,
+      metadata: { previous_status: equipment.status },
+      event_date: new Date().toISOString().split("T")[0],
+    });
 
     router.push(`/sites/${siteid}`);
   }
@@ -317,6 +365,18 @@ export default function EditEquipmentForm({
       setErrorMsg(error.message);
       setSaving(false);
       return;
+    }
+
+    // Update phase configuration on the energy meter device if changed
+    if (energyMeterDeviceId && phaseConfig !== undefined) {
+      const { error: phaseError } = await supabase
+        .from("a_devices")
+        .update({ phase_configuration: phaseConfig })
+        .eq("device_id", energyMeterDeviceId);
+
+      if (phaseError) {
+        console.error("Error updating phase config:", phaseError);
+      }
     }
 
     // Update served spaces (delete all, then insert selected)
@@ -362,7 +422,6 @@ export default function EditEquipmentForm({
 
   const sortedGroups = Object.keys(typesByGroup).sort();
 
-  // Check if this is HVAC equipment (show served spaces section)
   const isHvac = form.equipment_type_id?.toLowerCase().includes('hvac');
 
   return (
@@ -477,6 +536,32 @@ export default function EditEquipmentForm({
               )}
             </div>
           </div>
+
+          {/* Phase Configuration - Only show if energy meter is linked */}
+          {energyMeterDeviceId && (
+            <div className="border-t pt-4 mt-4">
+              <Label className="block mb-2">Phase Configuration</Label>
+              <p className="text-xs text-gray-500 mb-2">
+                Electrical wiring configuration for the energy meter on this equipment.
+              </p>
+              {loadingPhase ? (
+                <Input value="Loading..." disabled />
+              ) : (
+                <select
+                  value={phaseConfig || ""}
+                  onChange={(e) => setPhaseConfig(e.target.value || null)}
+                  className="w-full border rounded px-3 py-2 bg-white"
+                >
+                  <option value="">— Select phase configuration —</option>
+                  {phaseConfigurations.map((pc) => (
+                    <option key={pc.phase_code} value={pc.phase_code}>
+                      {pc.phase_code} — {pc.description}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
 
           {/* Installed Location (single space dropdown) */}
           <div className="border-t pt-4 mt-4">
@@ -674,28 +759,17 @@ export default function EditEquipmentForm({
           </div>
 
           <CardFooter className="flex justify-between px-0">
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  router.push(
-                    `/sites/${siteid}/equipment/${equipment.equipment_id}/individual-equipment`
-                  )
-                }
-              >
-                Cancel
-              </Button>
-
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={deleting}
-              >
-                {deleting ? "Deleting…" : "Delete Equipment"}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                router.push(
+                  `/sites/${siteid}/equipment/${equipment.equipment_id}/individual-equipment`
+                )
+              }
+            >
+              Cancel
+            </Button>
 
             <Button type="submit" disabled={saving}>
               {saving ? "Saving…" : "Save Changes"}

@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 interface Organization {
   org_id: string;
@@ -13,7 +14,7 @@ interface OrgContextType {
   selectedOrg: Organization | null;
   setSelectedOrgId: (id: string | null) => void;
   loading: boolean;
-  isAdmin: boolean;
+  isServiceProvider: boolean;
   userEmail: string | null;
 }
 
@@ -23,7 +24,7 @@ const OrgContext = createContext<OrgContextType>({
   selectedOrg: null,
   setSelectedOrgId: () => {},
   loading: true,
-  isAdmin: false,
+  isServiceProvider: false,
   userEmail: null,
 });
 
@@ -41,38 +42,84 @@ export function OrgProvider({
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const isAdmin = userEmail?.endsWith("@streetsmartbuildings.com") ?? false;
+  const [isServiceProvider, setIsServiceProvider] = useState(false);
 
   const fetchOrgs = useCallback(async () => {
     try {
-      if (isAdmin) {
-        // Admin sees all orgs
-        const res = await fetch("/api/admin/organizations");
-        const data = await res.json();
-        setOrgs(
-          (data.organizations || []).map((o: any) => ({
-            org_id: o.org_id,
-            org_name: o.org_name,
-            org_identifier: o.org_identifier,
-          }))
-        );
+      // Get the current auth user
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error("OrgContext: no auth user", authError);
+        setLoading(false);
+        return;
+      }
+
+      // Get all orgs the user has a direct membership in
+      const { data: memberships, error: memError } = await supabase
+        .from("a_orgs_users_memberships")
+        .select("org_id, role, status")
+        .eq("user_id", user.id)
+        .eq("status", "active");
+
+      if (memError || !memberships || memberships.length === 0) {
+        console.error("OrgContext: no memberships", memError);
+        setOrgs([]);
+        setLoading(false);
+        return;
+      }
+
+      const orgIds = memberships.map((m) => m.org_id);
+
+      // Get org details for the user's memberships
+      const { data: userOrgs, error: orgError } = await supabase
+        .from("a_organizations")
+        .select("org_id, org_name, org_identifier, parent_org_id")
+        .in("org_id", orgIds)
+        .order("org_name");
+
+      if (orgError || !userOrgs) {
+        console.error("OrgContext: failed to fetch orgs", orgError);
+        setOrgs([]);
+        setLoading(false);
+        return;
+      }
+
+      // Check if user belongs to a root org (parent_org_id IS NULL)
+      const hasRootMembership = userOrgs.some((o: any) => o.parent_org_id === null);
+
+      let allOrgs: Organization[] = [];
+
+      if (hasRootMembership) {
+        // Service provider: get ALL orgs
+        setIsServiceProvider(true);
+
+        const { data: allOrgData } = await supabase
+          .from("a_organizations")
+          .select("org_id, org_name, org_identifier")
+          .order("org_name");
+
+        allOrgs = (allOrgData || []) as Organization[];
       } else {
-        // Normal user sees their orgs via membership
-        const res = await fetch("/api/user/organizations");
-        const data = await res.json();
-        setOrgs(data.organizations || []);
-        // Auto-select first org for normal users
-        if (data.organizations?.length === 1) {
-          setSelectedOrgId(data.organizations[0].org_id);
-        }
+        // Regular user: only their orgs
+        allOrgs = userOrgs.map((o: any) => ({
+          org_id: o.org_id,
+          org_name: o.org_name,
+          org_identifier: o.org_identifier,
+        }));
+      }
+
+      setOrgs(allOrgs);
+
+      // Auto-select if only one org
+      if (allOrgs.length === 1) {
+        setSelectedOrgId(allOrgs[0].org_id);
       }
     } catch (err) {
-      console.error("Failed to fetch orgs:", err);
+      console.error("OrgContext: unexpected error", err);
     } finally {
       setLoading(false);
     }
-  }, [isAdmin]);
+  }, []);
 
   useEffect(() => {
     fetchOrgs();
@@ -80,6 +127,7 @@ export function OrgProvider({
 
   // Try to restore selection from sessionStorage
   useEffect(() => {
+    if (orgs.length === 0) return;
     const saved = sessionStorage.getItem("selectedOrgId");
     if (saved && orgs.some((o) => o.org_id === saved)) {
       setSelectedOrgId(saved);
@@ -103,7 +151,7 @@ export function OrgProvider({
         selectedOrg,
         setSelectedOrgId,
         loading,
-        isAdmin,
+        isServiceProvider,
         userEmail: userEmail || null,
       }}
     >

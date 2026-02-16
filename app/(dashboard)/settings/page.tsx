@@ -1,6 +1,8 @@
 "use client";
 
+import { useOrg } from "@/context/OrgContext";
 interface Organization {
+  
   org_id: string;
   org_name: string;
   owner_email: string | null;
@@ -100,7 +102,8 @@ const formatBillingAddress = (org: Organization): string => {
 
 export default function SettingsPage() {
   const router = useRouter();
-
+  const { selectedOrgId, isServiceProvider } = useOrg();
+   
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<MemberRecord[]>([]);
   const [siteCounts, setSiteCounts] = useState<SiteCount[]>([]);
@@ -147,12 +150,16 @@ export default function SettingsPage() {
 
   // =================== FETCH DATA ===================
   const fetchData = async () => {
+    if (!selectedOrgId) { 
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     const { data: orgData } = await supabase
       .from("a_organizations")
       .select("*")
-      .limit(1)
+      .eq("org_id", selectedOrgId)
       .single();
 
     // Fetch members for this org using the new view
@@ -164,8 +171,8 @@ export default function SettingsPage() {
 
     const { data: sitesData } = await supabase
       .from("a_sites")
-      .select("site_id, industry, brand");
-
+      .select("site_id, industry, brand")
+      .eq("org_id", selectedOrgId);
     // Fetch lookup tables
     const { data: jobTitleData } = await supabase
       .from("library_job_titles")
@@ -183,17 +190,22 @@ export default function SettingsPage() {
       .order("sort_order");
 
     // Fetch current user profile (for now, get first user - later use auth)
-    const { data: profileData } = await supabase
-      .from("a_users")
-      .select("*")
-      .limit(1)
-      .single();
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { data: profileData } = authUser
+      ? await supabase.from("a_users").select("*").eq("user_id", authUser.id).single()
+      : { data: null };
 
     if (orgData) {
       setOrg(orgData);
       setOrgDraft(orgData);
     }
-    if (memberData) setMembers(memberData);
+    if (memberData) {
+      // Service providers see all members, customers only see visible ones
+      const visibleMembers = isServiceProvider
+        ? memberData
+        : memberData.filter((m: any) => m.visibility !== 'hidden');
+      setMembers(visibleMembers);
+    }
     if (jobTitleData) setJobTitles(jobTitleData);
     if (roleData) setRoles(roleData);
     if (presetData) setCapabilityPresets(presetData);
@@ -232,7 +244,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedOrgId]);
 
   // =================== SAVE ORG EDIT ===================
   const saveOrg = async () => {

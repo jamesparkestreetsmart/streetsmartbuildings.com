@@ -16,7 +16,7 @@ const links = [
 
 export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
   const pathname = usePathname();
-  const { orgs, selectedOrg, selectedOrgId, setSelectedOrgId, isAdmin, loading } = useOrg();
+  const { orgs, selectedOrg, selectedOrgId, setSelectedOrgId, isServiceProvider, loading } = useOrg();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -60,7 +60,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
           // When another org is selected, all links are active
           // When no org selected, all grayed out
           const isSSBOrg = selectedOrg?.org_identifier === "SSB1";
-          const alwaysEnabled = href === "/sites" && (isAdmin || hasOrgSelected);
+          const alwaysEnabled = href === "/sites" && (isServiceProvider || hasOrgSelected);
           const disabled = !hasOrgSelected || (isSSBOrg && href !== "/sites");
 
           if (disabled) {
@@ -88,7 +88,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
           );
         })}
 
-        {isAdmin && (
+        {isServiceProvider && (
           <>
             <div className="border-t my-2 mx-4" />
             <Link
@@ -113,7 +113,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
       )}
 
       {/* Org Dropdown — below nav */}
-      {isAdmin && (
+      {isServiceProvider && (
         <div className="px-3 pb-3 pt-1 border-t" ref={dropdownRef}>
           <label className="block text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1 px-1">
             Organization

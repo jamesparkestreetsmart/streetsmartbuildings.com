@@ -28,12 +28,8 @@ export default function LoginForm() {
         return;
       }
 
-      // Redirect admin users to /admin, others to /live
-      if (email.toLowerCase().endsWith("@streetsmartbuildings.com")) {
-        router.push("/admin");
-      } else {
-        router.push("/live");
-      }
+      // All users go to /live — OrgContext determines what they see
+      router.push("/live");
     } catch (err) {
       console.error(err);
       setError("Unexpected error. Please try again.");

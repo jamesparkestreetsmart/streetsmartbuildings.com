@@ -73,7 +73,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
   const [formData, setFormData] = useState({
     zone_name: "",
     zone_type: "undefined",
-    control_scope: "managed",
+    control_scope: "open",
     equipment_id: "",
     thermostat_device_id: "",
     // Occupied
@@ -204,7 +204,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
           org_id: orgId,
           name: templateName,
           zone_type: zoneType,
-          control_scope: "managed",
+          control_scope: "open",
           equipment_id: null, // Not linked
         })
         .select()
@@ -402,7 +402,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
     setFormData({
       zone_name: "",
       zone_type: "undefined",
-      control_scope: "managed",
+      control_scope: "open",
       equipment_id: "",
       thermostat_device_id: "",
       setpoint_min_f: 68,

@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
         owner_last_name: owner_last_name || null,
         billing_country: "US",
         marketing_lead_id: lead_id || null,
+        parent_org_id: "79fab5fe-5fcf-4d84-ac1f-40348ebc160c", // SSB parent org
       })
       .select()
       .single();

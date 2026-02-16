@@ -10,24 +10,28 @@ type LiveAlert = {
   site_id: string | null;
   site_name: string;
   equipment_name: string;
+  equipment_group: string | null;
   space_name: string;
   alert_type: string;
+  alert_name: string | null;
   notification_count: number;
   trigger_value: number | null;
-  last_recorded_value: number | null;
+  threshold_value: number | null;
+  threshold_unit: string | null;
   status: "active" | "resolved";
   start_time: string;
   end_time: string | null;
   duration: string | number | null;
-  live_value_state: string | null;
 };
 
 interface AlertHistoryRow {
   alert_id: number;
   site_name: string;
   equipment_name: string;
+  equipment_group: string | null;
   space_name: string;
   alert_type: string;
+  alert_name: string | null;
   status: string;
   start: string;
   end: string | null;
@@ -49,6 +53,7 @@ export default function AlertsPage() {
   const [liveLastUpdated, setLiveLastUpdated] = useState<string>("");
   const [liveSortColumn, setLiveSortColumn] = useState<SortColumn>("start_time");
   const [liveSortOrder, setLiveSortOrder] = useState<SortOrder>("desc");
+  const [equipmentGroupFilter, setEquipmentGroupFilter] = useState<string>("all");
 
   // Alert History state
   const [historyLogs, setHistoryLogs] = useState<AlertHistoryRow[]>([]);
@@ -58,6 +63,11 @@ export default function AlertsPage() {
   const [customEnd, setCustomEnd] = useState<string>("");
   const [historySortColumn, setHistorySortColumn] = useState<keyof AlertHistoryRow>("start");
   const [historySortDirection, setHistorySortDirection] = useState<"asc" | "desc">("desc");
+  const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
+
+  // Unique equipment groups from data
+  const liveEquipmentGroups = [...new Set(liveRows.map((r) => r.equipment_group).filter(Boolean))] as string[];
+  const historyEquipmentGroups = [...new Set(historyLogs.map((r) => r.equipment_group).filter(Boolean))] as string[];
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return "--";
@@ -88,10 +98,15 @@ export default function AlertsPage() {
     const { data, error } = await supabase
       .from("view_live_alerts")
       .select("*")
-      .order("start_time", { ascending: false });
+      .order("start", { ascending: false });
 
-    if (!error) {
-      setLiveRows((data as LiveAlert[]) || []);
+    if (!error && data) {
+      const mapped = data.map((r: any) => ({
+        ...r,
+        start_time: r.start,
+        end_time: r.end,
+      }));
+      setLiveRows(mapped as LiveAlert[]);
       setLiveLastUpdated(formatCST(new Date()));
     } else {
       console.error("fetch live failed", error);
@@ -106,7 +121,7 @@ export default function AlertsPage() {
       return `${hours}h ${minutes}m`;
     }
     if (typeof duration === "string") {
-      const match = duration.match(/(\d+)\s+days\s+(\d+):(\d+)/);
+      const match = duration.match(/(\d+)\s+days?\s+(\d+):(\d+)/);
       if (match) {
         const days = match[1];
         const hours = match[2].padStart(2, "0");
@@ -121,30 +136,16 @@ export default function AlertsPage() {
   const exportLiveToCSV = () => {
     if (liveRows.length === 0) return;
     const header = [
-      "Site",
-      "Equipment",
-      "Space",
-      "Alert Type",
-      "Trigger Value",
-      "Last Recorded Value",
-      "Status",
-      "Start Time",
-      "End Time",
-      "Duration",
-      "Notifications",
+      "Site", "Equipment", "Group", "Space", "Alert Type",
+      "Trigger Value", "Status", "Start Time", "End Time",
+      "Duration", "Notifications",
     ];
     const csvRows = liveRows.map((r) => [
-      r.site_name,
-      r.equipment_name,
-      r.space_name,
-      r.alert_type,
-      r.trigger_value ?? "",
-      r.last_recorded_value ?? "",
-      r.status,
-      formatDateTime(r.start_time),
-      formatDateTime(r.end_time),
-      formatDuration(r.duration),
-      r.notification_count,
+      r.site_name, r.equipment_name, r.equipment_group || "",
+      r.space_name, r.alert_name || r.alert_type,
+      r.trigger_value ?? "", r.status,
+      formatDateTime(r.start_time), formatDateTime(r.end_time),
+      formatDuration(r.duration), r.notification_count,
     ]);
     const csvContent = [header, ...csvRows].map((e) => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -167,7 +168,12 @@ export default function AlertsPage() {
     }
   };
 
-  const sortedLiveRows = [...liveRows].sort((a, b) => {
+  const filteredLiveRows = liveRows.filter((r) => {
+    if (equipmentGroupFilter !== "all" && r.equipment_group !== equipmentGroupFilter) return false;
+    return true;
+  });
+
+  const sortedLiveRows = [...filteredLiveRows].sort((a, b) => {
     const aVal = a[liveSortColumn];
     const bVal = b[liveSortColumn];
     if (aVal === null || aVal === undefined) return 1;
@@ -219,43 +225,19 @@ export default function AlertsPage() {
     }
   };
 
-  const formatHistoryDuration = (duration: string | null) => {
-    if (!duration) return "--";
-    const match = duration.match(/(\d+)\s+days\s+(\d+):(\d+)/);
-    if (match) {
-      const days = match[1];
-      const hours = match[2].padStart(2, "0");
-      const minutes = match[3].padStart(2, "0");
-      return `${days}d ${hours}:${minutes}`;
-    }
-    return duration.replace(/(\.\d+)?$/, "").replace(/:(\d{2})$/, "");
-  };
-
   const exportHistoryToCSV = () => {
     if (historyLogs.length === 0) return;
 
     const header = [
-      "Site",
-      "Equipment",
-      "Space",
-      "Alert Type",
-      "Status",
-      "Start",
-      "End",
-      "Duration",
-      "Notifications",
+      "Site", "Equipment", "Group", "Space", "Alert Type",
+      "Status", "Start", "End", "Duration", "Notifications",
     ];
 
     const csvRows = historyLogs.map((r) => [
-      r.site_name,
-      r.equipment_name,
-      r.space_name,
-      r.alert_type,
-      r.status,
-      formatDateTime(r.start),
-      formatDateTime(r.end),
-      formatHistoryDuration(r.duration),
-      r.notification_count ?? 0,
+      r.site_name, r.equipment_name, r.equipment_group || "",
+      r.space_name, r.alert_name || r.alert_type,
+      r.status, formatDateTime(r.start), formatDateTime(r.end),
+      formatDuration(r.duration), r.notification_count ?? 0,
     ]);
 
     const csvContent = [header, ...csvRows].map((e) => e.join(",")).join("\n");
@@ -280,7 +262,12 @@ export default function AlertsPage() {
     }
   };
 
-  const sortedHistoryLogs = [...historyLogs].sort((a, b) => {
+  const filteredHistoryLogs = historyLogs.filter((r) => {
+    if (historyGroupFilter !== "all" && r.equipment_group !== historyGroupFilter) return false;
+    return true;
+  });
+
+  const sortedHistoryLogs = [...filteredHistoryLogs].sort((a, b) => {
     const aVal = a[historySortColumn];
     const bVal = b[historySortColumn];
     if (aVal === null || aVal === undefined) return 1;
@@ -296,9 +283,7 @@ export default function AlertsPage() {
 
   // ===== Effects =====
   useEffect(() => {
-    (async () => {
-      await fetchLive();
-    })();
+    fetchLive();
     const interval = setInterval(fetchLive, 300_000);
     return () => clearInterval(interval);
   }, []);
@@ -378,32 +363,46 @@ export default function AlertsPage() {
             </div>
           </div>
 
+          {/* Equipment Group Filter */}
+          {liveEquipmentGroups.length > 1 && (
+            <div className="flex items-center gap-3 mb-4">
+              <label className="text-sm font-semibold">Equipment Group:</label>
+              <select
+                className="border rounded-md px-2 py-1 text-sm"
+                value={equipmentGroupFilter}
+                onChange={(e) => setEquipmentGroupFilter(e.target.value)}
+              >
+                <option value="all">All Groups</option>
+                {liveEquipmentGroups.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="overflow-x-auto border rounded-lg">
             <table className="min-w-full border-collapse text-sm">
               <thead className="bg-gray-100 text-left text-xs uppercase font-semibold tracking-wider">
                 <tr>
                   {[
-                    "site_name",
-                    "equipment_name",
-                    "space_name",
-                    "alert_type",
-                    "trigger_value",
-                    "last_recorded_value",
-                    "status",
-                    "start_time",
-                    "end_time",
-                    "duration",
-                    "notification_count",
+                    { key: "site_name", label: "Site" },
+                    { key: "equipment_name", label: "Equipment" },
+                    { key: "space_name", label: "Space" },
+                    { key: "alert_name", label: "Alert Type" },
+                    { key: "trigger_value", label: "Trigger Value" },
+                    { key: "status", label: "Status" },
+                    { key: "start_time", label: "Start Time" },
+                    { key: "end_time", label: "End Time" },
+                    { key: "duration", label: "Duration" },
+                    { key: "notification_count", label: "Notifications" },
                   ].map((col) => (
                     <th
-                      key={col}
+                      key={col.key}
                       className="py-3 px-3 cursor-pointer select-none hover:bg-gray-200"
-                      onClick={() => handleLiveSort(col as SortColumn)}
+                      onClick={() => handleLiveSort(col.key as SortColumn)}
                     >
-                      {col
-                        .replaceAll("_", " ")
-                        .replace(/\b\w/g, (l) => l.toUpperCase())}
-                      {liveSortColumn === col && (
+                      {col.label}
+                      {liveSortColumn === col.key && (
                         <span>{liveSortOrder === "asc" ? " ▲" : " ▼"}</span>
                       )}
                     </th>
@@ -414,7 +413,7 @@ export default function AlertsPage() {
               <tbody>
                 {sortedLiveRows.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="text-center py-6 text-gray-500">
+                    <td colSpan={10} className="text-center py-6 text-gray-500">
                       No active or recent alerts
                     </td>
                   </tr>
@@ -430,9 +429,8 @@ export default function AlertsPage() {
                     <td className="py-2 px-3">{row.site_name}</td>
                     <td className="py-2 px-3">{row.equipment_name}</td>
                     <td className="py-2 px-3">{row.space_name}</td>
-                    <td className="py-2 px-3">{row.alert_type}</td>
+                    <td className="py-2 px-3">{row.alert_name || row.alert_type}</td>
                     <td className="py-2 px-3">{row.trigger_value ?? "--"}</td>
-                    <td className="py-2 px-3">{row.last_recorded_value ?? "--"}</td>
                     <td className="py-2 px-3">
                       <span
                         className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -441,7 +439,7 @@ export default function AlertsPage() {
                             : "bg-[#00a859]/10 text-[#00a859] border border-[#00a859]/40"
                         }`}
                       >
-                        {row.live_value_state || row.status.toUpperCase()}
+                        {row.status.toUpperCase()}
                       </span>
                     </td>
                     <td className="py-2 px-3">{formatDateTime(row.start_time)}</td>
@@ -533,6 +531,22 @@ export default function AlertsPage() {
                 </button>
               </div>
             )}
+
+            {historyEquipmentGroups.length > 1 && (
+              <>
+                <label className="text-sm font-semibold ml-4">Equipment Group:</label>
+                <select
+                  className="border rounded-md px-2 py-1 text-sm"
+                  value={historyGroupFilter}
+                  onChange={(e) => setHistoryGroupFilter(e.target.value)}
+                >
+                  <option value="all">All Groups</option>
+                  {historyEquipmentGroups.map((g) => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </>
+            )}
           </div>
 
           <div className="overflow-x-auto border rounded-lg bg-white">
@@ -548,8 +562,8 @@ export default function AlertsPage() {
                   <th onClick={() => handleHistorySort("space_name")} className="py-3 px-3 cursor-pointer">
                     Space {historySortColumn === "space_name" && (historySortDirection === "asc" ? "▲" : "▼")}
                   </th>
-                  <th onClick={() => handleHistorySort("alert_type")} className="py-3 px-3 cursor-pointer">
-                    Alert Type {historySortColumn === "alert_type" && (historySortDirection === "asc" ? "▲" : "▼")}
+                  <th onClick={() => handleHistorySort("alert_name")} className="py-3 px-3 cursor-pointer">
+                    Alert Type {historySortColumn === "alert_name" && (historySortDirection === "asc" ? "▲" : "▼")}
                   </th>
                   <th onClick={() => handleHistorySort("status")} className="py-3 px-3 cursor-pointer">
                     Status {historySortColumn === "status" && (historySortDirection === "asc" ? "▲" : "▼")}
@@ -586,7 +600,7 @@ export default function AlertsPage() {
                     <td className="py-2 px-3">{row.site_name}</td>
                     <td className="py-2 px-3">{row.equipment_name}</td>
                     <td className="py-2 px-3">{row.space_name}</td>
-                    <td className="py-2 px-3">{row.alert_type}</td>
+                    <td className="py-2 px-3">{row.alert_name || row.alert_type}</td>
                     <td className="py-2 px-3">
                       <span
                         className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -600,7 +614,7 @@ export default function AlertsPage() {
                     </td>
                     <td className="py-2 px-3">{formatDateTime(row.start)}</td>
                     <td className="py-2 px-3">{formatDateTime(row.end)}</td>
-                    <td className="py-2 px-3">{formatHistoryDuration(row.duration)}</td>
+                    <td className="py-2 px-3">{formatDuration(row.duration)}</td>
                     <td className="py-2 px-3">{row.notification_count ?? 0}</td>
                   </tr>
                 ))}
