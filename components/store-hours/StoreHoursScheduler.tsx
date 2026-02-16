@@ -40,6 +40,7 @@ const WEEKDAYS: { value: Weekday; label: string }[] = [
 ];
 
 interface StoreHoursSchedulerProps {
+  eventType?: string;
   ruleType: RuleType;
   hoursType: HoursType;
   // single_date
@@ -69,6 +70,7 @@ interface StoreHoursSchedulerProps {
 
 export default function StoreHoursScheduler(props: StoreHoursSchedulerProps) {
   const {
+    eventType,
     ruleType,
     hoursType,
     singleDate,
@@ -87,6 +89,25 @@ export default function StoreHoursScheduler(props: StoreHoursSchedulerProps) {
     closeTime,
     onUpdate,
   } = props;
+
+  const isMaintenance = eventType === "planned_maintenance";
+
+  // Context-aware labels
+  const labels = isMaintenance
+    ? {
+        hoursSection: "Maintenance Window",
+        allDay: "All day",
+        scheduled: "Scheduled window",
+        startTime: "Start",
+        endTime: "End",
+      }
+    : {
+        hoursSection: "Hours",
+        allDay: "Closed all day",
+        scheduled: "Special hours",
+        startTime: "Open",
+        endTime: "Close",
+      };
 
   const handleChange = (field: string, value: any) => {
     onUpdate({ ...props, [field]: value });
@@ -296,9 +317,9 @@ export default function StoreHoursScheduler(props: StoreHoursSchedulerProps) {
         </div>
       )}
 
-      {/* Hours */}
+      {/* Hours / Maintenance Window */}
       <div>
-        <label className="font-semibold block mb-2">Hours</label>
+        <label className="font-semibold block mb-2">{labels.hoursSection}</label>
         <div className="space-y-2">
           <label className="flex items-center gap-2">
             <input
@@ -306,7 +327,7 @@ export default function StoreHoursScheduler(props: StoreHoursSchedulerProps) {
               checked={hoursType === "closed"}
               onChange={() => handleChange("hoursType", "closed")}
             />
-            Closed all day
+            {labels.allDay}
           </label>
           <label className="flex items-center gap-2">
             <input
@@ -314,14 +335,14 @@ export default function StoreHoursScheduler(props: StoreHoursSchedulerProps) {
               checked={hoursType === "special"}
               onChange={() => handleChange("hoursType", "special")}
             />
-            Special hours
+            {labels.scheduled}
           </label>
         </div>
 
         {hoursType === "special" && (
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm text-gray-600 block mb-1">Open</label>
+              <label className="text-sm text-gray-600 block mb-1">{labels.startTime}</label>
               <input
                 type="time"
                 className="border rounded px-3 py-2 w-full"
@@ -330,7 +351,7 @@ export default function StoreHoursScheduler(props: StoreHoursSchedulerProps) {
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600 block mb-1">Close</label>
+              <label className="text-sm text-gray-600 block mb-1">{labels.endTime}</label>
               <input
                 type="time"
                 className="border rounded px-3 py-2 w-full"
@@ -339,6 +360,12 @@ export default function StoreHoursScheduler(props: StoreHoursSchedulerProps) {
               />
             </div>
           </div>
+        )}
+
+        {isMaintenance && (
+          <p className="mt-2 text-xs text-gray-500">
+            Alerts will be muted during the maintenance window.
+          </p>
         )}
       </div>
     </div>

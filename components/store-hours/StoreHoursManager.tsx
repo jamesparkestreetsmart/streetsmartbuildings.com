@@ -9,6 +9,10 @@ import AddEventModal, { AddEventModalMode } from "./AddEventModal";
 import { useFutureExceptions, FutureException } from "./useFutureExceptions";
 import { usePastStoreHours } from "./usePastStoreHours";
 
+function todayInTimezone(tz: string): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: tz });
+}
+
 function EventsDisclaimer() {
   return (
     <div className="bg-yellow-50 border border-yellow-200 text-yellow-900 text-sm rounded p-3">
@@ -30,11 +34,24 @@ export default function StoreHoursManager({ siteId, timezone }: { siteId: string
   if (upcoming.error) return <div className="text-red-600">{upcoming.error}</div>;
   if (past.error) return <div className="text-red-600">{past.error}</div>;
 
+  async function triggerManifestPushIfToday(eventDate: string) {
+    const siteToday = todayInTimezone(timezone);
+    if (eventDate !== siteToday) return;
+
+    try {
+      await fetch("/api/manifest/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site_id: siteId, date: eventDate }),
+      });
+    } catch (err) {
+      console.error("Manifest push failed:", err);
+    }
+  }
+
   async function handleDelete(e: FutureException) {
     if (!confirm("Delete this schedule and all future events?")) return;
 
-    // NOTE: This assumes you have (or will create) this route:
-    // DELETE /api/store-hours/rules/[rule_id]
     const res = await fetch(`/api/store-hours/rules/${e.rule_id}`, {
       method: "DELETE",
     });
@@ -45,19 +62,16 @@ export default function StoreHoursManager({ siteId, timezone }: { siteId: string
       return;
     }
 
+    // If deleting today's event, push updated manifest
+    await triggerManifestPushIfToday(e.event_date);
+
     await upcoming.refetch();
     await past.refetch();
   }
 
   function handleEdit(e: FutureException) {
-    // NOTE: your modal should edit the RULE (schedule),
-    // not the individual event. We pass enough info to locate rule_id + site_id.
-    setModalMode("edit-rule" as any); // if your modal union doesn't include it yet
-    setModalInitialData({
-      rule_id: e.rule_id,
-      site_id: e.site_id,
-      // you can hydrate full rule details by fetching rule_id inside modal if needed
-    });
+    setModalMode("edit-one-time");
+    setModalInitialData(e); // Pass full event data for hydration
     setModalOpen(true);
   }
 

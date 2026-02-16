@@ -17,12 +17,11 @@ export async function DELETE(
   }
 
   try {
-    // 1️⃣ Delete future events first (safety)
+    // 1️⃣ Delete all events for this rule (rule is being retired)
     const { error: eventsError } = await supabase
       .from("b_store_hours_events")
       .delete()
-      .eq("rule_id", ruleId)
-      .gte("event_date", "1900-01-01");
+      .eq("rule_id", ruleId);
 
     if (eventsError) throw eventsError;
 

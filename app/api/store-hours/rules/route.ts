@@ -76,6 +76,16 @@ export async function POST(req: NextRequest) {
       middle_days_close,
       end_day_open,
       end_day_close,
+      // Rule-specific parameters
+      date,
+      month,
+      day,
+      weekday,
+      nth,
+      days,
+      interval,
+      unit,
+      start_date,
     } = body;
 
     if (!site_id || !name || !event_type || !rule_type || !effective_from_date) {
@@ -119,6 +129,30 @@ export async function POST(req: NextRequest) {
       insertData.is_closed = is_closed;
       insertData.open_time = open_time;
       insertData.close_time = close_time;
+    }
+
+    // Add rule-specific parameters
+    switch (rule_type) {
+      case "single_date":
+        if (date !== undefined) insertData.date = date;
+        break;
+      case "fixed_yearly":
+        if (month !== undefined) insertData.month = month;
+        if (day !== undefined) insertData.day = day;
+        break;
+      case "nth_weekday":
+        if (month !== undefined) insertData.month = month;
+        if (weekday !== undefined) insertData.weekday = weekday;
+        if (nth !== undefined) insertData.nth = nth;
+        break;
+      case "weekly_days":
+        if (days !== undefined) insertData.days = days;
+        break;
+      case "interval":
+        if (interval !== undefined) insertData.interval = interval;
+        if (unit !== undefined) insertData.unit = unit;
+        if (start_date !== undefined) insertData.start_date = start_date;
+        break;
     }
 
     const { error } = await supabase

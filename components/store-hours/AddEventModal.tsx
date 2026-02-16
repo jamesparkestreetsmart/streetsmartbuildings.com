@@ -160,8 +160,21 @@ export default function AddEventModal({
       return;
     }
 
-    // TODO: hydrate edit mode
-    resetForm();
+    // Hydrate edit mode from the event data
+    setName(initialData.event_name || initialData.name || "");
+    setEventType(initialData.event_type || "store_hours_schedule");
+    setRuleType("single_date");
+    setSingleDate(initialData.event_date || "");
+
+    if (initialData.is_closed) {
+      setHoursType("closed");
+      setOpenTime("");
+      setCloseTime("");
+    } else {
+      setHoursType("special");
+      setOpenTime(initialData.open_time || "");
+      setCloseTime(initialData.close_time || "");
+    }
 
   }, [open, mode, initialData]);
 
@@ -249,6 +262,26 @@ export default function AddEventModal({
   }
 
   /* ======================================================
+     Trigger immediate manifest push for same-day events
+  ====================================================== */
+
+  async function triggerManifestPush(targetDate: string) {
+    const siteToday = todayInTimezone(timezone);
+    if (targetDate !== siteToday) return;
+
+    try {
+      console.log("Same-day event detected, pushing updated manifest...");
+      await fetch("/api/manifest/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site_id: siteId, date: targetDate }),
+      });
+    } catch (err) {
+      console.error("Manifest push failed (non-blocking):", err);
+    }
+  }
+
+  /* ======================================================
      Save
   ====================================================== */
 
@@ -260,12 +293,23 @@ export default function AddEventModal({
     setError(null);
 
     try {
+      // If editing, delete the old rule first (delete-and-recreate)
+      if (mode !== "create" && initialData?.rule_id) {
+        const delRes = await fetch(`/api/store-hours/rules/${initialData.rule_id}`, {
+          method: "DELETE",
+        });
+        if (!delRes.ok) {
+          const j = await safeJson(delRes);
+          console.error("Failed to delete old rule during edit:", j?.error);
+          // Continue anyway — create the new one
+        }
+      }
+
       let payload: Record<string, any>;
+      let eventDate: string = "";
 
       if (eventType === "hotel_occupancy") {
-        // Hotel occupancy payload
-        // User only edits: startDate, endDate, checkInTime, checkOutTime
-        // We automatically derive the internal day-slice fields
+        eventDate = hotelStartDate;
         payload = {
           site_id: siteId,
           name: name.trim(),
@@ -273,19 +317,15 @@ export default function AddEventModal({
           rule_type: "date_range_daily",
           effective_from_date: hotelStartDate,
           effective_to_date: hotelEndDate,
-          // Derived: Check-in day occupies from checkInTime until end of day
           start_day_open: checkInTime,
           start_day_close: "23:59",
-          // Derived: Middle days are always fully occupied
           middle_days_closed: false,
           middle_days_open: "00:00",
           middle_days_close: "23:59",
-          // Derived: Check-out day occupies from start of day until checkOutTime
           end_day_open: "00:00",
           end_day_close: checkOutTime,
         };
       } else {
-        // Store hours payload
         let effective_from_date: string;
         let effective_to_date: string | null;
 
@@ -293,14 +333,24 @@ export default function AddEventModal({
           case "single_date":
             effective_from_date = singleDate;
             effective_to_date = singleDate;
+            eventDate = singleDate;
             break;
           case "date_range_daily":
             effective_from_date = rangeStart;
             effective_to_date = rangeEnd;
+            eventDate = rangeStart;
             break;
-          default:
-            effective_from_date = todayInTimezone(timezone);
-            effective_to_date = null;
+          default: {
+            if (ruleType === "interval" && intervalStartDate) {
+              effective_from_date = intervalStartDate;
+            } else {
+              effective_from_date = todayInTimezone(timezone);
+            }
+            // Recurring rules need an end date — default to 10 years out
+            const startYear = parseInt(effective_from_date.slice(0, 4));
+            effective_to_date = `${startYear + 10}-12-31`;
+            eventDate = effective_from_date;
+          }
         }
 
         payload = {
@@ -315,7 +365,6 @@ export default function AddEventModal({
           close_time: hoursType === "special" ? closeTime : null,
         };
 
-        // Add rule-specific parameters
         switch (ruleType) {
           case "single_date":
             payload.date = singleDate;
@@ -356,6 +405,9 @@ export default function AddEventModal({
         setSaving(false);
         return;
       }
+
+      // Trigger immediate manifest push if this affects today
+      await triggerManifestPush(eventDate);
 
       onSaved();
     } catch (err) {
@@ -402,13 +454,15 @@ export default function AddEventModal({
      UI
   ====================================================== */
 
+  const isEditing = mode !== "create" && !!initialData;
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
 
         <div className="flex justify-between mb-4">
           <h2 className="text-lg font-semibold">
-            {mode === "create" ? "Add Event" : "Edit Event"}
+            {isEditing ? "Edit Event" : "Add Event"}
           </h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
         </div>
@@ -426,6 +480,7 @@ export default function AddEventModal({
             className="border rounded px-3 py-2 w-full"
             value={eventType}
             onChange={(e) => setEventType(e.target.value as EventType)}
+            disabled={isEditing}
           >
             <option value="store_hours_schedule">Store Hours</option>
             <option value="planned_maintenance">Planned Maintenance</option>
@@ -459,6 +514,7 @@ export default function AddEventModal({
           />
         ) : (
           <StoreHoursScheduler
+            eventType={eventType}
             ruleType={ruleType}
             hoursType={hoursType}
             singleDate={singleDate}
@@ -485,7 +541,7 @@ export default function AddEventModal({
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={saving || !validate()}>
-            {saving ? "Saving..." : "Save"}
+            {saving ? "Saving..." : isEditing ? "Save Changes" : "Save"}
           </Button>
         </div>
       </div>
