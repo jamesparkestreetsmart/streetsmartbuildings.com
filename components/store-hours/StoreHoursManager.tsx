@@ -18,7 +18,7 @@ function EventsDisclaimer() {
   );
 }
 
-export default function StoreHoursManager({ siteId }: { siteId: string }) {
+export default function StoreHoursManager({ siteId, timezone }: { siteId: string; timezone: string }) {
   const upcoming = useFutureExceptions(siteId);
   const past = usePastStoreHours(siteId);
 
@@ -108,6 +108,7 @@ export default function StoreHoursManager({ siteId }: { siteId: string }) {
         <AddEventModal
           open={modalOpen}
           siteId={siteId}
+          timezone={timezone}
           mode={modalMode}
           initialData={modalInitialData}
           onClose={() => setModalOpen(false)}

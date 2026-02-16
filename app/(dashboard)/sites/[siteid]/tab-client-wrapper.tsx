@@ -20,19 +20,21 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
   const [tab, setTab] = useState(params.get("tab") || "");
   const [orgId, setOrgId] = useState<string | null>(null);
   const [siteStatus, setSiteStatus] = useState<string | null>(null);
+  const [timezone, setTimezone] = useState<string>("America/Chicago");
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const fetchSiteInfo = async () => {
       const { data } = await supabase
         .from("a_sites")
-        .select("org_id, status")
+        .select("org_id, status, timezone")
         .eq("site_id", siteId)
         .single();
 
       if (data) {
         setOrgId(data.org_id);
         setSiteStatus(data.status);
+        setTimezone(data.timezone || "America/Chicago");
       }
       setLoaded(true);
     };
@@ -108,7 +110,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
         <PlumbingTable siteId={siteId} />
       )}
       {tab === "hours" && !isInventorySite && (
-        <StoreHoursManager siteId={siteId} />
+        <StoreHoursManager siteId={siteId} timezone={timezone} />
       )}
       {tab === "activity" && !isInventorySite && (
         <SiteActivityLog siteId={siteId} />

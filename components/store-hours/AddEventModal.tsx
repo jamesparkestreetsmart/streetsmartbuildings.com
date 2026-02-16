@@ -45,6 +45,7 @@ type IntervalUnit = "days" | "weeks";
 interface AddEventModalProps {
   open: boolean;
   siteId: string;
+  timezone: string;
   mode: AddEventModalMode;
   initialData: any | null;
   onClose: () => void;
@@ -55,8 +56,8 @@ interface AddEventModalProps {
    Helpers
 ====================================================== */
 
-function todayYYYYMMDD() {
-  return new Date().toISOString().slice(0, 10);
+function todayInTimezone(tz: string): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: tz });
 }
 
 async function safeJson(res: Response) {
@@ -74,6 +75,7 @@ async function safeJson(res: Response) {
 export default function AddEventModal({
   open,
   siteId,
+  timezone,
   mode,
   initialData,
   onClose,
@@ -297,7 +299,7 @@ export default function AddEventModal({
             effective_to_date = rangeEnd;
             break;
           default:
-            effective_from_date = todayYYYYMMDD();
+            effective_from_date = todayInTimezone(timezone);
             effective_to_date = null;
         }
 

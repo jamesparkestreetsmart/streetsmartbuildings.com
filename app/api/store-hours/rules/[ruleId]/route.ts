@@ -22,7 +22,7 @@ export async function DELETE(
       .from("b_store_hours_events")
       .delete()
       .eq("rule_id", ruleId)
-      .gte("event_date", new Date().toISOString().slice(0, 10));
+      .gte("event_date", "1900-01-01");
 
     if (eventsError) throw eventsError;
 
