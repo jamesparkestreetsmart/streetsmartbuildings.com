@@ -9,11 +9,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Verify cron secret to prevent unauthorized access
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
+
 function verifyCronSecret(req: NextRequest): boolean {
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return true; // If no secret configured, allow (dev mode)
+  if (!cronSecret) return true;
   return authHeader === `Bearer ${cronSecret}`;
 }
 
@@ -23,46 +24,39 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // 1. Find all pending emails that are due
-    const now = new Date().toISOString();
-    const { data: dueEmails, error: fetchError } = await supabase
-      .from("z_scheduled_emails")
-      .select(`
-        id,
-        lead_id,
-        email_type,
-        z_marketing_leads (
-          id,
-          email,
-          first_name
-        )
-      `)
-      .eq("status", "pending")
-      .lte("send_at", now)
-      .limit(20); // Process in batches
-
-    if (fetchError) throw fetchError;
-    if (!dueEmails || dueEmails.length === 0) {
-      return NextResponse.json({ message: "No emails due", sent: 0 });
-    }
-
-    // 2. Load email template config
-    const { data: configRows, error: configError } = await supabase
+    // 1. Load delay config
+    const { data: configRows } = await supabase
       .from("z_marketing_config")
       .select("key, value")
-      .in("key", ["welcome_email_subject", "welcome_email_body"]);
-
-    if (configError) throw configError;
+      .in("key", [
+        "welcome_email_delay_hours",
+        "welcome_email_subject",
+        "welcome_email_body",
+      ]);
 
     const config: Record<string, string> = {};
-    configRows?.forEach((row) => {
-      config[row.key] = row.value;
-    });
+    configRows?.forEach((row) => { config[row.key] = row.value; });
 
+    const delayHours = parseInt(config["welcome_email_delay_hours"] || "8", 10);
     const subjectTemplate = config["welcome_email_subject"] || "Thanks for your interest in Eagle Eyes Building Solutions";
     const bodyTemplate = config["welcome_email_body"] || "Hi {{first_name}}, thanks for your interest!";
 
-    // 3. Get PDF attachment from Supabase Storage
+    // 2. Find pending leads where enough time has passed since created_at
+    const cutoff = new Date(Date.now() - delayHours * 60 * 60 * 1000).toISOString();
+
+    const { data: leads, error: fetchError } = await supabase
+      .from("z_marketing_leads")
+      .select("id, email, first_name")
+      .eq("welcome_email_status", "pending")
+      .lte("created_at", cutoff)
+      .limit(20);
+
+    if (fetchError) throw fetchError;
+    if (!leads || leads.length === 0) {
+      return NextResponse.json({ message: "No emails due", sent: 0 });
+    }
+
+    // 3. Fetch PDF attachment
     const { data: pdfData } = supabase.storage
       .from("marketing-assets")
       .getPublicUrl("EagleEyes_Overview_Presentation.pdf");
@@ -71,16 +65,13 @@ export async function POST(req: NextRequest) {
     if (pdfData?.publicUrl) {
       try {
         const pdfRes = await fetch(pdfData.publicUrl);
-        if (pdfRes.ok) {
-          const arrayBuffer = await pdfRes.arrayBuffer();
-          pdfBuffer = Buffer.from(arrayBuffer);
-        }
+        if (pdfRes.ok) pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
       } catch (e) {
         console.error("Failed to fetch PDF:", e);
       }
     }
 
-    // 4. Set up email transporter
+    // 4. Set up transporter
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -89,22 +80,23 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // 5. Send each email
+    // 5. Send each email, update z_marketing_leads directly
     let sentCount = 0;
     let failedCount = 0;
 
-    for (const scheduled of dueEmails) {
-      const lead = scheduled.z_marketing_leads as any;
-      if (!lead?.email) {
+    for (const lead of leads) {
+      if (!lead.email) {
         await supabase
-          .from("z_scheduled_emails")
-          .update({ status: "failed", error: "No email address on lead" })
-          .eq("id", scheduled.id);
+          .from("z_marketing_leads")
+          .update({
+            welcome_email_status: "failed",
+            welcome_email_error: "No email address",
+          })
+          .eq("id", lead.id);
         failedCount++;
         continue;
       }
 
-      // Replace template tokens
       const firstName = lead.first_name || "there";
       const subject = subjectTemplate.replace(/\{\{first_name\}\}/g, firstName);
       const body = bodyTemplate
@@ -118,30 +110,59 @@ export async function POST(req: NextRequest) {
         text: body,
       };
 
-      // Attach PDF if available
       if (pdfBuffer) {
-        mailOptions.attachments = [
-          {
-            filename: "EagleEyes_Overview_Presentation.pdf",
-            content: pdfBuffer,
-            contentType: "application/pdf",
-          },
-        ];
+        mailOptions.attachments = [{
+          filename: "EagleEyes_Overview_Presentation.pdf",
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        }];
       }
 
       try {
         await transporter.sendMail(mailOptions);
+
         await supabase
-          .from("z_scheduled_emails")
-          .update({ status: "sent", sent_at: new Date().toISOString() })
-          .eq("id", scheduled.id);
+          .from("z_marketing_leads")
+          .update({
+            welcome_email_status: "sent",
+            welcome_email_sent_at: new Date().toISOString(),
+            welcome_email_error: null,
+          })
+          .eq("id", lead.id);
+
+        // Audit log
+        await supabase.from("b_records_log").insert({
+          org_id: SSB_ORG_ID,
+          event_type: "welcome_email_sent",
+          source: "cron",
+          message: `Welcome email sent to ${lead.email}`,
+          metadata: { lead_id: lead.id, email: lead.email },
+          created_by: "system",
+          event_date: new Date().toISOString().split("T")[0],
+        });
+
         sentCount++;
       } catch (sendErr: any) {
         console.error(`Failed to send to ${lead.email}:`, sendErr);
+
         await supabase
-          .from("z_scheduled_emails")
-          .update({ status: "failed", error: sendErr.message?.slice(0, 500) })
-          .eq("id", scheduled.id);
+          .from("z_marketing_leads")
+          .update({
+            welcome_email_status: "failed",
+            welcome_email_error: sendErr.message?.slice(0, 500),
+          })
+          .eq("id", lead.id);
+
+        await supabase.from("b_records_log").insert({
+          org_id: SSB_ORG_ID,
+          event_type: "welcome_email_failed",
+          source: "cron",
+          message: `Welcome email failed for ${lead.email}: ${sendErr.message?.slice(0, 200)}`,
+          metadata: { lead_id: lead.id, email: lead.email, error: sendErr.message },
+          created_by: "system",
+          event_date: new Date().toISOString().split("T")[0],
+        });
+
         failedCount++;
       }
     }
@@ -150,13 +171,10 @@ export async function POST(req: NextRequest) {
       message: "Cron complete",
       sent: sentCount,
       failed: failedCount,
-      total: dueEmails.length,
+      total: leads.length,
     });
   } catch (err: any) {
     console.error("Cron error:", err);
-    return NextResponse.json(
-      { error: err.message || "Cron failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Cron failed" }, { status: 500 });
   }
 }
