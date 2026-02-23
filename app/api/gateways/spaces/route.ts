@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
       zone_temp_source: z.zone_temp_source || "thermostat_builtin",
     }));
 
-    // Available temp entities (not already bound to a space sensor)
+    // Available entities (not already bound to a space sensor)
     const boundEntityIds = new Set(
       (spaceSensors || []).map((s) => s.entity_id).filter(Boolean)
     );

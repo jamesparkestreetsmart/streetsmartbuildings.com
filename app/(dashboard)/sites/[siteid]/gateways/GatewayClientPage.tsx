@@ -11,6 +11,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ArrowLeft, ChevronDown, ChevronRight, X, Cpu, Sparkles } from "lucide-react";
+import DeviceListPanel from "@/components/gateways/DeviceListPanel";
+import SpacesPanel from "@/components/gateways/SpacesPanel";
 
 /* ======================================================
  Types
@@ -35,6 +37,7 @@ interface Equipment {
   equipment_group: string | null;
   status: string | null;
   org_id: string | null;
+  space_id: string | null;
 }
 
 interface SensorRequirement {
@@ -151,6 +154,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   const [devices, setDevices] = useState<DeviceRecord[]>([]);
   const [libraryDevices, setLibraryDevices] = useState<LibraryDevice[]>([]);
   const [phaseConfigurations, setPhaseConfigurations] = useState<{ phase_code: string; description: string }[]>([]);
+  const [spaceMap, setSpaceMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
 
@@ -170,6 +174,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
       { data: devs },
       { data: libDevs },
       { data: phaseConfigs },
+      { data: spaceRows },
     ] = await Promise.all([
       supabase
         .from("b_entity_sync")
@@ -177,7 +182,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         .eq("site_id", siteid),
       supabase
         .from("a_equipments")
-        .select("equipment_id, equipment_name, equipment_type_id, equipment_group, status, org_id")
+        .select("equipment_id, equipment_name, equipment_type_id, equipment_group, status, org_id, space_id")
         .eq("site_id", siteid),
       supabase
         .from("library_equipment_sensor_requirements")
@@ -197,6 +202,10 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         .from("library_phase_configurations")
         .select("phase_code, description")
         .order("sort_order"),
+      supabase
+        .from("a_spaces")
+        .select("space_id, name")
+        .eq("site_id", siteid),
     ]);
 
     setSyncEntities((entities ?? []) as SyncEntity[]);
@@ -206,6 +215,10 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     setDevices((devs ?? []) as DeviceRecord[]);
     setLibraryDevices((libDevs ?? []) as unknown as LibraryDevice[]);
     setPhaseConfigurations((phaseConfigs ?? []) as { phase_code: string; description: string }[]);
+
+    const sMap: Record<string, string> = {};
+    (spaceRows ?? []).forEach((s: any) => { sMap[s.space_id] = s.name; });
+    setSpaceMap(sMap);
 
     if (eqs && eqs.length > 0) {
       setOrgId(eqs[0].org_id ?? null);
@@ -817,16 +830,25 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                   <ChevronRight className="w-4 h-4 text-gray-400" />
                 )}
                 <div>
-                  <a
-                    href={`/sites/${siteid}/equipment/${eq.equipment_id}/individual-equipment`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="font-semibold hover:underline"
-                    style={{ color: "#12723A" }}
-                  >
-                    {eq.equipment_name}
-                  </a>
-                  <div className="text-xs text-gray-500 font-normal mt-0.5 flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-gray-400 font-normal">Equipment Name:</span>
+                    <a
+                      href={`/sites/${siteid}/equipment/${eq.equipment_id}/individual-equipment`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="font-semibold hover:underline"
+                      style={{ color: "#12723A" }}
+                    >
+                      {eq.equipment_name}
+                    </a>
+                  </div>
+                  <div className="text-xs text-gray-500 font-normal mt-0.5 flex items-center gap-3">
                     <span>{eq.equipment_type_id?.replace(/_/g, " ") || "Unknown Type"}</span>
+                    {eq.space_id && spaceMap[eq.space_id] && (
+                      <span>
+                        <span className="text-gray-400">Space: </span>
+                        <span className="text-sky-600 font-medium">{spaceMap[eq.space_id]}</span>
+                      </span>
+                    )}
                     {(() => {
                       const dev = devices.find(
                         (d) => d.equipment_id === eq.equipment_id && d.library_device_id
@@ -837,27 +859,30 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                       if (!libDev || libDev.device_role !== "energy_meter") return null;
                       const isSaving = savingPhase === eq.equipment_id;
                       return (
-                        <select
-                          value={phaseConfig || ""}
-                          disabled={isSaving}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            changePhaseConfig(eq.equipment_id, e.target.value || null);
-                          }}
-                          className={`px-1.5 py-0.5 rounded border text-xs font-mono cursor-pointer ${
-                            phaseConfig
-                              ? "bg-slate-100 border-slate-300 text-slate-700"
-                              : "bg-amber-50 border-amber-300 text-amber-700"
-                          } ${isSaving ? "opacity-50" : ""}`}
-                        >
-                          <option value="">— set phase —</option>
-                          {phaseConfigurations.map((pc) => (
-                            <option key={pc.phase_code} value={pc.phase_code}>
-                              {pc.phase_code}
-                            </option>
-                          ))}
-                        </select>
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-gray-400">Phase Config:</span>
+                          <select
+                            value={phaseConfig || ""}
+                            disabled={isSaving}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              changePhaseConfig(eq.equipment_id, e.target.value || null);
+                            }}
+                            className={`px-1.5 py-0.5 rounded border text-xs font-mono cursor-pointer ${
+                              phaseConfig
+                                ? "bg-slate-100 border-slate-300 text-slate-700"
+                                : "bg-amber-50 border-amber-300 text-amber-700"
+                            } ${isSaving ? "opacity-50" : ""}`}
+                          >
+                            <option value="">— set phase —</option>
+                            {phaseConfigurations.map((pc) => (
+                              <option key={pc.phase_code} value={pc.phase_code}>
+                                {pc.phase_code}
+                              </option>
+                            ))}
+                          </select>
+                        </span>
                       );
                     })()}
                   </div>
@@ -986,6 +1011,10 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         <div className="w-[120px]" />
       </div>
 
+      <DeviceListPanel siteId={siteid} />
+
+      <SpacesPanel siteId={siteid} />
+
       {loading ? (
         <p>Loading…</p>
       ) : (
@@ -997,6 +1026,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                   className="w-3 h-3 rounded-sm"
                   style={{ backgroundColor: GROUP_COLORS[group] || GROUP_COLORS.Other }}
                 />
+                <span className="text-xs text-gray-400 uppercase tracking-wider">Equipment Group:</span>
                 <h2
                   className="text-sm font-bold uppercase tracking-wider"
                   style={{ color: GROUP_COLORS[group] || GROUP_COLORS.Other }}

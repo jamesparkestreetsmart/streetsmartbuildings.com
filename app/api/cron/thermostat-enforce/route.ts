@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { executePushForSite, HAConfig } from "@/lib/ha-push";
 import { updateDailyHealth } from "@/lib/daily-health";
+import { logZoneSetpointSnapshot } from "@/lib/zone-setpoint-logger";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -109,6 +110,13 @@ export async function GET(req: NextRequest) {
           });
         } catch (healthErr: any) {
           console.error(`[cron/thermostat-enforce] Health update failed for ${site.site_id}:`, healthErr.message);
+        }
+
+        // Log zone setpoint snapshots for time series
+        try {
+          await logZoneSetpointSnapshot(supabase, site.site_id);
+        } catch (logErr: any) {
+          console.error(`[cron/thermostat-enforce] Setpoint log failed for ${site.site_id}:`, logErr.message);
         }
 
         console.log(
