@@ -10,7 +10,7 @@
   "crons": [
     {
       "path": "/api/cron/send-scheduled-emails",
-      "schedule": "13 * * *"
+      "schedule": "0 13 * * *"
     },
     {
       "path": "/api/cron/thermostat-enforce",
