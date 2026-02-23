@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import type { PastStoreHour } from "./usePastStoreHours";
 
 function formatHours(e: PastStoreHour) {
@@ -32,7 +33,15 @@ function formatEventType(eventType: string) {
   }
 }
 
-export function PastEventsTable({ rows }: { rows: PastStoreHour[] }) {
+export function PastEventsTable({
+  rows,
+  commentsByDate,
+  onCommentClick,
+}: {
+  rows: PastStoreHour[];
+  commentsByDate?: Map<string, any[]>;
+  onCommentClick?: (date: string, dateLabel: string) => void;
+}) {
   return (
     <div className="border rounded bg-green-50">
       <div className="p-3 font-semibold text-green-900">Past Events</div>
@@ -44,25 +53,64 @@ export function PastEventsTable({ rows }: { rows: PastStoreHour[] }) {
             <th className="p-2">Name</th>
             <th className="p-2">Date</th>
             <th className="p-2">Hours</th>
+            <th className="p-2">💬</th>
           </tr>
         </thead>
 
         <tbody>
           {rows.length === 0 ? (
             <tr className="border-t border-green-200">
-              <td className="p-2 text-gray-500" colSpan={4}>
+              <td className="p-2 text-gray-500" colSpan={5}>
                 No past events.
               </td>
             </tr>
           ) : (
-            rows.map((e, idx) => (
-              <tr key={e.occurrence_id ?? idx} className="border-t border-green-200">
-                <td className="p-2">{formatEventType(e.event_type)}</td>
-                <td className="p-2 text-green-900">{e.name ?? "—"}</td>
-                <td className="p-2">{formatDate(e.occurrence_date)}</td>
-                <td className="p-2">{formatHours(e)}</td>
-              </tr>
-            ))
+            rows.map((e, idx) => {
+              const dateComments = commentsByDate?.get(e.occurrence_date) || [];
+              return (
+                <React.Fragment key={e.occurrence_id ?? idx}>
+                  <tr className="border-t border-green-200">
+                    <td className="p-2">{formatEventType(e.event_type)}</td>
+                    <td className="p-2 text-green-900">{e.name ?? "—"}</td>
+                    <td className="p-2">{formatDate(e.occurrence_date)}</td>
+                    <td className="p-2">{formatHours(e)}</td>
+                    <td className="p-2">
+                      <button
+                        onClick={() => onCommentClick?.(e.occurrence_date, formatDate(e.occurrence_date))}
+                        className="text-gray-400 hover:text-green-600 relative"
+                        title="Comments"
+                      >
+                        💬
+                        {dateComments.length > 0 && (
+                          <span className="absolute -top-1 -right-1 bg-green-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+                            {dateComments.length}
+                          </span>
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                  {dateComments.length > 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-1 bg-yellow-50 border-b border-green-200">
+                        {dateComments.map((c: any) => (
+                          <div key={c.id} className="text-xs text-gray-600 py-0.5">
+                            <span className="text-gray-400 mr-1">💬</span>
+                            {c.message}
+                            <span className="text-gray-400 ml-2">
+                              — {c.created_by},{" "}
+                              {new Date(c.created_at).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </span>
+                          </div>
+                        ))}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })
           )}
         </tbody>
       </table>

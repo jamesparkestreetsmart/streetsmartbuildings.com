@@ -24,7 +24,7 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
   const { userEmail } = useOrg();
   const [records, setRecords] = useState<RecordLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set(["site"]));
+  const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set(["site", "equipment", "devices"]));
   const [sortColumn, setSortColumn] = useState<string>("created_at");
   const [sortAsc, setSortAsc] = useState(false);
   const [noteText, setNoteText] = useState("");

@@ -96,6 +96,52 @@ If you didn't expect this invitation, you can safely ignore this email.
   }
 }
 
+// ─── Feedback Email ──────────────────────────────────────────────────────────
+
+interface SendFeedbackEmailParams {
+  userEmail: string;
+  orgName: string;
+  subject: string;
+  body: string;
+}
+
+export async function sendFeedbackEmail({
+  userEmail,
+  orgName,
+  subject,
+  body,
+}: SendFeedbackEmailParams): Promise<{ success: boolean; error?: string }> {
+  const timestamp = new Date().toLocaleString("en-US", {
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+
+  const text = `Feedback from: ${userEmail}
+Organization: ${orgName}
+Date: ${timestamp}
+
+---
+${body}
+---
+
+Submitted via Eagle Eyes platform feedback.`;
+
+  try {
+    await transporter.sendMail({
+      from: `"Eagle Eyes" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+      to: "james.parke@streetsmartbuildings.com",
+      subject: `[Eagle Eyes Feedback] ${subject}`,
+      text,
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error("Failed to send feedback email:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+// ─── Reminder Email ─────────────────────────────────────────────────────────
+
 interface SendReminderEmailParams {
   to: string;
   orgName: string;

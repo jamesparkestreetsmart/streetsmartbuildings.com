@@ -110,9 +110,21 @@ export function OrgProvider({
 
       setOrgs(allOrgs);
 
-      // Auto-select if only one org
-      if (allOrgs.length === 1) {
-        setSelectedOrgId(allOrgs[0].org_id);
+      // Auto-select: only apply if no saved session
+      const saved = sessionStorage.getItem("selectedOrgId");
+      const hasSaved = saved && allOrgs.some((o) => o.org_id === saved);
+
+      if (!hasSaved) {
+        if (allOrgs.length === 1) {
+          // Single org user — select it
+          setSelectedOrgId(allOrgs[0].org_id);
+        } else if (hasRootMembership) {
+          // Service provider — default to their root org
+          const rootOrg = userOrgs.find((o: any) => o.parent_org_id === null);
+          if (rootOrg) {
+            setSelectedOrgId(rootOrg.org_id);
+          }
+        }
       }
     } catch (err) {
       console.error("OrgContext: unexpected error", err);

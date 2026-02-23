@@ -2,12 +2,19 @@
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 30
+    },
+    "app/api/cron/thermostat-enforce/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
     {
       "path": "/api/cron/send-scheduled-emails",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/thermostat-enforce",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

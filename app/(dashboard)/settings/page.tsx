@@ -78,14 +78,8 @@ interface UserProfile {
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabaseClient";
 import { Plus, Users, Building2, Pencil, Save, X, MapPin, User, Settings2 } from "lucide-react";
-
-// Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 // Helper to format billing address for display
 const formatBillingAddress = (org: Organization): string => {

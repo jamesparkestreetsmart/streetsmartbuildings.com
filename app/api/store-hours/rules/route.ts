@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       middle_days_close,
       end_day_open,
       end_day_close,
-      // Rule-specific parameters
+      // Rule-specific parameters (frontend names)
       date,
       month,
       day,
@@ -131,37 +131,88 @@ export async function POST(req: NextRequest) {
       insertData.close_time = close_time;
     }
 
-    // Add rule-specific parameters
+    // Add rule-specific parameters (mapped to actual DB column names)
     switch (rule_type) {
       case "single_date":
-        if (date !== undefined) insertData.date = date;
+        if (date !== undefined) insertData.effective_on_date = date;
         break;
       case "fixed_yearly":
-        if (month !== undefined) insertData.month = month;
-        if (day !== undefined) insertData.day = day;
+        if (month !== undefined) insertData.fixed_month = month;
+        if (day !== undefined) insertData.fixed_day = day;
         break;
       case "nth_weekday":
-        if (month !== undefined) insertData.month = month;
-        if (weekday !== undefined) insertData.weekday = weekday;
-        if (nth !== undefined) insertData.nth = nth;
+        if (month !== undefined) insertData.nth_month = month;
+        if (weekday !== undefined) insertData.nth_weekday = weekday;
+        if (nth !== undefined) insertData.nth_occurrence = nth;
         break;
       case "weekly_days":
-        if (days !== undefined) insertData.days = days;
+        if (days !== undefined) insertData.weekly_days = days;
         break;
       case "interval":
-        if (interval !== undefined) insertData.interval = interval;
-        if (unit !== undefined) insertData.unit = unit;
-        if (start_date !== undefined) insertData.start_date = start_date;
+        if (interval !== undefined && unit !== undefined) {
+          // DB expects interval_unit as "day" or "month"; convert weeks to days
+          if (unit === "weeks") {
+            insertData.interval_every = interval * 7;
+            insertData.interval_unit = "day";
+          } else {
+            insertData.interval_every = interval;
+            insertData.interval_unit = unit === "days" ? "day" : unit;
+          }
+        }
         break;
     }
 
-    const { error } = await supabase
+    const { data: insertedRule, error } = await supabase
       .from("b_store_hours_exception_rules")
-      .insert(insertData);
+      .insert(insertData)
+      .select("rule_id")
+      .single();
 
     if (error) {
       console.error("rules insert error:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Log to b_records_log
+    try {
+      const { data: siteData } = await supabase
+        .from("a_sites")
+        .select("org_id, timezone")
+        .eq("site_id", site_id)
+        .single();
+
+      const siteTz = siteData?.timezone || "America/Chicago";
+      const localDate = new Date().toLocaleDateString("en-CA", { timeZone: siteTz });
+
+      const isEdit = body.is_edit === true;
+      const verb = isEdit ? "Edited" : "Added";
+      const eventTypeLog = isEdit ? "store_hours_rule_edited" : "store_hours_rule_created";
+
+      const isClosed = rule_type === "date_range_daily" ? false : is_closed;
+      const logMessage = isClosed
+        ? `${verb} '${name}' on ${effective_from_date} (Closed)`
+        : `${verb} '${name}' on ${effective_from_date} (${open_time || start_day_open || ""}–${close_time || end_day_close || ""})`;
+
+      await supabase.from("b_records_log").insert({
+        org_id: siteData?.org_id,
+        site_id,
+        event_type: eventTypeLog,
+        source: "store_hours_ui",
+        message: logMessage,
+        metadata: {
+          rule_id: insertedRule?.rule_id,
+          rule_type,
+          event_type,
+          name,
+          is_closed: isClosed,
+          open_time: open_time || null,
+          close_time: close_time || null,
+        },
+        created_by: body.created_by || "system",
+        event_date: localDate,
+      });
+    } catch (logErr) {
+      console.error("Failed to write change log (non-blocking):", logErr);
     }
 
     return NextResponse.json({ ok: true });

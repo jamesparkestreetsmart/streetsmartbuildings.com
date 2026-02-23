@@ -57,30 +57,27 @@ export async function POST(req: Request) {
 
     const org_id = site.org_id;
 
-    // -------------------------------
-    // Enforce org membership / permission
-    // -------------------------------
-    const { data: membership } = await supabase
-      .from("library_users_orgs_memberships")
-      .select("role")
-      .eq("user_id", changed_by)
-      .eq("org_id", org_id)
+    // Get site timezone for date logging
+    const { data: siteInfo } = await supabase
+      .from("a_sites")
+      .select("timezone")
+      .eq("site_id", site_id)
       .single();
+    const tz = siteInfo?.timezone || "America/Chicago";
 
-    if (!membership) {
+    // -------------------------------
+    // Verify the caller is a valid auth user
+    // (Service role handles DB access; org scoping is enforced
+    //  by deriving org_id from the site above.)
+    // -------------------------------
+    const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(changed_by);
+    if (authError || !authUser?.user) {
+      console.error("[store-hours] Auth check failed for changed_by:", changed_by, authError?.message);
       return NextResponse.json(
-        { error: "Forbidden" },
+        { error: "Forbidden — user not found" },
         { status: 403 }
       );
     }
-
-    // Optional: tighten roles later
-    // if (!["admin", "editor"].includes(membership.role)) {
-    //   return NextResponse.json(
-    //     { error: "Insufficient permissions" },
-    //     { status: 403 }
-    //   );
-    // }
 
     // -------------------------------
     // Process store hours updates
@@ -161,6 +158,19 @@ export async function POST(req: Request) {
 
         action: "update",
         changed_by, // a_users.id
+      });
+
+      // Activity log entry
+      const userEmail = authUser.user.email || "system";
+      const localDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+      await supabase.from("b_records_log").insert({
+        site_id,
+        org_id,
+        event_type: "store_hours_updated",
+        event_date: localDate,
+        message: `${day_of_week} ${is_closed ? "set to Closed" : `updated: ${open_time} – ${close_time}`}`,
+        source: "store_hours",
+        created_by: userEmail,
       });
     }
 

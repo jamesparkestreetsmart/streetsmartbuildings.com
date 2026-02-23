@@ -10,7 +10,7 @@ export default function ActivityTracker({ userId }: { userId: string }) {
       await supabase
         .from("a_users")
         .update({ last_activity_at: new Date().toISOString() })
-        .eq("id", userId);
+        .eq("user_id", userId);
     };
 
     // Update once when the user loads the page

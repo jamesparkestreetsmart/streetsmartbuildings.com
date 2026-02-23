@@ -4,6 +4,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useOrg } from "@/context/OrgContext";
+import IntegrationRoadmap from "@/components/IntegrationRoadmap";
+import IntegrationSpec from "@/components/IntegrationSpec";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -461,8 +463,14 @@ export default function JourneyPage() {
         </div>
       </div>
 
-      <div className="mt-8 text-center text-gray-400 italic">
-        (Coming soon — annual insights, progress dashboards, and sustainability benchmarks.)
+      {/* Integration Roadmap */}
+      <div className="mt-10 max-w-5xl mx-auto">
+        <IntegrationRoadmap />
+      </div>
+
+      {/* Integration Specification */}
+      <div className="mt-8 mb-10 max-w-5xl mx-auto">
+        <IntegrationSpec />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useOrg } from "@/context/OrgContext";
 import WeeklyStoreHours from "./WeeklyStoreHours";
 import UpcomingEventsTable from "./UpcomingEventsTable";
 import { PastEventsTable } from "./PastEventsTable";
@@ -8,6 +9,10 @@ import { PastEventsTable } from "./PastEventsTable";
 import AddEventModal, { AddEventModalMode } from "./AddEventModal";
 import { useFutureExceptions, FutureException } from "./useFutureExceptions";
 import { usePastStoreHours } from "./usePastStoreHours";
+import { useStoreHoursChangeLog } from "./useStoreHoursChangeLog";
+import StoreHoursChangeLog from "./StoreHoursChangeLog";
+import { useStoreHoursComments } from "./useStoreHoursComments";
+import CommentModal from "./CommentModal";
 
 function todayInTimezone(tz: string): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: tz });
@@ -23,10 +28,16 @@ function EventsDisclaimer() {
 }
 
 export default function StoreHoursManager({ siteId, timezone }: { siteId: string; timezone: string }) {
+  const { userEmail } = useOrg();
   const upcoming = useFutureExceptions(siteId);
   const past = usePastStoreHours(siteId);
+  const changelog = useStoreHoursChangeLog(siteId);
+  const comments = useStoreHoursComments(siteId);
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentModalDate, setCommentModalDate] = useState("");
+  const [commentModalDateLabel, setCommentModalDateLabel] = useState("");
   const [modalMode, setModalMode] = useState<AddEventModalMode>("create");
   const [modalInitialData, setModalInitialData] = useState<any>(null);
 
@@ -50,10 +61,12 @@ export default function StoreHoursManager({ siteId, timezone }: { siteId: string
   }
 
   async function handleDelete(e: FutureException) {
-    if (!confirm("Delete this schedule and all future events?")) return;
+    if (!confirm(`Delete this event and all future occurrences from "${e.event_name}" starting ${e.event_date}?`)) return;
 
-    const res = await fetch(`/api/store-hours/rules/${e.rule_id}`, {
+    const res = await fetch(`/api/store-hours/rules/${e.rule_id}?from_date=${e.event_date}`, {
       method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ created_by: userEmail || "system" }),
     });
 
     const json = await res.json().catch(() => ({}));
@@ -67,6 +80,13 @@ export default function StoreHoursManager({ siteId, timezone }: { siteId: string
 
     await upcoming.refetch();
     await past.refetch();
+    await changelog.refetch();
+  }
+
+  function openCommentModal(date: string, dateLabel: string) {
+    setCommentModalDate(date);
+    setCommentModalDateLabel(dateLabel);
+    setCommentModalOpen(true);
   }
 
   function handleEdit(e: FutureException) {
@@ -83,7 +103,11 @@ export default function StoreHoursManager({ siteId, timezone }: { siteId: string
       <div className="mt-10 space-y-6">
         <div className="grid grid-cols-3 gap-6">
           {/* LEFT — Past events */}
-          <PastEventsTable rows={past.rows} />
+          <PastEventsTable
+            rows={past.rows}
+            commentsByDate={comments.commentsByDate}
+            onCommentClick={(date, label) => openCommentModal(date, label)}
+          />
 
           {/* CENTER — Upcoming events */}
           <div className="flex flex-col gap-3">
@@ -108,13 +132,17 @@ export default function StoreHoursManager({ siteId, timezone }: { siteId: string
               rows={upcoming.rows}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              commentsByDate={comments.commentsByDate}
+              onCommentClick={(date, label) => openCommentModal(date, label)}
             />
           </div>
 
-          {/* RIGHT — placeholder */}
-          <div className="border rounded bg-gray-50 flex items-center justify-center text-sm text-gray-400">
-            Change log coming soon
-          </div>
+          {/* RIGHT — Change Log */}
+          <StoreHoursChangeLog
+            entries={changelog.entries}
+            loading={changelog.loading}
+            error={changelog.error}
+          />
         </div>
       </div>
 
@@ -125,14 +153,28 @@ export default function StoreHoursManager({ siteId, timezone }: { siteId: string
           timezone={timezone}
           mode={modalMode}
           initialData={modalInitialData}
+          userEmail={userEmail}
           onClose={() => setModalOpen(false)}
           onSaved={async () => {
             await upcoming.refetch();
             await past.refetch();
+            await changelog.refetch();
             setModalOpen(false);
           }}
         />
       )}
+
+      <CommentModal
+        open={commentModalOpen}
+        date={commentModalDate}
+        dateLabel={commentModalDateLabel}
+        comments={comments.commentsByDate.get(commentModalDate) || []}
+        onClose={() => setCommentModalOpen(false)}
+        onAdd={async (message) => {
+          await comments.addComment(commentModalDate, message, userEmail || "system");
+          await changelog.refetch();
+        }}
+      />
     </>
   );
 }

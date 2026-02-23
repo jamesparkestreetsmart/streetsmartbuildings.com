@@ -48,6 +48,7 @@ interface AddEventModalProps {
   timezone: string;
   mode: AddEventModalMode;
   initialData: any | null;
+  userEmail?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -78,6 +79,7 @@ export default function AddEventModal({
   timezone,
   mode,
   initialData,
+  userEmail,
   onClose,
   onSaved,
 }: AddEventModalProps) {
@@ -391,6 +393,15 @@ export default function AddEventModal({
             payload.start_date = intervalStartDate;
             break;
         }
+      }
+
+      // Include user email for change log attribution
+      payload.created_by = userEmail || "system";
+
+      // Flag edits so the API route logs "Edited" instead of "Added"
+      if (mode !== "create" && initialData?.rule_id) {
+        payload.is_edit = true;
+        payload.previous_name = initialData.event_name || initialData.name || "";
       }
 
       const res = await fetch("/api/store-hours/rules", {

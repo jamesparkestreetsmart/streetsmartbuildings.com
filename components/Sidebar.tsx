@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, Shield, ChevronDown, Building2 } from "lucide-react";
+import { Users, Shield, ShieldCheck, ChevronDown, Building2, MessageSquare } from "lucide-react";
 import { useOrg } from "@/context/OrgContext";
 import { useState, useRef, useEffect } from "react";
+import FeedbackModal from "@/components/FeedbackModal";
 
 const links = [
   { href: "/live", label: "Alerts (Live & History)", activeMatch: ["/live", "/history"] },
   { href: "/sites", label: "Sites" },
   { href: "/benchmark", label: "Equipment Benchmarking" },
   { href: "/journey", label: "My Journey" },
+  { href: "/trust", label: "Trust Dashboard", icon: <ShieldCheck className="w-4 h-4 inline-block mr-2" /> },
   { href: "/settings", label: "Settings", icon: <Users className="w-4 h-4 inline-block mr-2" /> },
 ];
 
@@ -18,6 +20,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
   const pathname = usePathname();
   const { orgs, selectedOrg, selectedOrgId, setSelectedOrgId, isServiceProvider, loading } = useOrg();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const hasOrgSelected = !!selectedOrgId;
@@ -87,6 +90,16 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             </Link>
           );
         })}
+
+        {/* Feedback button — always visible */}
+        <div className="border-t my-2 mx-4" />
+        <button
+          onClick={() => setFeedbackOpen(true)}
+          className="block w-full text-left px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+        >
+          <MessageSquare className="w-4 h-4 inline-block mr-2" />
+          Feedback
+        </button>
 
         {isServiceProvider && (
           <>
@@ -196,6 +209,13 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
           )}
         </div>
       )}
+      {/* Feedback Modal */}
+      <FeedbackModal
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+        orgId={selectedOrgId}
+        orgName={selectedOrg?.org_name || null}
+      />
     </aside>
   );
 }
