@@ -133,118 +133,165 @@ interface ZoneSensorReading {
   zone_temp_f: number | null;
   zone_humidity: number | null;
   feels_like_temp_f: number | null;
+  source: "space_sensors" | "thermostat" | null;
+}
+
+/**
+ * Computes a weighted space-level average for a given sensor type.
+ * Returns null if no sensors have valid readings.
+ */
+function computeSpaceAvg(
+  spaceName: string,
+  sensors: { entity_id: string; weight: number }[],
+  entityMap: Map<string, { last_state: string | null; last_seen_at: string | null }>
+): number | null {
+  let totalWeight = 0;
+  let weightedSum = 0;
+
+  for (const sensor of sensors) {
+    if (!sensor.entity_id) continue;
+    const entity = entityMap.get(sensor.entity_id);
+    if (!entity?.last_state) continue;
+    const val = parseFloat(entity.last_state);
+    if (isNaN(val)) continue;
+    const w = parseFloat(String(sensor.weight)) || 1.0;
+    weightedSum += val * w;
+    totalWeight += w;
+    console.log("[zone-setpoint-logger] space:", spaceName, "entity:", sensor.entity_id,
+      "entity_sync_value:", entity.last_state, "last_seen_at:", entity.last_seen_at,
+      "weight:", w);
+  }
+  return totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : null;
 }
 
 async function getZoneSensorReading(
   supabase: SupabaseClient,
   siteId: string,
+  zoneId: string,
   equipmentId: string | null,
   thermostatState: any | null
 ): Promise<ZoneSensorReading> {
-  let temp: number | null = null;
-  let humidity: number | null = null;
+  let zoneTempF: number | null = null;
+  let zoneHumidity: number | null = null;
+  let source: "space_sensors" | "thermostat" | null = null;
 
-  // Try space sensors first
+  // STEP A: Get spaces served by this zone's equipment via a_equipment_served_spaces
   if (equipmentId) {
-    const { data: spaces } = await supabase
-      .from("a_spaces")
+    const { data: servedRows } = await supabase
+      .from("a_equipment_served_spaces")
       .select("space_id")
-      .eq("site_id", siteId)
       .eq("equipment_id", equipmentId);
 
-    if (spaces && spaces.length > 0) {
-      const spaceIds = spaces.map((s: any) => s.space_id);
+    const spaceIds = (servedRows || []).map((s: any) => s.space_id);
+    console.log("[zone-setpoint-logger] zone:", zoneId, "equipment:", equipmentId, "served_spaces:", spaceIds.length);
 
-      // Temperature sensors
-      const { data: tempSensors } = await supabase
+    if (spaceIds.length > 0) {
+      // Get all space sensors (temp + humidity) for these spaces
+      const { data: allSensors } = await supabase
         .from("a_space_sensors")
-        .select("space_id, entity_id, weight")
+        .select("space_id, entity_id, weight, sensor_type")
         .eq("site_id", siteId)
-        .eq("sensor_type", "temperature")
+        .in("sensor_type", ["temperature", "humidity"])
         .in("space_id", spaceIds);
 
-      if (tempSensors && tempSensors.length > 0) {
-        const entityIds = tempSensors.filter((s: any) => s.entity_id).map((s: any) => s.entity_id);
-        if (entityIds.length > 0) {
-          const { data: entityValues } = await supabase
-            .from("b_entity_sync")
-            .select("entity_id, last_state, last_seen_at")
-            .eq("site_id", siteId)
-            .in("entity_id", entityIds);
-
-          if (entityValues && entityValues.length > 0) {
-            const entityMap = new Map(entityValues.map((e: any) => [e.entity_id, e]));
-            let totalWeight = 0;
-            let weightedSum = 0;
-            for (const sensor of tempSensors) {
-              if (!sensor.entity_id) continue;
-              const entity = entityMap.get(sensor.entity_id);
-              if (!entity?.last_state) continue;
-              const val = parseFloat(entity.last_state);
-              if (isNaN(val)) continue;
-              const w = parseFloat(sensor.weight) || 1.0;
-              weightedSum += val * w;
-              totalWeight += w;
-            }
-            if (totalWeight > 0) {
-              temp = Math.round((weightedSum / totalWeight) * 10) / 10;
-            }
-          }
+      // Get all entity values in one batch
+      const entityIds = (allSensors || []).filter((s: any) => s.entity_id).map((s: any) => s.entity_id);
+      const entityMap = new Map<string, { last_state: string | null; last_seen_at: string | null }>();
+      if (entityIds.length > 0) {
+        const { data: entityValues } = await supabase
+          .from("b_entity_sync")
+          .select("entity_id, last_state, last_seen_at")
+          .eq("site_id", siteId)
+          .in("entity_id", entityIds);
+        for (const e of entityValues || []) {
+          entityMap.set(e.entity_id, { last_state: e.last_state, last_seen_at: e.last_seen_at });
         }
       }
 
-      // Humidity sensors
-      const { data: humSensors } = await supabase
-        .from("a_space_sensors")
-        .select("space_id, entity_id, weight")
-        .eq("site_id", siteId)
-        .eq("sensor_type", "humidity")
+      // Get hvac_zone_weight for each space (default 1.0)
+      // Note: hvac_zone_weight column may not exist yet, so default to 1.0
+      const { data: spaceWeightRows } = await supabase
+        .from("a_spaces")
+        .select("space_id, name")
         .in("space_id", spaceIds);
+      const spaceWeightMap: Record<string, number> = {};
+      const spaceNameMap: Record<string, string> = {};
+      for (const sp of spaceWeightRows || []) {
+        spaceWeightMap[sp.space_id] = (sp as any).hvac_zone_weight ?? 1.0;
+        spaceNameMap[sp.space_id] = sp.name;
+      }
 
-      if (humSensors && humSensors.length > 0) {
-        const entityIds = humSensors.filter((s: any) => s.entity_id).map((s: any) => s.entity_id);
-        if (entityIds.length > 0) {
-          const { data: entityValues } = await supabase
-            .from("b_entity_sync")
-            .select("entity_id, last_state")
-            .eq("site_id", siteId)
-            .in("entity_id", entityIds);
+      // Group sensors by space_id and type
+      const sensorsBySpaceType: Record<string, Record<string, { entity_id: string; weight: number }[]>> = {};
+      for (const s of allSensors || []) {
+        if (!sensorsBySpaceType[s.space_id]) sensorsBySpaceType[s.space_id] = {};
+        if (!sensorsBySpaceType[s.space_id][s.sensor_type]) sensorsBySpaceType[s.space_id][s.sensor_type] = [];
+        sensorsBySpaceType[s.space_id][s.sensor_type].push({ entity_id: s.entity_id, weight: s.weight });
+      }
 
-          if (entityValues && entityValues.length > 0) {
-            const entityMap = new Map(entityValues.map((e: any) => [e.entity_id, e]));
-            let totalWeight = 0;
-            let weightedSum = 0;
-            for (const sensor of humSensors) {
-              if (!sensor.entity_id) continue;
-              const entity = entityMap.get(sensor.entity_id);
-              if (!entity?.last_state) continue;
-              const val = parseFloat(entity.last_state);
-              if (isNaN(val)) continue;
-              const w = parseFloat(sensor.weight) || 1.0;
-              weightedSum += val * w;
-              totalWeight += w;
-            }
-            if (totalWeight > 0) {
-              humidity = Math.round((weightedSum / totalWeight) * 10) / 10;
-            }
-          }
+      // STEP B: Compute zone averages from space averages
+      let tempWeightedSum = 0, tempTotalWeight = 0;
+      let humWeightedSum = 0, humTotalWeight = 0;
+
+      for (const spaceId of spaceIds) {
+        const zoneWeight = spaceWeightMap[spaceId] ?? 1.0;
+        const spaceName = spaceNameMap[spaceId] || spaceId;
+        const spaceSensors = sensorsBySpaceType[spaceId] || {};
+
+        // Space avg temperature
+        const tempSensors = spaceSensors["temperature"] || [];
+        const spaceAvgTemp = computeSpaceAvg(spaceName, tempSensors, entityMap);
+
+        // Space avg humidity
+        const humSensors = spaceSensors["humidity"] || [];
+        const spaceAvgHum = computeSpaceAvg(spaceName, humSensors, entityMap);
+
+        console.log("[zone-setpoint-logger] space:", spaceName, "temp_sensors:", tempSensors.length, "space_avg_temp:", spaceAvgTemp, "hum_sensors:", humSensors.length, "space_avg_humidity:", spaceAvgHum, "zone_weight:", zoneWeight);
+
+        if (spaceAvgTemp !== null) {
+          tempWeightedSum += spaceAvgTemp * zoneWeight;
+          tempTotalWeight += zoneWeight;
         }
+        if (spaceAvgHum !== null) {
+          humWeightedSum += spaceAvgHum * zoneWeight;
+          humTotalWeight += zoneWeight;
+        }
+      }
+
+      if (tempTotalWeight > 0) {
+        zoneTempF = Math.round((tempWeightedSum / tempTotalWeight) * 10) / 10;
+        source = "space_sensors";
+      }
+      if (humTotalWeight > 0) {
+        zoneHumidity = Math.round((humWeightedSum / humTotalWeight) * 10) / 10;
+        if (!source) source = "space_sensors";
       }
     }
   }
 
-  // Fallback to thermostat builtin
-  if (temp === null && thermostatState?.current_temperature_f != null) {
-    temp = thermostatState.current_temperature_f;
+  // STEP C: Thermostat fallback
+  if (zoneTempF === null && thermostatState?.current_temperature_f != null) {
+    zoneTempF = thermostatState.current_temperature_f;
+    source = "thermostat";
   }
-  if (humidity === null && thermostatState?.current_humidity != null) {
-    humidity = thermostatState.current_humidity;
+  if (zoneHumidity === null && thermostatState?.current_humidity != null) {
+    zoneHumidity = thermostatState.current_humidity;
+    if (source === null) source = "thermostat";
   }
 
+  // STEP D: Compute feels_like_temp_f
   const feelsLike =
-    temp !== null && humidity !== null ? computeFeelsLike(temp, humidity) : null;
+    zoneTempF !== null && zoneHumidity !== null ? computeFeelsLike(zoneTempF, zoneHumidity) : null;
 
-  return { zone_temp_f: temp, zone_humidity: humidity, feels_like_temp_f: feelsLike };
+  // STEP E: Debug logging
+  console.log("[zone-setpoint-logger] zone:", zoneId,
+    "zone_temp_f:", zoneTempF,
+    "zone_humidity:", zoneHumidity,
+    "source:", source,
+    "feels_like_temp_f:", feelsLike
+  );
+
+  return { zone_temp_f: zoneTempF, zone_humidity: zoneHumidity, feels_like_temp_f: feelsLike, source };
 }
 
 // ─── Occupancy Sensor Reading ─────────────────────────────────────────────────
@@ -261,15 +308,14 @@ async function getOccupancyReading(
 ): Promise<OccupancyReading> {
   if (!equipmentId) return { occupancy_adj: 0, occupied_sensor_count: 0 };
 
-  const { data: spaces } = await supabase
-    .from("a_spaces")
+  // Spaces linked via a_equipment_served_spaces
+  const { data: servedSpaces } = await supabase
+    .from("a_equipment_served_spaces")
     .select("space_id")
-    .eq("site_id", siteId)
     .eq("equipment_id", equipmentId);
 
-  if (!spaces || spaces.length === 0) return { occupancy_adj: 0, occupied_sensor_count: 0 };
-
-  const spaceIds = spaces.map((s: any) => s.space_id);
+  const spaceIds = (servedSpaces || []).map((s: any) => s.space_id);
+  if (spaceIds.length === 0) return { occupancy_adj: 0, occupied_sensor_count: 0 };
 
   // Get motion sensors assigned to these spaces
   const { data: motionSensors } = await supabase
@@ -449,17 +495,36 @@ export async function logZoneSetpointSnapshot(
       deviceSsEnabled[dev.device_id] = dev.smart_start_enabled || false;
     }
 
-    // 6. Fetch all thermostat states for this site
+    // 6. Fetch all thermostat states for this site (keyed by entity_id OR ha_device_id)
     const { data: tStates } = await supabase
       .from("b_thermostat_state")
       .select(
-        "ha_device_id, current_temperature_f, current_humidity, current_setpoint_f, target_temp_high_f, target_temp_low_f, fan_mode, hvac_action, last_synced_at"
+        "entity_id, ha_device_id, current_temperature_f, current_humidity, current_setpoint_f, target_temp_high_f, target_temp_low_f, fan_mode, hvac_action, last_synced_at"
       )
       .eq("site_id", siteId);
 
     const stateByHaDevice: Record<string, any> = {};
+    const stateByEntityId: Record<string, any> = {};
     for (const ts of tStates || []) {
-      stateByHaDevice[ts.ha_device_id] = ts;
+      if (ts.ha_device_id) stateByHaDevice[ts.ha_device_id] = ts;
+      if (ts.entity_id) stateByEntityId[ts.entity_id] = ts;
+    }
+
+    // 6b. Fetch climate entities from b_entity_sync to map ha_device_id → entity_id
+    const haDeviceIds = Object.values(deviceToHa).filter(Boolean);
+    const climateEntityByHaDevice: Record<string, string> = {};
+    if (haDeviceIds.length > 0) {
+      const { data: climateEntities } = await supabase
+        .from("b_entity_sync")
+        .select("entity_id, ha_device_id")
+        .eq("site_id", siteId)
+        .eq("domain", "climate")
+        .in("ha_device_id", haDeviceIds);
+      for (const ce of climateEntities || []) {
+        if (ce.ha_device_id && ce.entity_id) {
+          climateEntityByHaDevice[ce.ha_device_id] = ce.entity_id;
+        }
+      }
     }
 
     // 7. Check smart start log for today
@@ -484,41 +549,64 @@ export async function logZoneSetpointSnapshot(
       const profile = zone.profile_id ? profileMap.get(zone.profile_id) : undefined;
       const resolved: ResolvedSetpoints = resolveZoneSetpointsSync(zone, profile);
 
-      // Get thermostat state
+      // Get thermostat state — try ha_device_id first, then entity_id via climate entity lookup
       const haDeviceId = zone.thermostat_device_id ? deviceToHa[zone.thermostat_device_id] : null;
-      const tState = haDeviceId ? stateByHaDevice[haDeviceId] : null;
+      let tState = haDeviceId ? stateByHaDevice[haDeviceId] : null;
+      if (!tState && haDeviceId) {
+        // Fallback: find climate entity for this ha_device_id, then look up by entity_id
+        const climateEntityId = climateEntityByHaDevice[haDeviceId];
+        if (climateEntityId) {
+          tState = stateByEntityId[climateEntityId];
+        }
+      }
+      console.log("[zone-setpoint-logger] zone:", zone.hvac_zone_id, "thermostat_device_id:", zone.thermostat_device_id, "ha_device_id:", haDeviceId, "tState found:", !!tState, "current_temp:", tState?.current_temperature_f, "current_humidity:", tState?.current_humidity);
 
       // Profile setpoints for current phase
       const profileHeat = phaseInfo.phase === "occupied" ? resolved.occupied_heat_f : resolved.unoccupied_heat_f;
       const profileCool = phaseInfo.phase === "occupied" ? resolved.occupied_cool_f : resolved.unoccupied_cool_f;
 
       // ── Sensor readings ──
-      const sensorReading = await getZoneSensorReading(supabase, siteId, zone.equipment_id, tState);
+      const sensorReading = await getZoneSensorReading(supabase, siteId, zone.hvac_zone_id, zone.equipment_id, tState);
 
       // ── Occupancy ──
       const occupancyReading = await getOccupancyReading(supabase, siteId, zone.equipment_id);
 
+      // ── Profile adjustment settings ──
+      const flEnabled = profile?.feels_like_enabled ?? true;
+      const flMaxAdj = profile?.feels_like_max_adj_f ?? 2;
+      const ssProfileEnabled = profile?.smart_start_enabled ?? true;
+      const ssMaxAdj = profile?.smart_start_max_adj_f ?? 1;
+      const occEnabled = profile?.occupancy_enabled ?? true;
+      const occMaxAdj = profile?.occupancy_max_adj_f ?? 1;
+
       // ── Feels Like Adjustment ──
       let feelsLikeAdj = 0;
-      if (sensorReading.zone_temp_f !== null && sensorReading.feels_like_temp_f !== null) {
+      if (flEnabled && sensorReading.zone_temp_f !== null && sensorReading.feels_like_temp_f !== null) {
         const delta = sensorReading.feels_like_temp_f - sensorReading.zone_temp_f;
-        feelsLikeAdj = Math.max(-2, Math.min(2, Math.round(delta)));
+        feelsLikeAdj = Math.max(-flMaxAdj, Math.min(flMaxAdj, Math.round(delta)));
       }
 
       // ── Smart Start Adjustment ──
+      // Only active during the pre-open window: [openTime - leadMinutes] to [openTime]
       let smartStartAdj = 0;
       const ssOffset = ssByZone[zone.hvac_zone_id];
-      if (ssOffset && ssOffset > 0 && phaseInfo.openMins !== null) {
-        // Smart start is active if we're within the pre-start window (before open time)
-        const isInSmartStartWindow = phaseInfo.currentMins < phaseInfo.openMins;
+      if (ssProfileEnabled && ssOffset && ssOffset > 0 && phaseInfo.openMins !== null) {
+        const ssLeadMinutes = ssOffset; // lead time from b_smart_start_log
+        const windowStart = phaseInfo.openMins - ssLeadMinutes;
+        const isInSmartStartWindow = phaseInfo.currentMins >= windowStart && phaseInfo.currentMins < phaseInfo.openMins;
         if (isInSmartStartWindow && sensorReading.zone_temp_f !== null) {
           if (sensorReading.zone_temp_f < profileHeat) {
-            smartStartAdj = 1;
+            smartStartAdj = Math.min(ssMaxAdj, 1); // heating pre-condition
           } else if (sensorReading.zone_temp_f > profileCool) {
-            smartStartAdj = -1;
+            smartStartAdj = Math.max(-ssMaxAdj, -1); // cooling pre-condition
           }
         }
       }
+
+      // ── Occupancy Adjustment ──
+      let occupancyAdj = occEnabled
+        ? Math.max(-occMaxAdj, occupancyReading.occupancy_adj)
+        : 0;
 
       // ── Manager Adjustment ──
       let managerAdj = 0;
@@ -534,7 +622,7 @@ export async function logZoneSetpointSnapshot(
       }
 
       // ── Compute final active setpoints ──
-      const totalAdj = feelsLikeAdj + smartStartAdj + occupancyReading.occupancy_adj + managerAdj;
+      const totalAdj = feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
       const activeHeat = profileHeat + totalAdj;
       const activeCool = profileCool + totalAdj;
 
@@ -550,7 +638,9 @@ export async function logZoneSetpointSnapshot(
           value: sensorReading.feels_like_temp_f !== null && sensorReading.zone_temp_f !== null
             ? sensorReading.feels_like_temp_f - sensorReading.zone_temp_f
             : 0,
-          reason: feelsLikeAdj !== 0
+          reason: !flEnabled
+            ? "Disabled by profile"
+            : feelsLikeAdj !== 0
             ? `Feels like ${sensorReading.feels_like_temp_f}°F vs actual ${sensorReading.zone_temp_f}°F`
             : "No adjustment",
         },
@@ -559,16 +649,20 @@ export async function logZoneSetpointSnapshot(
           heat_adj: smartStartAdj,
           cool_adj: smartStartAdj,
           value: ssOffset || 0,
-          reason: smartStartAdj !== 0
+          reason: !ssProfileEnabled
+            ? "Disabled by profile"
+            : smartStartAdj !== 0
             ? `Smart start active, ${ssOffset}min lead`
             : "Not active",
         },
         {
           name: "occupancy",
-          heat_adj: occupancyReading.occupancy_adj,
-          cool_adj: occupancyReading.occupancy_adj,
+          heat_adj: occupancyAdj,
+          cool_adj: occupancyAdj,
           value: occupancyReading.occupied_sensor_count,
-          reason: occupancyReading.occupancy_adj < 0
+          reason: !occEnabled
+            ? "Disabled by profile"
+            : occupancyAdj < 0
             ? "No motion detected"
             : occupancyReading.occupied_sensor_count > 0
             ? `${occupancyReading.occupied_sensor_count} sensor(s) active`
@@ -593,7 +687,7 @@ export async function logZoneSetpointSnapshot(
         profile_cool_f: profileCool,
         feels_like_adj: feelsLikeAdj,
         smart_start_adj: smartStartAdj,
-        occupancy_adj: occupancyReading.occupancy_adj,
+        occupancy_adj: occupancyAdj,
         manager_adj: managerAdj,
         active_heat_f: activeHeat,
         active_cool_f: activeCool,

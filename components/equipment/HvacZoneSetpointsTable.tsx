@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/tooltip";
 import ZoneWeightBar from "@/components/hvac/ZoneWeightBar";
 import SpaceSensorPanel from "@/components/hvac/SpaceSensorPanel";
+import { useOrg } from "@/context/OrgContext";
 
 interface ResolvedSetpoints {
   occupied_heat_f: number;
@@ -145,7 +146,38 @@ interface Props {
   orgId: string;
 }
 
+/** Controlled zone weight input — saves on blur, not on every keystroke */
+function ZoneWeightInput({ value, onSave }: { value: number; onSave: (v: number) => void }) {
+  const [localVal, setLocalVal] = useState(String(value));
+  // Sync from parent when value changes externally
+  useEffect(() => { setLocalVal(String(value)); }, [value]);
+  return (
+    <input
+      type="number"
+      min={0.1}
+      max={5.0}
+      step={0.1}
+      value={localVal}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setLocalVal(e.target.value)}
+      onBlur={() => {
+        const num = parseFloat(localVal);
+        if (isNaN(num) || num < 0.1 || num > 5.0) {
+          setLocalVal(String(value)); // revert to saved value
+          return;
+        }
+        if (num !== value) onSave(num);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+      className="w-16 border border-gray-300 rounded px-1.5 py-0.5 text-xs text-gray-700 text-center font-mono bg-white focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 outline-none"
+    />
+  );
+}
+
 export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
+  const { userEmail } = useOrg();
   const [zones, setZones] = useState<HvacZone[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -155,6 +187,183 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   // Expanded inline space-config rows
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
+
+  // Served spaces data per zone (for expand panel)
+  interface ServedSpacesData {
+    spaces: any[];
+    availTemp: any[];
+    availHumidity: any[];
+    availMotion: any[];
+    mappedEntities: Record<string, { space_id: string; space_name: string }>;
+    loading: boolean;
+  }
+  const [servedSpacesMap, setServedSpacesMap] = useState<Record<string, ServedSpacesData>>({});
+  const [expandedPanelSpaces, setExpandedPanelSpaces] = useState<Set<string>>(new Set());
+  const [panelSaving, setPanelSaving] = useState(false);
+
+  const togglePanelSpace = (spaceId: string) => {
+    setExpandedPanelSpaces(prev => {
+      const next = new Set(prev);
+      if (next.has(spaceId)) next.delete(spaceId);
+      else next.add(spaceId);
+      return next;
+    });
+  };
+
+  const fetchServedSpaces = useCallback(async (zoneId: string, equipId: string | null) => {
+    const empty: ServedSpacesData = { spaces: [], availTemp: [], availHumidity: [], availMotion: [], mappedEntities: {}, loading: true };
+    setServedSpacesMap(prev => ({ ...prev, [zoneId]: empty }));
+    try {
+      // Use the spaces-summary API (service role key) to avoid RLS issues
+      const res = await fetch(`/api/sites/${siteId}/spaces-summary`);
+      if (!res.ok) throw new Error("Failed to fetch spaces summary");
+      const data = await res.json();
+      const allSpaces: any[] = data.spaces || [];
+      const availTemp: any[] = data.available_temp_entities || [];
+      const availHumidity: any[] = data.available_humidity_entities || [];
+      const availMotion: any[] = data.available_motion_entities || [];
+      const mappedEntities: Record<string, { space_id: string; space_name: string }> = data.mapped_entities || {};
+
+      // Filter spaces using zone_to_spaces mapping (zone → equipment → a_equipment_served_spaces)
+      const zoneToSpaces: Record<string, string[]> = data.zone_to_spaces || {};
+      const servedSpaceIds = new Set(zoneToSpaces[zoneId] || []);
+      const zoneSpaces = allSpaces.filter((sp: any) => servedSpaceIds.has(sp.space_id));
+
+      if (zoneSpaces.length === 0) {
+        setServedSpacesMap(prev => ({ ...prev, [zoneId]: { ...empty, loading: false } }));
+        return;
+      }
+
+      // Build entity value map from available entities for collapsed row display
+      const entityValueMap: Record<string, string | null> = {};
+      for (const e of [...availTemp, ...availHumidity, ...availMotion]) {
+        entityValueMap[e.entity_id] = e.last_state;
+      }
+
+      const spaces = zoneSpaces.map((sp: any) => {
+        const sensors: any[] = sp.sensors || [];
+        const tempSensors = sensors.filter((s: any) => s.sensor_type === "temperature");
+        const humSensors = sensors.filter((s: any) => s.sensor_type === "humidity");
+        let weightedTemp: number | null = null;
+        let weightedHumidity: number | null = null;
+        if (tempSensors.length > 0) {
+          let totalW = 0, sum = 0, hasData = false;
+          for (const s of tempSensors) {
+            const val = s.entity_id ? parseFloat(entityValueMap[s.entity_id] || "") : NaN;
+            if (!isNaN(val)) { const w = parseFloat(s.weight) || 1.0; sum += val * w; totalW += w; hasData = true; }
+          }
+          if (hasData && totalW > 0) weightedTemp = Math.round((sum / totalW) * 10) / 10;
+        }
+        if (humSensors.length > 0) {
+          let totalW = 0, sum = 0, hasData = false;
+          for (const s of humSensors) {
+            const val = s.entity_id ? parseFloat(entityValueMap[s.entity_id] || "") : NaN;
+            if (!isNaN(val)) { const w = parseFloat(s.weight) || 1.0; sum += val * w; totalW += w; hasData = true; }
+          }
+          if (hasData && totalW > 0) weightedHumidity = Math.round((sum / totalW) * 10) / 10;
+        }
+        return {
+          space_id: sp.space_id,
+          name: sp.name,
+          space_type: sp.space_type,
+          hvac_zone_weight: sp.hvac_zone_weight ?? 1.0,
+          sensors,
+          sensor_count: sensors.length,
+          weightedTemp,
+          weightedHumidity,
+          hasTempSensors: tempSensors.length > 0,
+          hasHumSensors: humSensors.length > 0,
+        };
+      });
+      setServedSpacesMap(prev => ({ ...prev, [zoneId]: { spaces, availTemp, availHumidity, availMotion, mappedEntities, loading: false } }));
+    } catch (err) {
+      console.error("[HvacZoneSetpointsTable] fetchServedSpaces error:", err);
+      setServedSpacesMap(prev => ({ ...prev, [zoneId]: { spaces: [], availTemp: [], availHumidity: [], availMotion: [], mappedEntities: {}, loading: false } }));
+    }
+  }, [siteId]);
+
+  const handlePanelAddSensor = useCallback(async (
+    zoneId: string, equipId: string | null, spaceId: string, sensorType: string, entityId: string, existingCount: number,
+    reassignFrom?: { space_id: string; space_name: string }
+  ) => {
+    // Check if entity is already mapped to another space — confirm reassignment
+    if (reassignFrom) {
+      const ok = window.confirm(`This sensor is currently mapped to "${reassignFrom.space_name}". Reassigning will remove it from there. Continue?`);
+      if (!ok) return;
+    }
+    setPanelSaving(true);
+    try {
+      const res = await fetch(`/api/sites/${siteId}/spaces-summary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          space_id: spaceId, sensor_type: sensorType, entity_id: entityId,
+          weight: 1.0, is_primary: existingCount === 0,
+          org_id: orgId, created_by: userEmail || "unknown",
+          ...(reassignFrom ? { reassign_from_space_id: reassignFrom.space_id, reassign_from_space_name: reassignFrom.space_name } : {}),
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to add sensor");
+      await fetchServedSpaces(zoneId, equipId);
+    } catch (err) {
+      console.error("Failed to add sensor:", err);
+    }
+    setPanelSaving(false);
+  }, [siteId, orgId, userEmail, fetchServedSpaces]);
+
+  const handlePanelRemoveSensor = useCallback(async (zoneId: string, equipId: string | null, sensorId: number, spaceId: string, entityId: string, sensorType: string) => {
+    setPanelSaving(true);
+    try {
+      const res = await fetch(`/api/sites/${siteId}/spaces-summary`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: sensorId, space_id: spaceId, entity_id: entityId, sensor_type: sensorType, org_id: orgId, created_by: userEmail || "unknown" }),
+      });
+      if (!res.ok) throw new Error("Failed to remove sensor");
+      await fetchServedSpaces(zoneId, equipId);
+    } catch (err) {
+      console.error("Failed to remove sensor:", err);
+    }
+    setPanelSaving(false);
+  }, [siteId, orgId, userEmail, fetchServedSpaces]);
+
+  const handlePanelWeightChange = useCallback(async (zoneId: string, equipId: string | null, sensorId: number, weight: number) => {
+    const clamped = Math.min(1.0, Math.max(0.1, weight));
+    setPanelSaving(true);
+    try {
+      const res = await fetch(`/api/sites/${siteId}/spaces-summary`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: sensorId, weight: clamped }),
+      });
+      if (!res.ok) throw new Error("Failed to update weight");
+      await fetchServedSpaces(zoneId, equipId);
+    } catch (err) {
+      console.error("Failed to update weight:", err);
+    }
+    setPanelSaving(false);
+  }, [siteId, fetchServedSpaces]);
+
+  const handleSpaceZoneWeight = useCallback(async (zoneId: string, equipId: string | null, spaceId: string, spaceName: string, oldWeight: number, newWeight: number) => {
+    if (isNaN(newWeight) || newWeight < 0.1 || newWeight > 5.0) return;
+    if (newWeight === oldWeight) return;
+    setPanelSaving(true);
+    try {
+      const res = await fetch(`/api/sites/${siteId}/spaces-summary`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ update_zone_weight: true, space_id: spaceId, hvac_zone_weight: newWeight, old_weight: oldWeight, space_name: spaceName, org_id: orgId, created_by: userEmail || "unknown" }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        console.error("Zone weight update failed:", body.error || res.statusText);
+      }
+      await fetchServedSpaces(zoneId, equipId);
+    } catch (err) {
+      console.error("Failed to update zone weight:", err);
+    }
+    setPanelSaving(false);
+  }, [siteId, orgId, userEmail, fetchServedSpaces]);
 
   // Zone-config data (for inline panels)
   const [zoneConfigData, setZoneConfigData] = useState<ZoneConfigData | null>(null);
@@ -472,11 +681,18 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   // ── Inline space-config handlers ─────────────────────────────────
 
-  const toggleZoneExpand = (zoneId: string) => {
+  const toggleZoneExpand = (zoneId: string, equipmentId?: string | null) => {
     setExpandedZones((prev) => {
       const next = new Set(prev);
-      if (next.has(zoneId)) next.delete(zoneId);
-      else next.add(zoneId);
+      if (next.has(zoneId)) {
+        next.delete(zoneId);
+      } else {
+        next.add(zoneId);
+        // Fetch served spaces when expanding
+        if (!servedSpacesMap[zoneId]) {
+          fetchServedSpaces(zoneId, equipmentId ?? null);
+        }
+      }
       return next;
     });
   };
@@ -923,7 +1139,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                       {/* Expand toggle */}
                       <td className="py-3 px-2">
                         <button
-                          onClick={() => toggleZoneExpand(zone.hvac_zone_id)}
+                          onClick={() => toggleZoneExpand(zone.hvac_zone_id, zone.equipment_id)}
                           className="text-gray-400 hover:text-gray-700 transition-colors"
                           title={isExpanded ? "Collapse spaces" : "Manage spaces"}
                         >
@@ -994,7 +1210,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                       <td className="py-3 px-2 max-w-[200px]">
                         {spaceNames.length > 0 ? (
                           <button
-                            onClick={() => toggleZoneExpand(zone.hvac_zone_id)}
+                            onClick={() => toggleZoneExpand(zone.hvac_zone_id, zone.equipment_id)}
                             className="flex flex-wrap gap-1 text-left group"
                             title="Click to manage spaces"
                           >
@@ -1009,7 +1225,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                           </button>
                         ) : (
                           <button
-                            onClick={() => toggleZoneExpand(zone.hvac_zone_id)}
+                            onClick={() => toggleZoneExpand(zone.hvac_zone_id, zone.equipment_id)}
                             className="text-xs text-gray-400 hover:text-indigo-600 italic transition-colors"
                             title="Click to assign spaces"
                           >
@@ -1024,147 +1240,314 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                       </td>
                     </tr>
 
-                    {/* ── Inline space management panel ── */}
-                    {isExpanded && (
-                      <tr key={`${zone.hvac_zone_id}-spaces`} className="border-b bg-slate-50">
-                        <td colSpan={15} className="px-6 py-4">
-                          <div className="border border-indigo-100 rounded-lg bg-white shadow-sm overflow-hidden">
-                            {/* Panel header */}
-                            <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50 border-b border-indigo-100">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold text-indigo-800">
-                                  Space Configuration — {zone.zone_name}
-                                </span>
-                                {configZone && (
-                                  <span className="text-xs text-indigo-500">
-                                    {configZone.spaces.length} space{configZone.spaces.length !== 1 ? "s" : ""}
+                    {/* ── Spaces Served panel ── */}
+                    {isExpanded && (() => {
+                      const served = servedSpacesMap[zone.hvac_zone_id];
+                      const spaces = served?.spaces || [];
+                      const isLoading = served?.loading ?? true;
+                      const mappedEntities = served?.mappedEntities || {};
+                      const totalZoneWeight = spaces.reduce((sum: number, sp: any) => sum + (sp.hvac_zone_weight || 1.0), 0);
+                      return (
+                        <tr key={`${zone.hvac_zone_id}-spaces`} className="border-b bg-slate-50">
+                          <td colSpan={15} className="px-6 py-4">
+                            <div className="border border-indigo-100 rounded-lg bg-white shadow-sm overflow-hidden">
+                              {/* Panel header */}
+                              <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50 border-b border-indigo-100">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold text-indigo-800">
+                                    Spaces Served by {zone.zone_name}
                                   </span>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => toggleZoneExpand(zone.hvac_zone_id)}
-                                className="text-indigo-400 hover:text-indigo-700 transition-colors"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-
-                            <div className="p-4">
-                              {zoneConfigLoading ? (
-                                <p className="text-sm text-gray-400">Loading space data...</p>
-                              ) : !configZone ? (
-                                <p className="text-sm text-gray-400 italic">No space configuration found for this zone.</p>
-                              ) : configZone.spaces.length === 0 ? (
-                                <p className="text-sm text-gray-400 italic">No spaces assigned yet.</p>
-                              ) : (
-                                <div className="space-y-3">
-                                  {/* Weight bar */}
-                                  <ZoneWeightBar
-                                    spaces={configZone.spaces.map((sp) => {
-                                      const edited = getSpaceData(zone.hvac_zone_id, sp);
-                                      return { name: edited.name, zone_weight: edited.zone_weight, computed_temp: edited.computed_temp };
-                                    })}
-                                  />
-
-                                  {/* Space sensor panels */}
-                                  {configZone.spaces.map((space) => (
-                                    <SpaceSensorPanel
-                                      key={space.space_id}
-                                      space={getSpaceData(zone.hvac_zone_id, space)}
-                                      availableEntities={zoneConfigData!.available_entities}
-                                      thermostatTemp={configZone.thermostat?.temp_f ?? null}
-                                      onZoneWeightChange={handleZoneWeightChange(zone.hvac_zone_id, configZone)}
-                                      onSensorChange={handleSensorChange(zone.hvac_zone_id, configZone)}
-                                      onAddSensor={handleAddSensor(zone.hvac_zone_id, configZone)}
-                                      onRemoveSensor={handleRemoveSensor(zone.hvac_zone_id, configZone)}
-                                    />
-                                  ))}
-
-                                  {/* Footer: weights + save */}
-                                  {(() => {
-                                    const ws = zoneWeightStatus(zone.hvac_zone_id, configZone);
-                                    const dirty = isZoneDirty(zone.hvac_zone_id);
-                                    return (
-                                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t">
-                                        <div className="flex items-center gap-4 text-xs">
-                                          {configZone.computed_zone_temp != null && (
-                                            <span className="text-gray-600">
-                                              Zone Temp: <span className="font-mono font-medium">{configZone.computed_zone_temp}°F</span>
-                                              <span className="text-gray-400 ml-1">(weighted avg)</span>
-                                            </span>
-                                          )}
-                                          {ws.sum > 0 && (
-                                            <span className={ws.valid ? "text-green-600" : "text-amber-600"}>
-                                              Zone Weights: {(ws.sum * 100).toFixed(0)}%{ws.valid ? " ✓" : " — should total 100%"}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            onClick={() => handleAutoDistribute(zone.hvac_zone_id, configZone)}
-                                            className="px-3 py-1 rounded text-xs border text-gray-600 hover:bg-gray-50"
-                                          >
-                                            Auto-Distribute
-                                          </button>
-                                          <button
-                                            onClick={() => handleSpaceSave(zone.hvac_zone_id)}
-                                            disabled={!dirty || savingZone === zone.hvac_zone_id}
-                                            className={`px-3 py-1 rounded text-xs font-medium ${
-                                              savedZone === zone.hvac_zone_id
-                                                ? "bg-green-100 text-green-700"
-                                                : dirty
-                                                ? "bg-gradient-to-r from-[#00a859] to-[#d4af37] text-white hover:opacity-90"
-                                                : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                                            } disabled:opacity-50`}
-                                          >
-                                            {savingZone === zone.hvac_zone_id ? "Saving..." : savedZone === zone.hvac_zone_id ? "Saved!" : "Save"}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
+                                  <span className="text-xs text-indigo-500">
+                                    {isLoading ? "..." : `${spaces.length} space${spaces.length !== 1 ? "s" : ""}`}
+                                  </span>
+                                  {panelSaving && <span className="text-xs text-blue-500 animate-pulse">Saving...</span>}
                                 </div>
-                              )}
+                                <button
+                                  onClick={() => toggleZoneExpand(zone.hvac_zone_id, zone.equipment_id)}
+                                  className="text-indigo-400 hover:text-indigo-700 transition-colors"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
 
-                              {/* Assign / remove spaces */}
-                              <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t">
-                                {zoneConfigData?.unassigned_spaces && zoneConfigData.unassigned_spaces.length > 0 && zone.equipment_id && (
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[11px] text-gray-400">Assign space:</span>
-                                    <select
-                                      value=""
-                                      onChange={(e) => { if (e.target.value) handleAssignSpace(e.target.value, zone.equipment_id!); }}
-                                      disabled={assigningSpace != null}
-                                      className="border rounded px-2 py-1 text-xs bg-white"
-                                    >
-                                      <option value="">+ Add space...</option>
-                                      {zoneConfigData.unassigned_spaces.map((sp) => (
-                                        <option key={sp.space_id} value={sp.space_id}>{sp.name} ({sp.space_type})</option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                )}
-                                {configZone && configZone.spaces.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {configZone.spaces.map((sp) => (
-                                      <button
-                                        key={sp.space_id}
-                                        onClick={() => handleRemoveSpace(sp.space_id)}
-                                        disabled={assigningSpace === sp.space_id}
-                                        className="text-[10px] px-2 py-0.5 rounded border text-gray-400 hover:text-red-500 hover:border-red-300 disabled:opacity-50"
-                                        title={`Remove ${sp.name} from zone`}
-                                      >
-                                        {sp.name} ×
-                                      </button>
-                                    ))}
-                                  </div>
+                              <div className="p-4">
+                                {isLoading ? (
+                                  <p className="text-sm text-gray-400">Loading space data...</p>
+                                ) : spaces.length === 0 ? (
+                                  <p className="text-sm text-gray-400 italic">No spaces assigned to this zone.</p>
+                                ) : (
+                                  <>
+                                    {/* Zone weight summary */}
+                                    <div className="mb-4 border border-gray-200 rounded-lg overflow-hidden">
+                                      <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-200">
+                                        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Zone Weight Distribution</span>
+                                      </div>
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr className="text-gray-500 border-b border-gray-100">
+                                            <th className="py-1.5 px-3 text-left font-medium">Space</th>
+                                            <th className="py-1.5 px-3 text-center font-medium w-28">Zone Weight</th>
+                                            <th className="py-1.5 px-3 text-right font-medium w-24">Contribution</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {spaces.map((sp: any) => {
+                                            const pct = totalZoneWeight > 0 ? ((sp.hvac_zone_weight || 1.0) / totalZoneWeight * 100) : 0;
+                                            return (
+                                              <tr key={sp.space_id} className="border-b border-gray-50">
+                                                <td className="py-1.5 px-3 text-gray-700">{sp.name}</td>
+                                                <td className="py-1 px-3 text-center">
+                                                  <ZoneWeightInput
+                                                    value={sp.hvac_zone_weight || 1.0}
+                                                    onSave={(val) => handleSpaceZoneWeight(zone.hvac_zone_id, zone.equipment_id, sp.space_id, sp.name, sp.hvac_zone_weight || 1.0, val)}
+                                                  />
+                                                </td>
+                                                <td className="py-1.5 px-3 text-right font-mono text-gray-600">{pct.toFixed(0)}%</td>
+                                              </tr>
+                                            );
+                                          })}
+                                          <tr className="bg-gray-50 font-medium">
+                                            <td className="py-1.5 px-3 text-gray-700">Total</td>
+                                            <td className="py-1.5 px-3 text-center font-mono text-gray-700">{totalZoneWeight.toFixed(1)}</td>
+                                            <td className="py-1.5 px-3 text-right font-mono text-gray-700">100%</td>
+                                          </tr>
+                                        </tbody>
+                                      </table>
+                                    </div>
+
+                                    {/* Space rows with sensor mapping */}
+                                    <table className="w-full text-sm">
+                                      <thead>
+                                        <tr className="border-b text-left text-xs text-gray-500 uppercase tracking-wider">
+                                          <th className="py-2 px-1 font-medium w-6"></th>
+                                          <th className="py-2 px-3 font-medium">Space Name</th>
+                                          <th className="py-2 px-3 font-medium">Space Type</th>
+                                          <th className="py-2 px-3 font-medium text-right">Space Temp</th>
+                                          <th className="py-2 px-3 font-medium text-right">Space Humidity</th>
+                                          <th className="py-2 px-3 font-medium text-center">Sensors</th>
+                                          <th className="py-2 px-3 font-medium text-right">Zone %</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {spaces.map((sp: any) => {
+                                          const spExpanded = expandedPanelSpaces.has(sp.space_id);
+                                          const sensors: any[] = sp.sensors || [];
+                                          const tempSensors = sensors.filter((s: any) => s.sensor_type === "temperature");
+                                          const humSensors = sensors.filter((s: any) => s.sensor_type === "humidity");
+                                          const motionSensors = sensors.filter((s: any) => s.sensor_type === "motion_detected");
+                                          const pct = totalZoneWeight > 0 ? ((sp.hvac_zone_weight || 1.0) / totalZoneWeight * 100) : 0;
+                                          return (
+                                            <React.Fragment key={sp.space_id}>
+                                              <tr
+                                                className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${spExpanded ? "bg-indigo-50/50" : ""}`}
+                                                onClick={() => togglePanelSpace(sp.space_id)}
+                                              >
+                                                <td className="py-2 px-1 text-center">
+                                                  {spExpanded ? <ChevronDown className="w-3 h-3 text-gray-400 inline" /> : <ChevronRight className="w-3 h-3 text-gray-400 inline" />}
+                                                </td>
+                                                <td className="py-2 px-3 font-medium text-gray-800">{sp.name}</td>
+                                                <td className="py-2 px-3 text-gray-500 capitalize">{sp.space_type || "—"}</td>
+                                                {/* Space Temp */}
+                                                <td className="py-2 px-3 text-right">
+                                                  {sp.hasTempSensors ? (
+                                                    sp.weightedTemp !== null
+                                                      ? <span className="text-green-600 font-mono text-xs">{sp.weightedTemp}°F</span>
+                                                      : <span className="text-amber-500 text-xs">No data</span>
+                                                  ) : (
+                                                    <span className="text-gray-400 text-xs">—</span>
+                                                  )}
+                                                </td>
+                                                {/* Space Humidity */}
+                                                <td className="py-2 px-3 text-right">
+                                                  {sp.hasHumSensors ? (
+                                                    sp.weightedHumidity !== null
+                                                      ? <span className="text-green-600 font-mono text-xs">{sp.weightedHumidity}%</span>
+                                                      : <span className="text-amber-500 text-xs">No data</span>
+                                                  ) : (
+                                                    <span className="text-gray-400 text-xs">—</span>
+                                                  )}
+                                                </td>
+                                                {/* Sensors badge */}
+                                                <td className="py-2 px-3 text-center">
+                                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${sp.sensor_count > 0 ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-400"}`}>
+                                                    {sp.sensor_count} mapped
+                                                  </span>
+                                                </td>
+                                                {/* Zone % */}
+                                                <td className="py-2 px-3 text-right text-xs text-gray-400 font-mono">{pct.toFixed(0)}%</td>
+                                              </tr>
+                                              {spExpanded && (
+                                                <tr className="bg-gray-50/80">
+                                                  <td colSpan={7} className="px-4 py-3">
+                                                    <div className="flex gap-6 flex-wrap">
+                                                      {(() => {
+                                                        const sensorSections = [
+                                                          { label: "Temperature", type: "temperature", list: tempSensors, avail: served?.availTemp || [] },
+                                                          { label: "Humidity", type: "humidity", list: humSensors, avail: served?.availHumidity || [] },
+                                                          { label: "Motion / Occupancy", type: "motion_detected", list: motionSensors, avail: served?.availMotion || [] },
+                                                        ];
+                                                        return sensorSections.map((section) => {
+                                                          const usedIds = new Set(section.list.map((s: any) => s.entity_id));
+                                                          const totalWeight = section.list.reduce((sum: number, s: any) => sum + (parseFloat(s.weight) || 0), 0);
+                                                          // Filter available: exclude entities mapped to OTHER spaces (allow if mapped to THIS space)
+                                                          const availableForDropdown = section.avail.filter((e: any) => {
+                                                            if (usedIds.has(e.entity_id)) return false; // already in this space's list
+                                                            const mapped = mappedEntities[e.entity_id];
+                                                            if (mapped && mapped.space_id !== sp.space_id) return false; // mapped elsewhere
+                                                            return true;
+                                                          });
+                                                          // Entities mapped to other spaces (for reassignment option)
+                                                          const reassignableEntities = section.avail.filter((e: any) => {
+                                                            if (usedIds.has(e.entity_id)) return false;
+                                                            const mapped = mappedEntities[e.entity_id];
+                                                            return mapped && mapped.space_id !== sp.space_id;
+                                                          });
+                                                          return (
+                                                            <div key={section.type} className="flex-1 min-w-[220px]">
+                                                              <div className="flex items-center gap-2 mb-2">
+                                                                <span className="text-xs font-semibold text-gray-700">{section.label}</span>
+                                                                <span className="text-[10px] text-gray-400">{section.list.length}/5</span>
+                                                                {section.list.length > 0 && (
+                                                                  <span className={`text-[10px] font-mono ${Math.abs(totalWeight - 1.0) < 0.01 ? "text-green-600" : "text-amber-600"}`}>
+                                                                    Total: {totalWeight.toFixed(1)}
+                                                                  </span>
+                                                                )}
+                                                              </div>
+                                                              {section.list.map((sensor: any, idx: number) => {
+                                                                const entity = section.avail.find((e: any) => e.entity_id === sensor.entity_id);
+                                                                return (
+                                                                  <div key={sensor.id} className="flex items-center gap-2 mb-1.5 bg-white border border-gray-200 rounded px-2 py-1.5">
+                                                                    <div className="flex-1 min-w-0">
+                                                                      <div className="text-xs text-gray-800 truncate">{entity?.friendly_name || sensor.entity_id}</div>
+                                                                      {entity?.last_state && <div className="text-[10px] text-gray-400">{entity.last_state}</div>}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1.5 shrink-0">
+                                                                      {idx === 0 && <span className="text-[10px] px-1 py-0.5 rounded bg-blue-100 text-blue-600">Primary</span>}
+                                                                      <label className="text-[10px] text-gray-500 flex items-center gap-1">
+                                                                        W:
+                                                                        <input
+                                                                          type="number"
+                                                                          min={0.1}
+                                                                          max={1.0}
+                                                                          step={0.1}
+                                                                          value={sensor.weight}
+                                                                          onClick={(e) => e.stopPropagation()}
+                                                                          onChange={(e) => handlePanelWeightChange(zone.hvac_zone_id, zone.equipment_id, sensor.id, parseFloat(e.target.value) || 1.0)}
+                                                                          className="w-14 border border-gray-300 rounded px-1 py-0.5 text-[11px] text-gray-700 text-center font-mono bg-white focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 outline-none"
+                                                                        />
+                                                                      </label>
+                                                                      <button
+                                                                        onClick={(e) => { e.stopPropagation(); handlePanelRemoveSensor(zone.hvac_zone_id, zone.equipment_id, sensor.id, sp.space_id, sensor.entity_id, sensor.sensor_type); }}
+                                                                        className="text-gray-400 hover:text-red-500 transition-colors p-0.5"
+                                                                        title="Remove sensor"
+                                                                      >
+                                                                        <X className="w-3 h-3" />
+                                                                      </button>
+                                                                    </div>
+                                                                  </div>
+                                                                );
+                                                              })}
+                                                              {section.list.length < 5 && (
+                                                                <div className="flex items-center gap-1.5 mt-1">
+                                                                  <select
+                                                                    defaultValue=""
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    onChange={(e) => {
+                                                                      if (!e.target.value) return;
+                                                                      const entityId = e.target.value;
+                                                                      const mapped = mappedEntities[entityId];
+                                                                      if (mapped && mapped.space_id !== sp.space_id) {
+                                                                        handlePanelAddSensor(zone.hvac_zone_id, zone.equipment_id, sp.space_id, section.type, entityId, section.list.length, mapped);
+                                                                      } else {
+                                                                        handlePanelAddSensor(zone.hvac_zone_id, zone.equipment_id, sp.space_id, section.type, entityId, section.list.length);
+                                                                      }
+                                                                      e.target.value = "";
+                                                                    }}
+                                                                    className="flex-1 border border-gray-300 rounded px-2 py-1 text-[10px] text-gray-600 bg-white min-w-0"
+                                                                  >
+                                                                    <option value="">+ Add {section.label.toLowerCase()} sensor...</option>
+                                                                    {availableForDropdown.map((e: any) => (
+                                                                      <option key={e.entity_id} value={e.entity_id}>
+                                                                        {e.friendly_name || e.entity_id}{e.last_state ? ` (${e.last_state})` : ""}
+                                                                      </option>
+                                                                    ))}
+                                                                    {reassignableEntities.length > 0 && (
+                                                                      <optgroup label="Mapped to other space (will reassign)">
+                                                                        {reassignableEntities.map((e: any) => {
+                                                                          const m = mappedEntities[e.entity_id];
+                                                                          return (
+                                                                            <option key={e.entity_id} value={e.entity_id}>
+                                                                              {e.friendly_name || e.entity_id} [in {m?.space_name}]
+                                                                            </option>
+                                                                          );
+                                                                        })}
+                                                                      </optgroup>
+                                                                    )}
+                                                                  </select>
+                                                                </div>
+                                                              )}
+                                                              {section.list.length === 0 && availableForDropdown.length === 0 && reassignableEntities.length === 0 && (
+                                                                <div className="text-[10px] text-gray-400 italic">No entities available</div>
+                                                              )}
+                                                            </div>
+                                                          );
+                                                        });
+                                                      })()}
+                                                    </div>
+                                                  </td>
+                                                </tr>
+                                              )}
+                                            </React.Fragment>
+                                          );
+                                        })}
+                                        {/* Zone Average summary row */}
+                                        {(() => {
+                                          let tempWeightedSum = 0, tempTotalWeight = 0;
+                                          let humWeightedSum = 0, humTotalWeight = 0;
+                                          for (const sp of spaces) {
+                                            const w = sp.hvac_zone_weight || 1.0;
+                                            if (sp.weightedTemp !== null && sp.weightedTemp !== undefined) {
+                                              tempWeightedSum += sp.weightedTemp * w;
+                                              tempTotalWeight += w;
+                                            }
+                                            if (sp.weightedHumidity !== null && sp.weightedHumidity !== undefined) {
+                                              humWeightedSum += sp.weightedHumidity * w;
+                                              humTotalWeight += w;
+                                            }
+                                          }
+                                          const zoneAvgTemp = tempTotalWeight > 0 ? Math.round((tempWeightedSum / tempTotalWeight) * 10) / 10 : null;
+                                          const zoneAvgHum = humTotalWeight > 0 ? Math.round((humWeightedSum / humTotalWeight) * 10) / 10 : null;
+                                          return (
+                                            <tr className="bg-gray-100 border-t-2 border-gray-300">
+                                              <td className="py-2 px-1"></td>
+                                              <td className="py-2 px-3 font-bold text-gray-700 text-xs uppercase tracking-wide" colSpan={2}>Zone Average</td>
+                                              <td className="py-2 px-3 text-right">
+                                                {zoneAvgTemp !== null
+                                                  ? <span className="text-indigo-600 font-mono text-xs font-bold">{zoneAvgTemp}°F</span>
+                                                  : <span className="text-gray-400 text-xs italic">— No sensor data yet</span>
+                                                }
+                                              </td>
+                                              <td className="py-2 px-3 text-right">
+                                                {zoneAvgHum !== null
+                                                  ? <span className="text-indigo-600 font-mono text-xs font-bold">{zoneAvgHum}%</span>
+                                                  : <span className="text-gray-400 text-xs italic">—</span>
+                                                }
+                                              </td>
+                                              <td className="py-2 px-3"></td>
+                                              <td className="py-2 px-3 text-right text-xs text-gray-600 font-mono font-bold">100%</td>
+                                            </tr>
+                                          );
+                                        })()}
+                                      </tbody>
+                                    </table>
+                                  </>
                                 )}
                               </div>
                             </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </React.Fragment>
                 );
               })}

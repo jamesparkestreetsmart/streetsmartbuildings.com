@@ -19,6 +19,12 @@ interface Profile {
   manager_offset_up_f: number;
   manager_offset_down_f: number;
   manager_override_reset_minutes: number;
+  smart_start_enabled: boolean;
+  smart_start_max_adj_f: number;
+  occupancy_enabled: boolean;
+  occupancy_max_adj_f: number;
+  feels_like_enabled: boolean;
+  feels_like_max_adj_f: number;
   zone_count: number;
   site_count: number;
 }
@@ -38,6 +44,12 @@ interface FormState {
   manager_offset_up_f: number;
   manager_offset_down_f: number;
   manager_override_reset_minutes: number;
+  smart_start_enabled: boolean;
+  smart_start_max_adj_f: number;
+  occupancy_enabled: boolean;
+  occupancy_max_adj_f: number;
+  feels_like_enabled: boolean;
+  feels_like_max_adj_f: number;
 }
 
 const DEFAULT_FORM: FormState = {
@@ -55,6 +67,12 @@ const DEFAULT_FORM: FormState = {
   manager_offset_up_f: 4,
   manager_offset_down_f: 4,
   manager_override_reset_minutes: 120,
+  smart_start_enabled: true,
+  smart_start_max_adj_f: 1,
+  occupancy_enabled: true,
+  occupancy_max_adj_f: 1,
+  feels_like_enabled: true,
+  feels_like_max_adj_f: 2,
 };
 
 const HVAC_MODE_OPTIONS = [
@@ -268,6 +286,94 @@ function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, saveLabel
         </p>
       </div>
 
+      {/* SETPOINT ADJUSTMENTS */}
+      <div className="border rounded-lg p-4 bg-indigo-50/30">
+        <h4 className="font-semibold text-indigo-700 mb-3 text-sm uppercase tracking-wide">Setpoint Adjustments</h4>
+        <div className="space-y-3">
+          {/* Smart Start */}
+          <div className="flex items-start gap-3 border-b border-indigo-100 pb-3">
+            <label className="flex items-center gap-2 shrink-0 mt-0.5">
+              <input
+                type="checkbox"
+                checked={form.smart_start_enabled}
+                onChange={(e) => setForm({ ...form, smart_start_enabled: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm font-medium text-gray-700">Smart Start</span>
+            </label>
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-xs text-gray-500">Max:</span>
+              <input
+                type="number"
+                min={0}
+                max={4}
+                step={1}
+                value={form.smart_start_max_adj_f}
+                onChange={(e) => setForm({ ...form, smart_start_max_adj_f: Number(e.target.value) })}
+                disabled={!form.smart_start_enabled}
+                className="w-14 border rounded px-2 py-1 text-sm text-center disabled:bg-gray-100 disabled:text-gray-400"
+              />
+              <span className="text-xs text-gray-400">&deg;F</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">Pre-conditions space before open time</p>
+          </div>
+          {/* Occupancy */}
+          <div className="flex items-start gap-3 border-b border-indigo-100 pb-3">
+            <label className="flex items-center gap-2 shrink-0 mt-0.5">
+              <input
+                type="checkbox"
+                checked={form.occupancy_enabled}
+                onChange={(e) => setForm({ ...form, occupancy_enabled: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm font-medium text-gray-700">Occupancy Score</span>
+            </label>
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-xs text-gray-500">Max:</span>
+              <input
+                type="number"
+                min={0}
+                max={4}
+                step={1}
+                value={form.occupancy_max_adj_f}
+                onChange={(e) => setForm({ ...form, occupancy_max_adj_f: Number(e.target.value) })}
+                disabled={!form.occupancy_enabled}
+                className="w-14 border rounded px-2 py-1 text-sm text-center disabled:bg-gray-100 disabled:text-gray-400"
+              />
+              <span className="text-xs text-gray-400">&deg;F</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">Relaxes setpoint when no motion detected</p>
+          </div>
+          {/* Feels Like */}
+          <div className="flex items-start gap-3">
+            <label className="flex items-center gap-2 shrink-0 mt-0.5">
+              <input
+                type="checkbox"
+                checked={form.feels_like_enabled}
+                onChange={(e) => setForm({ ...form, feels_like_enabled: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm font-medium text-gray-700">Feels Like Score</span>
+            </label>
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-xs text-gray-500">Max:</span>
+              <input
+                type="number"
+                min={0}
+                max={4}
+                step={1}
+                value={form.feels_like_max_adj_f}
+                onChange={(e) => setForm({ ...form, feels_like_max_adj_f: Number(e.target.value) })}
+                disabled={!form.feels_like_enabled}
+                className="w-14 border rounded px-2 py-1 text-sm text-center disabled:bg-gray-100 disabled:text-gray-400"
+              />
+              <span className="text-xs text-gray-400">&deg;F</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5">Adjusts for humidity-based comfort</p>
+          </div>
+        </div>
+      </div>
+
       {/* Actions */}
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancel</button>
@@ -402,6 +508,12 @@ export default function ProfileManager({ orgId }: Props) {
       manager_offset_up_f: p.manager_offset_up_f ?? 4,
       manager_offset_down_f: p.manager_offset_down_f ?? 4,
       manager_override_reset_minutes: p.manager_override_reset_minutes ?? 120,
+      smart_start_enabled: p.smart_start_enabled ?? true,
+      smart_start_max_adj_f: p.smart_start_max_adj_f ?? 1,
+      occupancy_enabled: p.occupancy_enabled ?? true,
+      occupancy_max_adj_f: p.occupancy_max_adj_f ?? 1,
+      feels_like_enabled: p.feels_like_enabled ?? true,
+      feels_like_max_adj_f: p.feels_like_max_adj_f ?? 2,
     });
   };
 

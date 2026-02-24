@@ -42,6 +42,7 @@ interface LogRow {
 interface ZoneInfo {
   hvac_zone_id: string;
   name: string;
+  zone_type: string | null;
   equipment_id: string | null;
   smart_start_enabled: boolean;
   manager_override_reset_minutes: number | null;
@@ -110,7 +111,25 @@ function ManagerBadge({ value }: { value: number | null }) {
 }
 
 const COL_COUNT = 22;
-const TH = "py-2 px-2 font-semibold whitespace-nowrap text-gray-700 text-xs";
+// Header styles — group colors for two-row header
+const TH_BASE = "py-1.5 px-2 font-semibold whitespace-nowrap text-xs";
+const TH = `${TH_BASE} text-gray-700`; // fallback
+// Group header row 1 (spanning labels)
+const GH = "py-1 px-2 text-[10px] font-bold uppercase tracking-wider text-center text-white/90";
+// Column header row 2 — primary and supporting shades per group
+const TH_FIXED   = `${TH_BASE} bg-slate-800 text-white`;
+const TH_G1_P    = `${TH_BASE} bg-blue-900 text-white`;
+const TH_G1_S    = `${TH_BASE} bg-blue-800 text-blue-100`;
+const TH_G2      = `${TH_BASE} bg-emerald-900 text-white`;
+const TH_G3_P    = `${TH_BASE} bg-orange-900 text-white`;
+const TH_G3_S    = `${TH_BASE} bg-orange-800 text-orange-100`;
+const TH_G4_P    = `${TH_BASE} bg-purple-900 text-white`;
+const TH_G4_S    = `${TH_BASE} bg-purple-800 text-purple-100`;
+const TH_G5_P    = `${TH_BASE} bg-amber-900 text-white`;
+const TH_G5_S    = `${TH_BASE} bg-amber-800 text-amber-100`;
+const TH_G6_P    = `${TH_BASE} bg-teal-900 text-white`;
+const TH_G6_S    = `${TH_BASE} bg-teal-800 text-teal-100`;
+const TH_G7      = `${TH_BASE} bg-slate-700 text-white`;
 const TD = "py-1.5 px-2 whitespace-nowrap text-xs";
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -153,7 +172,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
     // 2. Zones
     const { data: zonesData, error: zonesError } = await supabase
       .from("a_hvac_zones")
-      .select("hvac_zone_id, name, equipment_id, thermostat_device_id, manager_override_reset_minutes")
+      .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, manager_override_reset_minutes")
       .eq("site_id", siteId)
       .eq("control_scope", "managed")
       .not("thermostat_device_id", "is", null);
@@ -178,6 +197,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
     const zones = (zonesData || []).map((z: any) => ({
       hvac_zone_id: z.hvac_zone_id,
       name: z.name,
+      zone_type: z.zone_type || null,
       equipment_id: z.equipment_id,
       smart_start_enabled: ssEnabledByDevice[z.thermostat_device_id] || false,
       manager_override_reset_minutes: z.manager_override_reset_minutes,
@@ -185,38 +205,39 @@ export default function SpaceHvacTable({ siteId }: Props) {
     const zoneMap: Record<string, ZoneInfo> = {};
     for (const z of zones) zoneMap[z.hvac_zone_id] = z;
 
-    // 3. Spaces (linked via equipment_id)
-    const { data: spacesData } = await supabase
+    // 3. Spaces (a_spaces does NOT have equipment_id — mapping goes through a_equipment_served_spaces)
+    const { data: spacesData, error: spacesError } = await supabase
       .from("a_spaces")
-      .select("space_id, name, space_type, equipment_id")
+      .select("space_id, name, space_type")
       .eq("site_id", siteId)
-      .neq("name", "Unassigned")
-      .neq("space_type", "inventory_storage")
       .order("name");
 
-    const spaces = (spacesData || []) as (SpaceInfo & { equipment_id: string | null })[];
-
-    // Build equipment_id → space mapping
-    const spaceByEquipment: Record<string, SpaceInfo & { equipment_id: string | null }> = {};
-    for (const sp of spaces) {
-      if (sp.equipment_id) spaceByEquipment[sp.equipment_id] = sp;
+    if (spacesError) {
+      console.error("[SpaceHvacTable] Spaces query error:", spacesError);
     }
 
-    // Also check a_equipment_served_spaces for additional mappings
-    const equipIds = zones.map(z => z.equipment_id).filter(Boolean) as string[];
-    let servedData: any[] | null = null;
-    if (equipIds.length > 0) {
-      const { data } = await supabase
-        .from("a_equipment_served_spaces")
-        .select("equipment_id, space_id")
-        .in("equipment_id", equipIds);
-      servedData = data;
-    }
+    // Filter out utility spaces in JS
+    const spaces = ((spacesData || []) as SpaceInfo[])
+      .filter(sp => sp.name !== "Unassigned" && sp.space_type !== "inventory_storage");
 
     const spaceById: Record<string, SpaceInfo> = {};
     for (const sp of spaces) spaceById[sp.space_id] = sp;
 
-    // 4. Temp source info (from a_space_sensors)
+    // 4. Map equipment → spaces via a_equipment_served_spaces
+    const equipIds = zones.map(z => z.equipment_id).filter(Boolean) as string[];
+    const equipToSpaceIds: Record<string, string[]> = {};
+    if (equipIds.length > 0) {
+      const { data: servedData } = await supabase
+        .from("a_equipment_served_spaces")
+        .select("equipment_id, space_id")
+        .in("equipment_id", equipIds);
+      for (const row of servedData || []) {
+        if (!equipToSpaceIds[row.equipment_id]) equipToSpaceIds[row.equipment_id] = [];
+        equipToSpaceIds[row.equipment_id].push(row.space_id);
+      }
+    }
+
+    // 5. Temp source info (from a_space_sensors)
     const spaceIds = spaces.map(s => s.space_id);
     let tempSensors: any[] | null = null;
     if (spaceIds.length > 0) {
@@ -231,7 +252,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
 
     const spacesWithSensors = new Set((tempSensors || []).filter((s: any) => s.entity_id).map((s: any) => s.space_id));
 
-    // 5. Build groups: zone → space → log rows
+    // 6. Build groups: zone → space → log rows
     const result: SpaceGroup[] = [];
     const processedZones = new Set<string>();
 
@@ -239,19 +260,17 @@ export default function SpaceHvacTable({ siteId }: Props) {
       if (processedZones.has(zone.hvac_zone_id)) continue;
       processedZones.add(zone.hvac_zone_id);
 
-      // Find space for this zone
+      // Find space for this zone via equipment → served spaces
       let space: SpaceInfo | null = null;
 
-      // Direct match via equipment_id on a_spaces
-      if (zone.equipment_id && spaceByEquipment[zone.equipment_id]) {
-        space = spaceByEquipment[zone.equipment_id];
-      }
-
-      // Via served spaces
-      if (!space && zone.equipment_id && servedData) {
-        const served = servedData.find((s: any) => s.equipment_id === zone.equipment_id);
-        if (served && spaceById[served.space_id]) {
-          space = spaceById[served.space_id];
+      if (zone.equipment_id && equipToSpaceIds[zone.equipment_id]) {
+        const servedSpaceIds = equipToSpaceIds[zone.equipment_id];
+        // Use the first served space that exists in our spaces list
+        for (const sid of servedSpaceIds) {
+          if (spaceById[sid]) {
+            space = spaceById[sid];
+            break;
+          }
         }
       }
 
@@ -266,12 +285,12 @@ export default function SpaceHvacTable({ siteId }: Props) {
       result.push({ space, zone, tempSource, logRows: zoneLogRows });
     }
 
-    // Sort: zones with log data first, then alphabetical
+    // Sort: zones with log data first, then alphabetical by zone name
     result.sort((a, b) => {
       const aHas = a.logRows.length > 0 ? 1 : 0;
       const bHas = b.logRows.length > 0 ? 1 : 0;
       if (bHas !== aHas) return bHas - aHas;
-      return a.space.name.localeCompare(b.space.name);
+      return a.zone.name.localeCompare(b.zone.name);
     });
 
     setGroups(result);
@@ -336,84 +355,47 @@ export default function SpaceHvacTable({ siteId }: Props) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm" style={{ minWidth: 2200 }}>
           <thead>
-            <tr className="text-left border-b border-gray-200">
-              <th className={TH}>Space</th>
-              <th className={TH}>Time</th>
-              <th className={TH}>Eagle Eye Directive</th>
-              <th className={TH}>Fan</th>
-              <th className={TH}>Active Setpoint</th>
-              <th className={TH}>
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-help border-b border-dashed border-gray-400">Feels Like</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="rounded-md bg-gray-900 text-white px-3 py-2 shadow-xl">
-                      <p className="text-xs">Feels-like adjustment (-2 to +2)</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </th>
-              <th className={TH}>Zone Temp</th>
-              <th className={TH}>Humidity</th>
-              <th className={TH}>Feels Like</th>
-              <th className={TH}>Source</th>
-              <th className={TH}>
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-help border-b border-dashed border-gray-400">Occ Score</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="rounded-md bg-gray-900 text-white px-3 py-2 shadow-xl">
-                      <p className="text-xs">Occupancy adjustment (0 or -1)</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </th>
-              <th className={TH}>Sensors</th>
-              <th className={TH}>
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-help border-b border-dashed border-gray-400">Manager</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="rounded-md bg-gray-900 text-white px-3 py-2 shadow-xl">
-                      <p className="text-xs">Manager offset from profile setpoint</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </th>
-              <th className={TH}>Override</th>
-              <th className={TH}>
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-help border-b border-dashed border-gray-400">SS Score</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="rounded-md bg-gray-900 text-white px-3 py-2 shadow-xl">
-                      <p className="text-xs">Smart Start adjustment (+1/-1/0)</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </th>
-              <th className={TH}>SS Enabled</th>
-              <th className={TH}>Profile Setpoint</th>
-              <th className={TH}>Supply</th>
-              <th className={TH}>Return</th>
-              <th className={TH}>
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-help border-b border-dashed border-gray-400">ΔT</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="rounded-md bg-gray-900 text-white px-3 py-2 shadow-xl">
-                      <p className="text-xs font-medium">Delta T (Return − Supply)</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </th>
-              <th className={TH}>Power</th>
-              <th className={TH}>Comp</th>
+            {/* Row 1: Group labels */}
+            <tr>
+              <th rowSpan={2} className={`${TH_FIXED} rounded-tl-md`}>Zone</th>
+              <th rowSpan={2} className={TH_FIXED}>Time</th>
+              <th colSpan={7} className={`${GH} bg-blue-900`}>Thermostat Commands</th>
+              <th colSpan={1} className={`${GH} bg-emerald-900`}>Active</th>
+              <th colSpan={5} className={`${GH} bg-orange-900`}>Feels Like</th>
+              <th colSpan={2} className={`${GH} bg-purple-900`}>Occupancy</th>
+              <th colSpan={2} className={`${GH} bg-amber-900`}>Manager</th>
+              <th colSpan={2} className={`${GH} bg-teal-900`}>Smart Start</th>
+              <th colSpan={1} className={`${GH} bg-slate-700 rounded-tr-md`}>Profile</th>
+            </tr>
+            {/* Row 2: Individual column names */}
+            <tr>
+              {/* G1 — Thermostat Commands (blue) */}
+              <th className={TH_G1_P}>Eagle Eye Directive</th>
+              <th className={TH_G1_P}>Fan</th>
+              <th className={TH_G1_S}>Supply</th>
+              <th className={TH_G1_S}>Return</th>
+              <th className={TH_G1_S}>ΔT</th>
+              <th className={TH_G1_S}>Power</th>
+              <th className={TH_G1_S}>Comp</th>
+              {/* G2 — Active Setpoint (emerald) */}
+              <th className={TH_G2}>Active Setpoint</th>
+              {/* G3 — Feels Like (orange) */}
+              <th className={TH_G3_P}>Feels Like Score</th>
+              <th className={TH_G3_S}>Zone Temp</th>
+              <th className={TH_G3_S}>Zone Humidity</th>
+              <th className={TH_G3_S}>Feels Like Temp</th>
+              <th className={TH_G3_S}>Source</th>
+              {/* G4 — Occupancy (purple) */}
+              <th className={TH_G4_P}>Occ Score</th>
+              <th className={TH_G4_S}>Sensors</th>
+              {/* G5 — Manager (amber) */}
+              <th className={TH_G5_P}>Manager</th>
+              <th className={TH_G5_S}>Override</th>
+              {/* G6 — Smart Start (teal) */}
+              <th className={TH_G6_P}>SS Score</th>
+              <th className={TH_G6_S}>SS Enabled</th>
+              {/* G7 — Profile (slate) */}
+              <th className={TH_G7}>Profile Setpoint</th>
             </tr>
           </thead>
           <tbody>
@@ -445,14 +427,10 @@ export default function SpaceHvacTable({ siteId }: Props) {
                   return (
                     <tr key={group.zone.hvac_zone_id} className="border-b border-gray-200">
                       <td className={`${TD} align-top`}>
-                        <Link
-                          href={`/sites/${siteId}/spaces/${group.space.space_id}`}
-                          className="underline font-medium"
-                          style={{ color: "#12723A" }}
-                        >
-                          {group.space.name}
-                        </Link>
-                        <div className="text-[10px] text-gray-500">{group.space.space_type}</div>
+                        <span className="font-medium text-gray-800">{group.zone.name}</span>
+                        {group.zone.zone_type && (
+                          <div className="text-[10px] text-gray-500 capitalize">{group.zone.zone_type}</div>
+                        )}
                       </td>
                       <td colSpan={COL_COUNT - 1} className={`${TD} text-gray-400 italic`}>
                         Awaiting first snapshot...
@@ -474,38 +452,83 @@ export default function SpaceHvacTable({ siteId }: Props) {
 
                   return (
                     <tr key={log.id} className={`${borderClass} hover:bg-gray-50/50 transition-colors`}>
-                      {/* 1. Space (merged) */}
+                      {/* Zone (merged) */}
                       {isFirst && (
                         <td className={`${TD} align-top`} rowSpan={rowCount}>
-                          <Link
-                            href={`/sites/${siteId}/spaces/${group.space.space_id}`}
-                            className="underline font-medium"
-                            style={{ color: "#12723A" }}
-                          >
-                            {group.space.name}
-                          </Link>
-                          <div className="text-[10px] text-gray-500">{group.space.space_type}</div>
+                          <span className="font-medium text-gray-800">{group.zone.name}</span>
+                          {group.zone.zone_type && (
+                            <div className="text-[10px] text-gray-500 capitalize">{group.zone.zone_type}</div>
+                          )}
                         </td>
                       )}
 
-                      {/* 2. Time */}
+                      {/* Time */}
                       <td className={TD}>
                         <span className={`font-mono ${isFirst ? "font-medium text-gray-800" : "text-gray-500"}`}>
                           {formatTime(log.recorded_at)}
                         </span>
                       </td>
 
-                      {/* 3. Eagle Eye Directive (hvac_action) */}
+                      {/* G1: Eagle Eye Directive */}
                       <td className={TD}>
                         <ActionBadge action={log.hvac_action} />
                       </td>
 
-                      {/* 4. Fan */}
+                      {/* G1: Fan */}
                       <td className={TD}>
                         <span className="text-gray-600">{friendlyFan(log.fan_mode)}</span>
                       </td>
 
-                      {/* 5. Active Setpoint */}
+                      {/* G1: Supply */}
+                      <td className={TD}>
+                        {log.supply_temp_f != null ? (
+                          <span className="text-gray-600">{log.supply_temp_f}°F</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+
+                      {/* G1: Return */}
+                      <td className={TD}>
+                        {log.return_temp_f != null ? (
+                          <span className="text-gray-600">{log.return_temp_f}°F</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+
+                      {/* G1: ΔT */}
+                      <td className={TD}>
+                        {log.delta_t != null ? (
+                          <span className={`font-medium ${dtColor}`}>{log.delta_t.toFixed(1)}°F</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+
+                      {/* G1: Power */}
+                      <td className={TD}>
+                        {log.power_kw != null ? (
+                          <span className="text-gray-600">{log.power_kw} kW</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+
+                      {/* G1: Comp */}
+                      <td className={TD}>
+                        {log.comp_on != null ? (
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                            log.comp_on ? "bg-green-50 text-green-700" : "bg-gray-50 text-gray-500"
+                          }`}>
+                            {log.comp_on ? "On" : "Off"}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+
+                      {/* G2: Active Setpoint */}
                       <td className={TD}>
                         {log.active_heat_f != null && log.active_cool_f != null ? (
                           <span className="font-medium text-gray-800">
@@ -516,12 +539,12 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         )}
                       </td>
 
-                      {/* 6. Feels Like Score */}
+                      {/* G3: Feels Like Score */}
                       <td className={`${TD} text-center`}>
                         <AdjBadge value={log.feels_like_adj} />
                       </td>
 
-                      {/* 7. Zone Temp */}
+                      {/* G3: Zone Temp */}
                       <td className={TD}>
                         {log.zone_temp_f != null ? (
                           <span className="font-medium" style={{ color: "#12723A" }}>{log.zone_temp_f}°F</span>
@@ -530,7 +553,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         )}
                       </td>
 
-                      {/* 8. Humidity */}
+                      {/* G3: Zone Humidity */}
                       <td className={TD}>
                         {log.zone_humidity != null ? (
                           <span className="font-medium" style={{ color: "#80B52C" }}>{log.zone_humidity}%</span>
@@ -539,7 +562,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         )}
                       </td>
 
-                      {/* 9. Feels Like Temp */}
+                      {/* G3: Feels Like Temp */}
                       <td className={TD}>
                         {log.feels_like_temp_f != null ? (
                           <span className={`font-medium ${
@@ -553,7 +576,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         )}
                       </td>
 
-                      {/* 10. Source (same for all rows, shown every row for readability) */}
+                      {/* G3: Source (rowSpan) */}
                       {isFirst && (
                         <td className={`${TD} align-top`} rowSpan={rowCount}>
                           <span className={`px-2 py-0.5 rounded font-medium ${
@@ -566,12 +589,12 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         </td>
                       )}
 
-                      {/* 11. Occupancy Score */}
+                      {/* G4: Occ Score */}
                       <td className={`${TD} text-center`}>
                         <AdjBadge value={log.occupancy_adj} />
                       </td>
 
-                      {/* 12. Occupied Sensor Count */}
+                      {/* G4: Sensors */}
                       <td className={`${TD} text-center`}>
                         {log.occupied_sensor_count != null ? (
                           <span className="text-gray-600">{log.occupied_sensor_count}</span>
@@ -580,12 +603,12 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         )}
                       </td>
 
-                      {/* 13. Manager Offset */}
+                      {/* G5: Manager */}
                       <td className={`${TD} text-center`}>
                         <ManagerBadge value={log.manager_adj} />
                       </td>
 
-                      {/* 14. Override Time Remaining (from zone config, same all rows) */}
+                      {/* G5: Override (rowSpan) */}
                       {isFirst && (
                         <td className={`${TD} align-top text-center`} rowSpan={rowCount}>
                           {group.zone.manager_override_reset_minutes != null && group.zone.manager_override_reset_minutes > 0 ? (
@@ -596,12 +619,12 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         </td>
                       )}
 
-                      {/* 15. Smart Start Score */}
+                      {/* G6: SS Score */}
                       <td className={`${TD} text-center`}>
                         <AdjBadge value={log.smart_start_adj} />
                       </td>
 
-                      {/* 16. Smart Start Enabled (from zone config, same all rows) */}
+                      {/* G6: SS Enabled (rowSpan) */}
                       {isFirst && (
                         <td className={`${TD} align-top text-center`} rowSpan={rowCount}>
                           {group.zone.smart_start_enabled ? (
@@ -612,61 +635,12 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         </td>
                       )}
 
-                      {/* 17. Profile Setpoint */}
+                      {/* G7: Profile Setpoint */}
                       <td className={TD}>
                         {log.profile_heat_f != null && log.profile_cool_f != null ? (
                           <span className="text-gray-600">
                             {log.profile_heat_f}°–{log.profile_cool_f}°F
                             <span className="text-gray-400 ml-1">({log.phase === "occupied" ? "occ" : "unocc"})</span>
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-
-                      {/* 18. Supply */}
-                      <td className={TD}>
-                        {log.supply_temp_f != null ? (
-                          <span className="text-gray-600">{log.supply_temp_f}°F</span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-
-                      {/* 19. Return */}
-                      <td className={TD}>
-                        {log.return_temp_f != null ? (
-                          <span className="text-gray-600">{log.return_temp_f}°F</span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-
-                      {/* 20. Delta T */}
-                      <td className={TD}>
-                        {log.delta_t != null ? (
-                          <span className={`font-medium ${dtColor}`}>{log.delta_t.toFixed(1)}°F</span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-
-                      {/* 21. Power */}
-                      <td className={TD}>
-                        {log.power_kw != null ? (
-                          <span className="text-gray-600">{log.power_kw} kW</span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-
-                      {/* 22. Comp */}
-                      <td className={TD}>
-                        {log.comp_on != null ? (
-                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                            log.comp_on ? "bg-green-50 text-green-700" : "bg-gray-50 text-gray-500"
-                          }`}>
-                            {log.comp_on ? "On" : "Off"}
                           </span>
                         ) : (
                           <span className="text-gray-400">—</span>

@@ -8,6 +8,37 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// ── Audit helper ──────────────────────────────────────────────────────────────
+
+async function logAudit(
+  siteId: string,
+  opts: {
+    space_id?: string;
+    org_id?: string;
+    action: string;
+    details: Record<string, any>;
+    created_by?: string;
+  }
+) {
+  try {
+    await supabase.from("b_records_log").insert({
+      site_id: siteId,
+      org_id: opts.org_id || null,
+      event_type: opts.action,
+      source: "space_sensor_mapping",
+      message: opts.action.replace(/_/g, " "),
+      metadata: { ...opts.details, space_id: opts.space_id || null },
+      created_by: opts.created_by || "system",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+  } catch (err) {
+    // Non-fatal — don't break the main operation if audit logging fails
+    console.error("[spaces-summary] audit log error:", err);
+  }
+}
+
+// ── GET ───────────────────────────────────────────────────────────────────────
+
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ siteId: string }> }
@@ -31,7 +62,7 @@ export async function GET(
         .order("name"),
       supabase
         .from("a_hvac_zones")
-        .select("hvac_zone_id, name")
+        .select("hvac_zone_id, name, equipment_id")
         .eq("site_id", siteId),
       supabase
         .from("a_devices")
@@ -63,10 +94,32 @@ export async function GET(
     if (srErr) throw srErr;
     if (esErr) throw esErr;
 
-    // Build HVAC zone name map
+    // Build HVAC zone name map + zone→equipment mapping
     const zoneMap = new Map<string, string>();
+    const zoneToEquipId = new Map<string, string>();
     for (const z of hvacZones || []) {
       zoneMap.set(z.hvac_zone_id, z.name);
+      if (z.equipment_id) zoneToEquipId.set(z.hvac_zone_id, z.equipment_id);
+    }
+
+    // Query equipment→spaces via a_equipment_served_spaces (no site_id column on this table)
+    const equipIds = [...zoneToEquipId.values()];
+    const equipToSpaceIds = new Map<string, string[]>();
+    if (equipIds.length > 0) {
+      const { data: servedRows } = await supabase
+        .from("a_equipment_served_spaces")
+        .select("equipment_id, space_id")
+        .in("equipment_id", equipIds);
+      for (const row of servedRows || []) {
+        if (!equipToSpaceIds.has(row.equipment_id)) equipToSpaceIds.set(row.equipment_id, []);
+        equipToSpaceIds.get(row.equipment_id)!.push(row.space_id);
+      }
+    }
+
+    // Build zone→space_ids mapping (zone → equipment → served spaces)
+    const zoneToSpaceIds: Record<string, string[]> = {};
+    for (const [zoneId, equipId] of zoneToEquipId) {
+      zoneToSpaceIds[zoneId] = equipToSpaceIds.get(equipId) || [];
     }
 
     // Count devices per space
@@ -97,6 +150,12 @@ export async function GET(
     // Group mapped sensors by space_id
     const sensorsBySpace = new Map<string, any[]>();
     const mappedBySpace = new Map<string, Set<string>>();
+    // Build global entity→space mapping for duplicate prevention
+    const entityToSpace = new Map<string, { space_id: string; space_name: string }>();
+    const spaceNameMap = new Map<string, string>();
+    for (const sp of spaces || []) {
+      spaceNameMap.set(sp.space_id, sp.name);
+    }
     for (const ss of spaceSensors || []) {
       if (!sensorsBySpace.has(ss.space_id)) sensorsBySpace.set(ss.space_id, []);
       sensorsBySpace.get(ss.space_id)!.push({
@@ -109,6 +168,10 @@ export async function GET(
       if (ss.entity_id) {
         if (!mappedBySpace.has(ss.space_id)) mappedBySpace.set(ss.space_id, new Set());
         mappedBySpace.get(ss.space_id)!.add(ss.sensor_type);
+        entityToSpace.set(ss.entity_id, {
+          space_id: ss.space_id,
+          space_name: spaceNameMap.get(ss.space_id) || "Unknown",
+        });
       }
     }
 
@@ -159,6 +222,8 @@ export async function GET(
         space_id: sp.space_id,
         name: sp.name,
         space_type: sp.space_type,
+        hvac_zone_id: sp.hvac_zone_id || null,
+        hvac_zone_weight: (sp as any).hvac_zone_weight ?? 1.0,
         hvac_zone_name: sp.hvac_zone_id ? zoneMap.get(sp.hvac_zone_id) || null : null,
         device_count: deviceCountBySpace.get(sp.space_id) || 0,
         equipment_count: equipCountBySpace.get(sp.space_id) || 0,
@@ -173,17 +238,27 @@ export async function GET(
       };
     });
 
+    // Build entity→space map for client-side duplicate prevention
+    const mappedEntities: Record<string, { space_id: string; space_name: string }> = {};
+    for (const [entityId, info] of entityToSpace) {
+      mappedEntities[entityId] = info;
+    }
+
     return NextResponse.json({
       spaces: result,
       available_temp_entities: tempEntities,
       available_humidity_entities: humidityEntities,
       available_motion_entities: motionEntities,
+      mapped_entities: mappedEntities,
+      zone_to_spaces: zoneToSpaceIds,
     });
   } catch (err: any) {
     console.error("Spaces summary error:", err);
     return NextResponse.json({ error: err.message || "Failed to load" }, { status: 500 });
   }
 }
+
+// ── POST — Add sensor mapping (with optional reassignment) ────────────────────
 
 export async function POST(
   req: NextRequest,
@@ -192,10 +267,34 @@ export async function POST(
   const { siteId } = await context.params;
 
   try {
-    const { space_id, sensor_type, entity_id, weight, is_primary } = await req.json();
+    const { space_id, sensor_type, entity_id, weight, is_primary, org_id, created_by, reassign_from_space_id, reassign_from_space_name } = await req.json();
 
     if (!space_id || !sensor_type || !entity_id) {
       return NextResponse.json({ error: "space_id, sensor_type, and entity_id required" }, { status: 400 });
+    }
+
+    // If reassigning, remove from old space first
+    if (reassign_from_space_id) {
+      await supabase
+        .from("a_space_sensors")
+        .delete()
+        .eq("entity_id", entity_id)
+        .eq("space_id", reassign_from_space_id)
+        .eq("site_id", siteId);
+
+      await logAudit(siteId, {
+        space_id: reassign_from_space_id,
+        org_id,
+        action: "space_sensor_reassigned",
+        details: {
+          entity_id,
+          sensor_type,
+          from_space_id: reassign_from_space_id,
+          from_space_name: reassign_from_space_name || null,
+          to_space_id: space_id,
+        },
+        created_by,
+      });
     }
 
     const { data, error } = await supabase
@@ -213,12 +312,24 @@ export async function POST(
 
     if (error) throw error;
 
+    if (!reassign_from_space_id) {
+      await logAudit(siteId, {
+        space_id,
+        org_id,
+        action: "space_sensor_mapped",
+        details: { entity_id, sensor_type, weight: weight ?? 1.0 },
+        created_by,
+      });
+    }
+
     return NextResponse.json({ ok: true, id: data.id });
   } catch (err: any) {
     console.error("Spaces summary POST error:", err);
     return NextResponse.json({ error: err.message || "Failed to create" }, { status: 500 });
   }
 }
+
+// ── PATCH — Update sensor weight or zone weight ───────────────────────────────
 
 export async function PATCH(
   req: NextRequest,
@@ -227,8 +338,38 @@ export async function PATCH(
   const { siteId } = await context.params;
 
   try {
-    const { id, weight, is_primary } = await req.json();
+    const body = await req.json();
 
+    // Zone weight update (a_spaces.hvac_zone_weight — requires ALTER TABLE)
+    if (body.update_zone_weight && body.space_id) {
+      const newWeight = Math.min(5.0, Math.max(0.1, body.hvac_zone_weight));
+      const { error } = await supabase
+        .from("a_spaces")
+        .update({ hvac_zone_weight: newWeight })
+        .eq("space_id", body.space_id)
+        .eq("site_id", siteId);
+      if (error) {
+        console.error("[spaces-summary] zone weight update error (column may not exist yet):", error.message);
+        return NextResponse.json({ error: "hvac_zone_weight column may not exist. Run: ALTER TABLE a_spaces ADD COLUMN IF NOT EXISTS hvac_zone_weight numeric DEFAULT 1.0" }, { status: 400 });
+      }
+
+      await logAudit(siteId, {
+        space_id: body.space_id,
+        org_id: body.org_id,
+        action: "space_zone_weight_updated",
+        details: {
+          old_weight: body.old_weight,
+          new_weight: newWeight,
+          space_name: body.space_name,
+        },
+        created_by: body.created_by,
+      });
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // Sensor weight update (a_space_sensors)
+    const { id, weight, is_primary } = body;
     if (!id) {
       return NextResponse.json({ error: "id required" }, { status: 400 });
     }
@@ -252,6 +393,8 @@ export async function PATCH(
   }
 }
 
+// ── DELETE — Remove sensor mapping ────────────────────────────────────────────
+
 export async function DELETE(
   req: NextRequest,
   context: { params: Promise<{ siteId: string }> }
@@ -259,7 +402,7 @@ export async function DELETE(
   const { siteId } = await context.params;
 
   try {
-    const { id } = await req.json();
+    const { id, org_id, created_by, space_id, entity_id, sensor_type } = await req.json();
 
     if (!id) {
       return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -272,6 +415,14 @@ export async function DELETE(
       .eq("site_id", siteId);
 
     if (error) throw error;
+
+    await logAudit(siteId, {
+      space_id,
+      org_id,
+      action: "space_sensor_unmapped",
+      details: { entity_id, sensor_type },
+      created_by,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {

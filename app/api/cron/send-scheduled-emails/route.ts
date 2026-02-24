@@ -18,7 +18,15 @@ function verifyCronSecret(req: NextRequest): boolean {
   return authHeader === `Bearer ${cronSecret}`;
 }
 
+export async function GET(req: NextRequest) {
+  return handleCron(req);
+}
+
 export async function POST(req: NextRequest) {
+  return handleCron(req);
+}
+
+async function handleCron(req: NextRequest) {
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
