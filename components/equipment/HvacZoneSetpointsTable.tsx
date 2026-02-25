@@ -493,7 +493,8 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
             served_spaces: view?.served_spaces ?? null,
           };
         });
-        setZones(merged);
+        // Filter out template zones (no equipment linked)
+        setZones(merged.filter((z) => z.equipment_id));
       } else {
         const { data, error } = await supabase
           .from("view_hvac_zones_with_state")
@@ -501,7 +502,8 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
           .eq("site_id", siteId)
           .order("zone_name");
         if (!error && data) {
-          setZones(data.map((d: any) => ({ ...d, profile_id: null, is_override: true, resolved_setpoints: null })));
+          // Filter out template zones (no equipment linked)
+          setZones(data.filter((d: any) => d.equipment_id).map((d: any) => ({ ...d, profile_id: null, is_override: true, resolved_setpoints: null })));
         }
       }
     } catch (err) {

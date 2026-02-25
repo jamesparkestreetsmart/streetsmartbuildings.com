@@ -28,8 +28,11 @@ export async function POST(req: NextRequest) {
 
 async function handleCron(req: NextRequest) {
   if (!verifyCronSecret(req)) {
+    console.log('[email-cron] Auth FAILED');
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  console.log('[email-cron] Auth passed');
 
   try {
     // 1. Load delay config
@@ -60,6 +63,9 @@ async function handleCron(req: NextRequest) {
       .limit(20);
 
     if (fetchError) throw fetchError;
+
+    console.log('[email-cron] Pending leads found:', leads?.length ?? 0, 'delayHours:', delayHours, 'cutoff:', cutoff);
+
     if (!leads || leads.length === 0) {
       return NextResponse.json({ message: "No emails due", sent: 0 });
     }
@@ -93,6 +99,9 @@ async function handleCron(req: NextRequest) {
     let failedCount = 0;
 
     for (const lead of leads) {
+      const hoursSinceCreated = 'N/A'; // created_at not in select — delay already applied via cutoff
+      console.log('[email-cron] Processing lead:', lead.email, 'id:', lead.id);
+
       if (!lead.email) {
         await supabase
           .from("z_marketing_leads")
@@ -127,7 +136,9 @@ async function handleCron(req: NextRequest) {
       }
 
       try {
-        await transporter.sendMail(mailOptions);
+        console.log('[email-cron] Sending to:', lead.email, 'subject:', subject, 'hasPDF:', !!pdfBuffer);
+        const sendResult = await transporter.sendMail(mailOptions);
+        console.log('[email-cron] Send result:', lead.email, 'messageId:', sendResult.messageId, 'response:', sendResult.response);
 
         await supabase
           .from("z_marketing_leads")

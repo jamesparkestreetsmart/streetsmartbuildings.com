@@ -73,6 +73,7 @@ interface DeviceRecord {
   equipment_id: string | null;
   phase_configuration: string | null;
   library_device_id: string | null;
+  ct_inverted: boolean;
 }
 
 interface LibrarySensor {
@@ -143,6 +144,13 @@ const PACKAGE_NAMES: Record<number, { name: string; color: string }> = {
 
 const ANOMALY_SECTION = { name: "Anomaly Detection", color: "#dc2626" };
 
+/** Sensor roles that involve CTs — eligible for invert toggle */
+const CT_ROLES = new Set([
+  "power_kw", "apparent_power", "reactive_power",
+  "compressor_current", "compressor_1_current", "compressor_2_current",
+  "line_current", "energy_kwh",
+]);
+
 /** Check if a sensor requirement is derived (handles both column names) */
 function isDerived(r: SensorRequirement): boolean {
   return r.derived || r.is_derived;
@@ -206,7 +214,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         .eq("site_id", siteid),
       supabase
         .from("a_devices")
-        .select("device_id, ha_device_id, site_id, equipment_id, phase_configuration, library_device_id")
+        .select("device_id, ha_device_id, site_id, equipment_id, phase_configuration, library_device_id, ct_inverted")
         .eq("site_id", siteid),
       supabase
         .from("library_devices")
@@ -279,6 +287,15 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   const boundEntityIds = useMemo(() => {
     return new Set(sensorBindings.map((b) => b.entity_id));
   }, [sensorBindings]);
+
+  // ha_device_id → full DeviceRecord (for ct_inverted lookup)
+  const deviceByHaId = useMemo(() => {
+    const map = new Map<string, DeviceRecord>();
+    devices.forEach((d) => {
+      if (d.ha_device_id) map.set(d.ha_device_id, d);
+    });
+    return map;
+  }, [devices]);
 
   // Library device lookup
   const libraryDeviceMap = useMemo(() => {
@@ -630,6 +647,51 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   };
 
   /* ======================================================
+   CT Invert toggle
+  ====================================================== */
+
+  const [savingCtInvert, setSavingCtInvert] = useState<string | null>(null);
+
+  const toggleCtInvert = async (eq: Equipment, sensorRole: string, entityId: string, currentInverted: boolean) => {
+    const entity = entityMap.get(entityId);
+    if (!entity?.ha_device_id) return;
+    const dev = deviceByHaId.get(entity.ha_device_id);
+    if (!dev) return;
+
+    const key = `${dev.device_id}:${sensorRole}`;
+    setSavingCtInvert(key);
+    try {
+      const newVal = !currentInverted;
+      const { error } = await supabase
+        .from("a_devices")
+        .update({ ct_inverted: newVal })
+        .eq("device_id", dev.device_id);
+
+      if (error) {
+        console.error("Failed to toggle CT invert:", error.message);
+        return;
+      }
+
+      // Audit log
+      await supabase.from("b_records_log").insert({
+        org_id: orgId,
+        site_id: siteid,
+        equipment_id: eq.equipment_id,
+        device_id: dev.device_id,
+        event_type: "ct_inverted",
+        source: "gateways_page",
+        message: `CT inverted for ${sensorRole} on ${entity.ha_device_name || dev.device_id}: ${newVal}`,
+        metadata: { sensor_role: sensorRole, entity_id: entityId, ct_inverted: newVal },
+        event_date: new Date().toISOString().split("T")[0],
+      });
+
+      await fetchAll();
+    } finally {
+      setSavingCtInvert(null);
+    }
+  };
+
+  /* ======================================================
    Toggle
   ====================================================== */
 
@@ -685,6 +747,27 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     }
 
     const candidates = getCandidates(eq, req);
+    const isCTRole = CT_ROLES.has(req.sensor_role);
+    // CT invert state: look up device via bound entity
+    const boundDeviceRecord = boundEntity?.ha_device_id ? deviceByHaId.get(boundEntity.ha_device_id) : null;
+    const isCtInverted = boundDeviceRecord?.ct_inverted ?? false;
+    const ctSavingKey = boundDeviceRecord ? `${boundDeviceRecord.device_id}:${req.sensor_role}` : null;
+    const isSavingCt = ctSavingKey === savingCtInvert;
+
+    // Format value with CT inversion applied
+    const displayValue = (() => {
+      if (!boundEntity) return null;
+      const raw = boundEntity.last_state;
+      if (!raw || raw === "unknown" || raw === "unavailable") return "—";
+      if (isCTRole && isCtInverted) {
+        const num = parseFloat(raw);
+        if (!isNaN(num)) {
+          const inverted = num * -1;
+          return boundEntity.unit_of_measurement ? `${inverted} ${boundEntity.unit_of_measurement}` : String(inverted);
+        }
+      }
+      return boundEntity.unit_of_measurement ? `${raw} ${boundEntity.unit_of_measurement}` : raw;
+    })();
 
     return (
       <tr key={req.requirement_id} className="border-t border-slate-700">
@@ -694,6 +777,11 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
             {req.required && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300">
                 req
+              </span>
+            )}
+            {isCTRole && isCtInverted && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-900/40 text-orange-300">
+                CT Inverted
               </span>
             )}
           </div>
@@ -750,12 +838,26 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
+            {isCTRole && binding && (
+              <button
+                onClick={() => toggleCtInvert(eq, req.sensor_role, binding.entity_id, isCtInverted)}
+                disabled={isSavingCt}
+                className={`text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap ${
+                  isCtInverted
+                    ? "border-orange-500/50 bg-orange-900/30 text-orange-300"
+                    : "border-slate-600 text-slate-400 hover:border-slate-500"
+                } ${isSavingCt ? "opacity-50" : ""}`}
+                title={isCtInverted ? "CT is inverted — click to restore" : "Invert CT polarity"}
+              >
+                {isSavingCt ? "…" : isCtInverted ? "CT ⟳" : "Invert CT"}
+              </button>
+            )}
             {isSaving && <span className="text-[10px] text-slate-500">…</span>}
           </div>
         </td>
         <td className="px-3 py-2 text-xs">
-          {boundEntity
-            ? formatValue(boundEntity.last_state, boundEntity.unit_of_measurement)
+          {displayValue
+            ? <span className={isCTRole && isCtInverted ? "text-orange-300" : ""}>{displayValue}</span>
             : <span className="text-slate-600">—</span>}
         </td>
         <td className={`px-3 py-2 text-xs ${lastSeenClass(boundEntity?.last_seen_at ?? null)}`}>

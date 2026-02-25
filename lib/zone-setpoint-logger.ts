@@ -393,10 +393,10 @@ async function getEquipmentSensors(
   const entityIds = sensorMappings.filter((m: any) => m.entity_id).map((m: any) => m.entity_id);
   if (entityIds.length === 0) return result;
 
-  // Get live values from b_entity_sync
+  // Get live values from b_entity_sync (include ha_device_id for CT invert lookup)
   const { data: entityValues } = await supabase
     .from("b_entity_sync")
-    .select("entity_id, last_state, unit_of_measurement")
+    .select("entity_id, last_state, unit_of_measurement, ha_device_id")
     .eq("site_id", siteId)
     .in("entity_id", entityIds);
 
@@ -404,15 +404,34 @@ async function getEquipmentSensors(
 
   const entityMap = new Map(entityValues.map((e: any) => [e.entity_id, e]));
 
+  // Fetch ct_inverted for devices linked to this equipment
+  const haDeviceIds = [...new Set(entityValues.map((e: any) => e.ha_device_id).filter(Boolean))];
+  const ctInvertedByHaId = new Map<string, boolean>();
+  if (haDeviceIds.length > 0) {
+    const { data: devRows } = await supabase
+      .from("a_devices")
+      .select("ha_device_id, ct_inverted")
+      .in("ha_device_id", haDeviceIds);
+    for (const d of devRows || []) {
+      if (d.ha_device_id) ctInvertedByHaId.set(d.ha_device_id, d.ct_inverted || false);
+    }
+  }
+
   for (const mapping of sensorMappings) {
     if (!mapping.entity_id) continue;
     const entity = entityMap.get(mapping.entity_id);
     if (!entity?.last_state) continue;
-    const val = parseFloat(entity.last_state);
+    let val = parseFloat(entity.last_state);
     if (isNaN(val)) continue;
 
     // Determine sensor role from label (format: "Equipment Name — role") or sensor_type
     const role = (mapping.label?.split(" — ")[1] || mapping.sensor_type || "").toLowerCase();
+
+    // Apply CT inversion for power/current roles
+    const isCTRole = role.includes("power") || role.includes("compressor") || role.includes("current") || role.includes("energy");
+    if (isCTRole && entity.ha_device_id && ctInvertedByHaId.get(entity.ha_device_id)) {
+      val = val * -1;
+    }
 
     if (role.includes("supply") && role.includes("air") || role === "supply_air_temp" || role === "supply_temp") {
       result.supply_temp_f = val;
