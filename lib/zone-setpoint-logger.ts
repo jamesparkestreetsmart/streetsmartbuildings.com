@@ -629,11 +629,15 @@ export async function logZoneSetpointSnapshot(
         : 0;
 
       // ── Manager Adjustment ──
+      // Compare thermostat's actual setpoint against the EXPECTED setpoint
+      // (profile + non-manager adjustments). Only non-zero if someone manually
+      // changed the thermostat beyond what Eagle Eyes computed and pushed.
       let managerAdj = 0;
       if (phaseInfo.phase === "occupied" && tState) {
-        const activeSP = tState.current_setpoint_f ?? tState.target_temp_low_f;
-        if (activeSP != null && profileHeat != null) {
-          const rawOffset = activeSP - profileHeat;
+        const actualSP = tState.current_setpoint_f ?? tState.target_temp_low_f;
+        const expectedSP = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj;
+        if (actualSP != null) {
+          const rawOffset = actualSP - expectedSP;
           // Clamp to ±4
           managerAdj = Math.max(-4, Math.min(4, rawOffset));
           // Zero out if very small (rounding)
