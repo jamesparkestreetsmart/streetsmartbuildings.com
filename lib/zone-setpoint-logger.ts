@@ -18,7 +18,7 @@ function timeToMinutes(timeStr: string | null): number | null {
 }
 
 /** Compute indoor feels-like from temp + humidity (Steadman / Rothfusz) */
-function computeFeelsLike(tempF: number, humidity: number): number {
+export function computeFeelsLike(tempF: number, humidity: number): number {
   if (tempF < 80) {
     // Simple approximation below 80°F
     return Math.round(tempF + (0.33 * (humidity / 100) * 6.105) - 4.0);
@@ -129,7 +129,7 @@ async function resolvePhase(
 
 // ─── Sensor Reading ───────────────────────────────────────────────────────────
 
-interface ZoneSensorReading {
+export interface ZoneSensorReading {
   zone_temp_f: number | null;
   zone_humidity: number | null;
   feels_like_temp_f: number | null;
@@ -164,7 +164,7 @@ function computeSpaceAvg(
   return totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : null;
 }
 
-async function getZoneSensorReading(
+export async function getZoneSensorReading(
   supabase: SupabaseClient,
   siteId: string,
   zoneId: string,
@@ -296,12 +296,12 @@ async function getZoneSensorReading(
 
 // ─── Occupancy Sensor Reading ─────────────────────────────────────────────────
 
-interface OccupancyReading {
+export interface OccupancyReading {
   occupancy_adj: number;
   occupied_sensor_count: number;
 }
 
-async function getOccupancyReading(
+export async function getOccupancyReading(
   supabase: SupabaseClient,
   siteId: string,
   equipmentId: string | null

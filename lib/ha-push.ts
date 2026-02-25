@@ -3,6 +3,7 @@
 
 import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
+import { getZoneSensorReading, getOccupancyReading } from "@/lib/zone-setpoint-logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -510,6 +511,21 @@ export async function executePushForSite(
   const phase = isOccupied ? "occupied" : "unoccupied";
   console.log(`[ha-push] Phase: ${phase} (time: ${currentMins}min, open: ${openMins}, close: ${closeMins}, closed: ${isClosed})`);
 
+  // Fetch smart start offsets for today
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+  const { data: ssLogs } = await supabase
+    .from("b_smart_start_log")
+    .select("zone_id, offset_used_minutes")
+    .eq("site_id", siteId)
+    .eq("date", today);
+
+  const ssByZone: Record<string, number> = {};
+  for (const ss of ssLogs || []) {
+    if (ss.zone_id && ss.offset_used_minutes > 0) {
+      ssByZone[ss.zone_id] = ss.offset_used_minutes;
+    }
+  }
+
   // Load HVAC zones for this site
   const { data: zones } = await supabase
     .from("a_hvac_zones")
@@ -574,39 +590,10 @@ export async function executePushForSite(
       continue;
     }
 
-    // Resolve setpoints
+    // Resolve profile setpoints
     const resolved = resolveZoneSetpointsSync(zone, profileMap.get(zone.profile_id));
 
-    // Build desired state based on phase
-    const desired: DesiredState = isOccupied
-      ? {
-          entity_id: climateEntityId,
-          hvac_mode: resolved.occupied_hvac_mode,
-          heat_setpoint_f: resolved.occupied_heat_f,
-          cool_setpoint_f: resolved.occupied_cool_f,
-          fan_mode: resolved.occupied_fan_mode,
-        }
-      : {
-          entity_id: climateEntityId,
-          hvac_mode: resolved.unoccupied_hvac_mode,
-          heat_setpoint_f: resolved.unoccupied_heat_f,
-          cool_setpoint_f: resolved.unoccupied_cool_f,
-          fan_mode: resolved.unoccupied_fan_mode,
-        };
-
-    // Map generic mode values to HA-compatible values
-    if (desired.hvac_mode === "auto") desired.hvac_mode = "heat_cool";
-    // Map generic fan mode values to HA T6 Pro fan modes
-    if (desired.fan_mode === "auto") desired.fan_mode = "Auto low";
-    if (desired.fan_mode === "on") desired.fan_mode = "Low";
-    if (desired.fan_mode === "circulate") desired.fan_mode = "Circulation";
-
-    const guardrails: Guardrails = {
-      min_f: resolved.guardrail_min_f,
-      max_f: resolved.guardrail_max_f,
-    };
-
-    // Load current state from b_thermostat_state
+    // Load current state from b_thermostat_state (needed for adjustments)
     let thermoState: any = null;
     const { data: s1 } = await supabase
       .from("b_thermostat_state")
@@ -626,6 +613,81 @@ export async function executePushForSite(
       thermoState = s2;
     }
 
+    // ── Compute active setpoint adjustments ──
+    const profile = zone.profile_id ? profileMap.get(zone.profile_id) : undefined;
+    const flEnabled = profile?.feels_like_enabled ?? true;
+    const flMaxAdj = profile?.feels_like_max_adj_f ?? 2;
+    const ssProfileEnabled = profile?.smart_start_enabled ?? true;
+    const ssMaxAdj = profile?.smart_start_max_adj_f ?? 1;
+    const occEnabled = profile?.occupancy_enabled ?? true;
+    const occMaxAdj = profile?.occupancy_max_adj_f ?? 1;
+
+    const sensorReading = await getZoneSensorReading(supabase, siteId, zone.hvac_zone_id, zone.equipment_id, thermoState);
+
+    const profileHeat = isOccupied ? resolved.occupied_heat_f : resolved.unoccupied_heat_f;
+    const profileCool = isOccupied ? resolved.occupied_cool_f : resolved.unoccupied_cool_f;
+
+    // Feels Like adjustment
+    let feelsLikeAdj = 0;
+    if (flEnabled && sensorReading.zone_temp_f !== null && sensorReading.feels_like_temp_f !== null) {
+      const delta = sensorReading.feels_like_temp_f - sensorReading.zone_temp_f;
+      feelsLikeAdj = Math.max(-flMaxAdj, Math.min(flMaxAdj, Math.round(delta)));
+    }
+
+    // Smart Start adjustment
+    let smartStartAdj = 0;
+    const ssOffset = ssByZone[zone.hvac_zone_id];
+    if (ssProfileEnabled && ssOffset && ssOffset > 0 && openMins !== null) {
+      const windowStart = openMins - ssOffset;
+      const isInSmartStartWindow = currentMins >= windowStart && currentMins < openMins;
+      if (isInSmartStartWindow && sensorReading.zone_temp_f !== null) {
+        if (sensorReading.zone_temp_f < profileHeat) {
+          smartStartAdj = Math.min(ssMaxAdj, 1);
+        } else if (sensorReading.zone_temp_f > profileCool) {
+          smartStartAdj = Math.max(-ssMaxAdj, -1);
+        }
+      }
+    }
+
+    // Occupancy adjustment
+    const occupancyReading = await getOccupancyReading(supabase, siteId, zone.equipment_id);
+    const occupancyAdj = occEnabled ? Math.max(-occMaxAdj, occupancyReading.occupancy_adj) : 0;
+
+    // Total adjustment (feels_like + smart_start + occupancy)
+    const totalAdj = feelsLikeAdj + smartStartAdj + occupancyAdj;
+    console.log(
+      `[ha-push] Zone "${zone.name}" adjustments: feels_like=${feelsLikeAdj}, smart_start=${smartStartAdj}, occupancy=${occupancyAdj}, total=${totalAdj}`
+    );
+
+    // Build desired state with adjustments applied
+    const desired: DesiredState = isOccupied
+      ? {
+          entity_id: climateEntityId,
+          hvac_mode: resolved.occupied_hvac_mode,
+          heat_setpoint_f: resolved.occupied_heat_f + totalAdj,
+          cool_setpoint_f: resolved.occupied_cool_f + totalAdj,
+          fan_mode: resolved.occupied_fan_mode,
+        }
+      : {
+          entity_id: climateEntityId,
+          hvac_mode: resolved.unoccupied_hvac_mode,
+          heat_setpoint_f: resolved.unoccupied_heat_f + totalAdj,
+          cool_setpoint_f: resolved.unoccupied_cool_f + totalAdj,
+          fan_mode: resolved.unoccupied_fan_mode,
+        };
+
+    // Map generic mode values to HA-compatible values
+    if (desired.hvac_mode === "auto") desired.hvac_mode = "heat_cool";
+    // Map generic fan mode values to HA T6 Pro fan modes
+    if (desired.fan_mode === "auto") desired.fan_mode = "Auto low";
+    if (desired.fan_mode === "on") desired.fan_mode = "Low";
+    if (desired.fan_mode === "circulate") desired.fan_mode = "Circulation";
+
+    const guardrails: Guardrails = {
+      min_f: resolved.guardrail_min_f,
+      max_f: resolved.guardrail_max_f,
+    };
+
     const current: CurrentState = {
       hvac_mode: thermoState?.hvac_mode || "",
       current_setpoint_f: thermoState?.current_setpoint_f ?? null,
@@ -638,7 +700,7 @@ export async function executePushForSite(
 
     // Execute the push
     console.log(
-      `[ha-push] Zone "${zone.name}" (${climateEntityId}): ${phase} → mode=${desired.hvac_mode}, heat=${desired.heat_setpoint_f}, cool=${desired.cool_setpoint_f}, fan=${desired.fan_mode}`
+      `[ha-push] Zone "${zone.name}" (${climateEntityId}): ${phase} → profile=${profileHeat}/${profileCool}, active=${desired.heat_setpoint_f}/${desired.cool_setpoint_f}, mode=${desired.hvac_mode}, fan=${desired.fan_mode}`
     );
 
     const pushResult = await pushThermostatState(config, desired, current, guardrails);
