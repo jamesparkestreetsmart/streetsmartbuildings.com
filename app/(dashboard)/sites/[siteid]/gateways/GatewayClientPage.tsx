@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ interface SensorRequirement {
   phase_configuration: string | null;
   package: number;
   derived: boolean;
+  is_derived: boolean;
 }
 
 interface SensorBinding {
@@ -140,6 +141,18 @@ const PACKAGE_NAMES: Record<number, { name: string; color: string }> = {
   3: { name: "Eagle Eyes Pro", color: "#8b5cf6" },
 };
 
+const ANOMALY_SECTION = { name: "Anomaly Detection", color: "#dc2626" };
+
+/** Check if a sensor requirement is derived (handles both column names) */
+function isDerived(r: SensorRequirement): boolean {
+  return r.derived || r.is_derived;
+}
+
+/** Format snake_case sensor role → Title Case */
+function formatRoleName(role: string): string {
+  return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /* ======================================================
  Component
 ====================================================== */
@@ -186,7 +199,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         .eq("site_id", siteid),
       supabase
         .from("library_equipment_sensor_requirements")
-        .select("requirement_id, equipment_type_id, sensor_role, sensor_type, domain, device_class, unit, required, description, phase_configuration, package, derived"),
+        .select("requirement_id, equipment_type_id, sensor_role, sensor_type, domain, device_class, unit, required, description, phase_configuration, package, derived, is_derived"),
       supabase
         .from("a_sensors")
         .select("sensor_id, equipment_id, requirement_id, entity_id, sensor_type, device_id, label")
@@ -405,7 +418,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
       result.sort((a, b) => {
         if (a.package !== b.package) return a.package - b.package;
         if (a.required !== b.required) return a.required ? -1 : 1;
-        if (a.derived !== b.derived) return a.derived ? 1 : -1;
+        if (isDerived(a) !== isDerived(b)) return isDerived(a) ? 1 : -1;
         return a.sensor_role.localeCompare(b.sensor_role);
       });
 
@@ -640,7 +653,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     const isSaving = savingKey === key;
 
     // Derived sensor
-    if (req.derived) {
+    if (isDerived(req)) {
       return (
         <tr key={req.requirement_id} className="border-t border-slate-700 bg-slate-800/30">
           <td className="px-3 py-2">
@@ -757,12 +770,15 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   ====================================================== */
 
   const renderPackageSection = (eq: Equipment, reqs: SensorRequirement[], pkg: number) => {
-    const pkgReqs = reqs.filter((r) => r.package === pkg);
+    // For package 1, exclude derived anomaly sensors (rendered separately)
+    const pkgReqs = pkg === 1
+      ? reqs.filter((r) => r.package === pkg && !isDerived(r))
+      : reqs.filter((r) => r.package === pkg);
     if (pkgReqs.length === 0) return null;
 
     const pkgInfo = PACKAGE_NAMES[pkg] || { name: `Package ${pkg}`, color: "#6b7280" };
-    const physicalCount = pkgReqs.filter((r) => !r.derived).length;
-    const derivedCount = pkgReqs.filter((r) => r.derived).length;
+    const physicalCount = pkgReqs.filter((r) => !isDerived(r)).length;
+    const derivedCount = pkgReqs.filter((r) => isDerived(r)).length;
 
     return (
       <div key={pkg} className="mb-3">
@@ -795,6 +811,64 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     );
   };
 
+  /** Render the Anomaly Detection section (package 1 derived sensors) */
+  const renderAnomalySection = (eq: Equipment, reqs: SensorRequirement[]) => {
+    const anomalyReqs = reqs.filter((r) => r.package === 1 && isDerived(r));
+    if (anomalyReqs.length === 0) return null;
+
+    return (
+      <div key="anomaly" className="mb-3">
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-t"
+          style={{ backgroundColor: ANOMALY_SECTION.color + "15", color: ANOMALY_SECTION.color }}
+        >
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: ANOMALY_SECTION.color }} />
+          {ANOMALY_SECTION.name}
+          <span className="font-normal normal-case text-slate-500 ml-1">
+            {anomalyReqs.length} auto-derived
+          </span>
+        </div>
+        <table className="w-full text-sm bg-slate-900 text-white rounded-b overflow-hidden">
+          <thead className="bg-slate-800">
+            <tr>
+              <th className="px-3 py-2 text-left w-[220px]">Sensor Role</th>
+              <th className="px-3 py-2 text-left w-[130px]">Type</th>
+              <th className="px-3 py-2 text-left w-[60px]">Unit</th>
+              <th className="px-3 py-2 text-left">Status</th>
+              <th className="px-3 py-2 text-left w-[100px]">Value</th>
+              <th className="px-3 py-2 text-left w-[100px]">Last Seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {anomalyReqs.map((req) => (
+              <tr key={req.requirement_id} className="border-t border-slate-700 bg-slate-800/30">
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-3 h-3 text-red-400 flex-shrink-0" />
+                    <span className="text-xs text-slate-200">{formatRoleName(req.sensor_role)}</span>
+                  </div>
+                  {req.description && (
+                    <div className="text-[10px] text-slate-500 mt-0.5 pl-5">{req.description}</div>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-xs text-slate-400 font-mono">{req.sensor_type}</td>
+                <td className="px-3 py-2 text-xs text-slate-500">{req.unit || "—"}</td>
+                <td className="px-3 py-2">
+                  <span className="text-xs text-blue-400 flex items-center gap-1">
+                    <Cpu className="w-3 h-3" />
+                    Auto-derived
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-xs text-slate-500">—</td>
+                <td className="px-3 py-2 text-xs text-slate-500">—</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   /* ======================================================
    Render: equipment card
   ====================================================== */
@@ -804,7 +878,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     const isExpanded = expandedEquipment.has(eq.equipment_id);
     const phaseConfig = getEquipmentPhase(eq.equipment_id);
 
-    const physicalReqs = reqs.filter((r) => !r.derived);
+    const physicalReqs = reqs.filter((r) => !isDerived(r));
     const boundCount = physicalReqs.filter((r) =>
       bindingMap.has(`${eq.equipment_id}:${r.requirement_id}`)
     ).length;
@@ -914,7 +988,12 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
 
         {isExpanded && reqs.length > 0 && (
           <CardContent className="pt-0 overflow-x-auto space-y-0">
-            {packages.map((pkg) => renderPackageSection(eq, reqs, pkg))}
+            {packages.map((pkg) => (
+              <React.Fragment key={pkg}>
+                {renderPackageSection(eq, reqs, pkg)}
+                {pkg === 1 && renderAnomalySection(eq, reqs)}
+              </React.Fragment>
+            ))}
           </CardContent>
         )}
 

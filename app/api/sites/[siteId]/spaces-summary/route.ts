@@ -118,8 +118,16 @@ export async function GET(
 
     // Build zone→space_ids mapping (zone → equipment → served spaces)
     const zoneToSpaceIds: Record<string, string[]> = {};
+    const spaceIdToZoneName = new Map<string, string>();
     for (const [zoneId, equipId] of zoneToEquipId) {
-      zoneToSpaceIds[zoneId] = equipToSpaceIds.get(equipId) || [];
+      const spaceIds = equipToSpaceIds.get(equipId) || [];
+      zoneToSpaceIds[zoneId] = spaceIds;
+      const zoneName = zoneMap.get(zoneId);
+      if (zoneName) {
+        for (const sid of spaceIds) {
+          spaceIdToZoneName.set(sid, zoneName);
+        }
+      }
     }
 
     // Count devices per space
@@ -224,7 +232,7 @@ export async function GET(
         space_type: sp.space_type,
         hvac_zone_id: sp.hvac_zone_id || null,
         hvac_zone_weight: (sp as any).hvac_zone_weight ?? 1.0,
-        hvac_zone_name: sp.hvac_zone_id ? zoneMap.get(sp.hvac_zone_id) || null : null,
+        hvac_zone_name: spaceIdToZoneName.get(sp.space_id) || (sp.hvac_zone_id ? zoneMap.get(sp.hvac_zone_id) || null : null),
         device_count: deviceCountBySpace.get(sp.space_id) || 0,
         equipment_count: equipCountBySpace.get(sp.space_id) || 0,
         required_count,
