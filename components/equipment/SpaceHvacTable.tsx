@@ -37,6 +37,39 @@ interface LogRow {
   power_kw: number | null;
   comp_on: boolean | null;
   adjustment_factors: any[] | null;
+  // Power Meter
+  apparent_power_kva: number | null;
+  compressor_current_a: number | null;
+  energy_kwh: number | null;
+  energy_delta_kwh: number | null;
+  line_voltage_v: number | null;
+  power_factor: number | null;
+  reactive_power_kvar: number | null;
+  frequency_hz: number | null;
+  running_state: boolean | null;
+  // Anomaly Detection
+  coil_freeze: boolean | null;
+  delayed_temp_response: boolean | null;
+  efficiency_ratio: number | null;
+  filter_restriction: boolean | null;
+  idle_heat_gain: boolean | null;
+  long_cycle: boolean | null;
+  outdoor_air_temp_f: number | null;
+  refrigerant_low: boolean | null;
+  short_cycling: boolean | null;
+  line_current_a: number | null;
+  cycle_count_1h: number | null;
+  continuous_run_min: number | null;
+  anomaly_flags: string[] | null;
+  anomaly_count: number | null;
+  // Equipment Sensors
+  cabinet_door_open: boolean | null;
+  filter_pressure_pa: number | null;
+  water_leak: boolean | null;
+  condenser_coil_in_f: number | null;
+  condenser_coil_out_f: number | null;
+  evaporator_coil_in_f: number | null;
+  evaporator_coil_out_f: number | null;
 }
 
 interface ZoneInfo {
@@ -130,7 +163,7 @@ function computeRemainingOverride(logRows: LogRow[], maxMinutes: number | null):
   return Math.max(0, Math.round(maxMinutes - elapsedMinutes));
 }
 
-const COL_COUNT = 22;
+const COL_COUNT = 50;
 // Header styles — group colors for two-row header
 const TH_BASE = "py-1.5 px-2 font-semibold whitespace-nowrap text-xs";
 const TH = `${TH_BASE} text-gray-700`; // fallback
@@ -150,6 +183,13 @@ const TH_G5_S    = `${TH_BASE} bg-amber-800 text-amber-100`;
 const TH_G6_P    = `${TH_BASE} bg-teal-900 text-white`;
 const TH_G6_S    = `${TH_BASE} bg-teal-800 text-teal-100`;
 const TH_G7      = `${TH_BASE} bg-slate-700 text-white`;
+// New groups after Profile
+const TH_G8_P    = `${TH_BASE} text-white`; // Power Meter (navy) — uses inline style for bg
+const TH_G8_S    = `${TH_BASE} text-white/90`; // Power Meter secondary
+const TH_G9_P    = `${TH_BASE} text-white`; // Anomaly Detection (red-700)
+const TH_G9_S    = `${TH_BASE} text-white/90`; // Anomaly Detection secondary
+const TH_G10_P   = `${TH_BASE} text-white`; // Equipment Sensors (purple-600)
+const TH_G10_S   = `${TH_BASE} text-white/90`; // Equipment Sensors secondary
 const TD = "py-1.5 px-2 whitespace-nowrap text-xs";
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -374,7 +414,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm" style={{ minWidth: 2200 }}>
+        <table className="w-full text-sm" style={{ minWidth: 4800 }}>
           <thead>
             {/* Row 1: Group labels */}
             <tr>
@@ -386,7 +426,10 @@ export default function SpaceHvacTable({ siteId }: Props) {
               <th colSpan={2} className={`${GH} bg-purple-900`}>Occupancy</th>
               <th colSpan={2} className={`${GH} bg-amber-900`}>Manager</th>
               <th colSpan={2} className={`${GH} bg-teal-900`}>Smart Start</th>
-              <th colSpan={1} className={`${GH} bg-slate-700 rounded-tr-md`}>Profile</th>
+              <th colSpan={1} className={`${GH} bg-slate-700`}>Profile</th>
+              <th colSpan={8} className={GH} style={{ backgroundColor: "#1e3a5f" }}>Power Meter</th>
+              <th colSpan={13} className={GH} style={{ backgroundColor: "#b91c1c" }}>Anomaly Detection</th>
+              <th colSpan={7} className={`${GH} rounded-tr-md`} style={{ backgroundColor: "#7c3aed" }}>Equipment Sensors</th>
             </tr>
             {/* Row 2: Individual column names */}
             <tr>
@@ -417,6 +460,37 @@ export default function SpaceHvacTable({ siteId }: Props) {
               <th className={TH_G6_S}>SS Enabled</th>
               {/* G7 — Profile (slate) */}
               <th className={TH_G7}>Profile Setpoint</th>
+              {/* G8 — Power Meter (navy) */}
+              <th className={TH_G8_P} style={{ backgroundColor: "#1e3a5f" }}>Apparent</th>
+              <th className={TH_G8_P} style={{ backgroundColor: "#1e3a5f" }}>Current</th>
+              <th className={TH_G8_S} style={{ backgroundColor: "#264a6f" }}>Energy</th>
+              <th className={TH_G8_S} style={{ backgroundColor: "#264a6f" }}>Voltage</th>
+              <th className={TH_G8_S} style={{ backgroundColor: "#264a6f" }}>PF</th>
+              <th className={TH_G8_S} style={{ backgroundColor: "#264a6f" }}>Reactive</th>
+              <th className={TH_G8_S} style={{ backgroundColor: "#264a6f" }}>Freq</th>
+              <th className={TH_G8_P} style={{ backgroundColor: "#1e3a5f" }}>Running</th>
+              {/* G9 — Anomaly Detection (red) */}
+              <th className={TH_G9_P} style={{ backgroundColor: "#b91c1c" }}>{"\u26A0"} Count</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Coil Freeze</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Delayed Resp</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Efficiency</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Filter</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Idle Gain</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Long Cycle</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Outdoor</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Refrig Low</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Short Cycle</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Cycles/hr</th>
+              <th className={TH_G9_S} style={{ backgroundColor: "#dc2626" }}>Run Min</th>
+              <th className={TH_G9_P} style={{ backgroundColor: "#b91c1c" }}>Flags</th>
+              {/* G10 — Equipment Sensors (purple) */}
+              <th className={TH_G10_P} style={{ backgroundColor: "#7c3aed" }}>Cabinet</th>
+              <th className={TH_G10_S} style={{ backgroundColor: "#8b5cf6" }}>Filter {"\u0394"}P</th>
+              <th className={TH_G10_P} style={{ backgroundColor: "#7c3aed" }}>Water Leak</th>
+              <th className={TH_G10_S} style={{ backgroundColor: "#8b5cf6" }}>Cond In</th>
+              <th className={TH_G10_S} style={{ backgroundColor: "#8b5cf6" }}>Cond Out</th>
+              <th className={TH_G10_S} style={{ backgroundColor: "#8b5cf6" }}>Evap In</th>
+              <th className={TH_G10_S} style={{ backgroundColor: "#8b5cf6" }}>Evap Out</th>
             </tr>
           </thead>
           <tbody>
@@ -667,6 +741,156 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         ) : (
                           <span className="text-gray-400">—</span>
                         )}
+                      </td>
+
+                      {/* G8: Power Meter */}
+                      <td className={TD}>
+                        {log.apparent_power_kva != null ? (
+                          <span className="text-gray-600">{log.apparent_power_kva.toFixed(1)} kVA</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.compressor_current_a != null ? (
+                          <span className="text-gray-600">{log.compressor_current_a.toFixed(2)} A</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.energy_delta_kwh != null ? (
+                          <span className="text-gray-600">{log.energy_delta_kwh.toFixed(2)} kWh</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.line_voltage_v != null ? (
+                          <span className="text-gray-600">{log.line_voltage_v.toFixed(1)} V</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.power_factor != null ? (
+                          <span className="text-gray-600">{log.power_factor.toFixed(2)}</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.reactive_power_kvar != null ? (
+                          <span className="text-gray-600">{log.reactive_power_kvar.toFixed(3)} kVAR</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.frequency_hz != null ? (
+                          <span className="text-gray-600">{log.frequency_hz.toFixed(2)} Hz</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.running_state != null ? (
+                          log.running_state
+                            ? <span className="text-green-600">{"\u25CF"}</span>
+                            : <span className="text-gray-400">{"\u25CB"}</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+
+                      {/* G9: Anomaly Detection */}
+                      <td className={`${TD} text-center`}>
+                        {log.anomaly_count != null ? (
+                          log.anomaly_count > 0
+                            ? <span className="font-bold text-red-600">{log.anomaly_count}</span>
+                            : <span className="text-gray-400">0</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.coil_freeze === true
+                          ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">YES</span>
+                          : log.coil_freeze === false ? null : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.delayed_temp_response === true
+                          ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">YES</span>
+                          : log.delayed_temp_response === false ? null : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.efficiency_ratio != null ? (
+                          <span className="text-gray-600">{log.efficiency_ratio.toFixed(1)}%</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.filter_restriction === true
+                          ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">YES</span>
+                          : log.filter_restriction === false ? null : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.idle_heat_gain === true
+                          ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">YES</span>
+                          : log.idle_heat_gain === false ? null : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.long_cycle === true
+                          ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">YES</span>
+                          : log.long_cycle === false ? null : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.outdoor_air_temp_f != null ? (
+                          <span className="text-gray-600">{log.outdoor_air_temp_f}{"\u00B0"}F</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.refrigerant_low === true
+                          ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">YES</span>
+                          : log.refrigerant_low === false ? null : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.short_cycling === true
+                          ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">YES</span>
+                          : log.short_cycling === false ? null : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.cycle_count_1h != null ? (
+                          <span className="text-gray-600">{log.cycle_count_1h}</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.continuous_run_min != null ? (
+                          <span className="text-gray-600">{log.continuous_run_min}</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.anomaly_flags && log.anomaly_flags.length > 0 ? (
+                          <span className="text-red-600 text-[10px]">{log.anomaly_flags.join(", ")}</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+
+                      {/* G10: Equipment Sensors */}
+                      <td className={`${TD} text-center`}>
+                        {log.cabinet_door_open === true
+                          ? <span className="font-bold text-red-600">OPEN</span>
+                          : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.filter_pressure_pa != null ? (
+                          <span className="text-gray-600">{log.filter_pressure_pa} Pa</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        {log.water_leak === true
+                          ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">LEAK</span>
+                          : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.condenser_coil_in_f != null ? (
+                          <span className="text-gray-600">{log.condenser_coil_in_f}{"\u00B0"}F</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.condenser_coil_out_f != null ? (
+                          <span className="text-gray-600">{log.condenser_coil_out_f}{"\u00B0"}F</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.evaporator_coil_in_f != null ? (
+                          <span className="text-gray-600">{log.evaporator_coil_in_f}{"\u00B0"}F</span>
+                        ) : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className={TD}>
+                        {log.evaporator_coil_out_f != null ? (
+                          <span className="text-gray-600">{log.evaporator_coil_out_f}{"\u00B0"}F</span>
+                        ) : <span className="text-gray-400">—</span>}
                       </td>
                     </tr>
                   );

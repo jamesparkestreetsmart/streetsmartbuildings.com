@@ -13,6 +13,7 @@ import ProfileManager from "@/components/hvac/ProfileManager";
 import InventoryTab from "@/components/inventory/InventoryTab";
 import SiteActivityLog from "@/components/SiteActivityLog";
 import LogicMap from "@/components/logic-map/LogicMap";
+import AnomalyThresholdsPanel from "@/components/AnomalyThresholdsPanel";
 
 export default function TabClientWrapper({ siteId }: { siteId: string }) {
   const router = useRouter();
@@ -97,8 +98,16 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
       )}
       {tab === "space-hvac" && !isInventorySite && (
         <>
-          <ProfileManager orgId={orgId || ""} />
-          <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />          <SpaceHvacTable siteId={siteId} />
+          <div className="flex gap-6 items-start">
+            <div className="flex-1 min-w-0">
+              <ProfileManager orgId={orgId || ""} />
+            </div>
+            <div className="w-[380px] flex-shrink-0">
+              <AnomalyThresholdsPanel siteId={siteId} />
+            </div>
+          </div>
+          <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />
+          <SpaceHvacTable siteId={siteId} />
         </>
       )}
       {tab === "logic-map" && !isInventorySite && (

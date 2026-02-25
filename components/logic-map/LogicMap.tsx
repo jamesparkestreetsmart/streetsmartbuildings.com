@@ -1587,7 +1587,9 @@ export default function LogicMap({ siteId, timezone }: LogicMapProps) {
   const today = todayInTimezone(timezone);
   const [selectedDate, setSelectedDate] = useState(today);
   const { data, loading, error, refetch } = useManifest(siteId, selectedDate);
-  const { entries: activityEntries, addComment } = useActivityLog(siteId, selectedDate);
+  const { entries: rawActivityEntries, addComment } = useActivityLog(siteId, selectedDate);
+  // Hide routine thermostat_push entries (noise) — thermostat_push_failed still visible
+  const activityEntries = useMemo(() => rawActivityEntries.filter((e) => e.event_type !== "thermostat_push"), [rawActivityEntries]);
   const [nowMinutes, setNowMinutes] = useState(currentTimeMinutes(timezone));
   const [generating, setGenerating] = useState(false);
 

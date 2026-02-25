@@ -591,8 +591,8 @@ export default function ProfileManager({ orgId }: Props) {
             // Collapsed card view
             return (
               <div key={profile.profile_id} className="border rounded-xl p-4 hover:shadow-md transition-shadow">
-                <div className="flex justify-between items-start">
-                  <div>
+                <div className="flex items-start gap-4">
+                  <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-base">{profile.profile_name}</h3>
                     <div className="text-sm text-gray-600 mt-1 space-y-0.5">
                       <p>
