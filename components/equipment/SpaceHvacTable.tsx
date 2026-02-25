@@ -175,7 +175,8 @@ export default function SpaceHvacTable({ siteId }: Props) {
       .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, manager_override_reset_minutes")
       .eq("site_id", siteId)
       .eq("control_scope", "managed")
-      .not("thermostat_device_id", "is", null);
+      .not("thermostat_device_id", "is", null)
+      .not("equipment_id", "is", null);
 
     if (zonesError) {
       console.error("[SpaceHvacTable] Zones query error:", zonesError);

@@ -462,7 +462,8 @@ export async function logZoneSetpointSnapshot(
       )
       .eq("site_id", siteId)
       .eq("control_scope", "managed")
-      .not("thermostat_device_id", "is", null);
+      .not("thermostat_device_id", "is", null)
+      .not("equipment_id", "is", null);
 
     if (!zones || zones.length === 0) return;
 

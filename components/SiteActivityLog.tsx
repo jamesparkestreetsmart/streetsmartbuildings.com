@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useOrg } from "@/context/OrgContext";
 
@@ -32,6 +32,16 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
   const [equipmentMap, setEquipmentMap] = useState<Map<string, string>>(new Map());
   const [deviceMap, setDeviceMap] = useState<Map<string, string>>(new Map());
 
+  // Type & User filters
+  const [allEventTypes, setAllEventTypes] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
+  const [allUsers, setAllUsers] = useState<string[]>([]);
+  const [selectedUser, setSelectedUser] = useState<string>(""); // "" = all users
+  const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const typeRef = useRef<HTMLDivElement>(null);
+  const userRef = useRef<HTMLDivElement>(null);
+
   const fetchLogs = useCallback(async () => {
     setLoading(true);
 
@@ -48,6 +58,19 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
     } else {
       const allRecords = data || [];
       setRecords(allRecords);
+
+      // Extract distinct event types and users
+      const types = [...new Set(allRecords.map((r) => r.event_type))].sort();
+      setAllEventTypes(types);
+      // Default: all types except thermostat_push
+      setSelectedTypes((prev) => {
+        if (prev.size === 0) {
+          return new Set(types.filter((t) => t !== "thermostat_push"));
+        }
+        return prev;
+      });
+      const users = [...new Set(allRecords.map((r) => r.created_by || "system"))].sort();
+      setAllUsers(users);
 
       // Lookup equipment names
       const eqIds = [...new Set(allRecords.map((r) => r.equipment_id).filter(Boolean))] as string[];
@@ -80,16 +103,35 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
     fetchLogs();
   }, [fetchLogs]);
 
-  // Filter by scope
+  // Close dropdowns on click outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (typeRef.current && !typeRef.current.contains(e.target as Node)) setShowTypeDropdown(false);
+      if (userRef.current && !userRef.current.contains(e.target as Node)) setShowUserDropdown(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Filter by scope + type + user
   const filteredRecords = records.filter((r) => {
+    // Scope filter
     const isSiteLevel = !r.equipment_id && !r.device_id;
     const isEquipmentLevel = !!r.equipment_id && !r.device_id;
     const isDeviceLevel = !!r.device_id;
+    const scopeMatch =
+      (isSiteLevel && activeScopes.has("site")) ||
+      (isEquipmentLevel && activeScopes.has("equipment")) ||
+      (isDeviceLevel && activeScopes.has("devices"));
+    if (!scopeMatch) return false;
 
-    if (isSiteLevel && activeScopes.has("site")) return true;
-    if (isEquipmentLevel && activeScopes.has("equipment")) return true;
-    if (isDeviceLevel && activeScopes.has("devices")) return true;
-    return false;
+    // Type filter
+    if (selectedTypes.size > 0 && !selectedTypes.has(r.event_type)) return false;
+
+    // User filter
+    if (selectedUser && (r.created_by || "system") !== selectedUser) return false;
+
+    return true;
   });
 
   // Sort
@@ -223,6 +265,85 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
               );
             })}
           </div>
+
+          {/* Type filter */}
+          <div ref={typeRef} className="relative">
+            <button
+              onClick={() => { setShowTypeDropdown((p) => !p); setShowUserDropdown(false); }}
+              className={`px-3 py-1 rounded-md text-xs font-medium border transition ${
+                selectedTypes.size < allEventTypes.length
+                  ? "border-purple-300 bg-purple-50 text-purple-700"
+                  : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              Type{allEventTypes.length > 0 && selectedTypes.size < allEventTypes.length
+                ? ` (${selectedTypes.size}/${allEventTypes.length})`
+                : ""} ▾
+            </button>
+            {showTypeDropdown && (
+              <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-50 py-1 max-h-64 overflow-y-auto">
+                <div className="px-3 py-1.5 border-b flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-500">Event Types</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setSelectedTypes(new Set(allEventTypes))} className="text-[10px] text-blue-600 hover:underline">All</button>
+                    <button onClick={() => setSelectedTypes(new Set())} className="text-[10px] text-blue-600 hover:underline">None</button>
+                  </div>
+                </div>
+                {allEventTypes.map((t) => (
+                  <label key={t} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedTypes.has(t)}
+                      onChange={() => {
+                        setSelectedTypes((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(t)) next.delete(t);
+                          else next.add(t);
+                          return next;
+                        });
+                      }}
+                      className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                    <span className={`${t === "thermostat_push" ? "text-gray-400" : "text-gray-700"}`}>{t}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* User filter */}
+          <div ref={userRef} className="relative">
+            <button
+              onClick={() => { setShowUserDropdown((p) => !p); setShowTypeDropdown(false); }}
+              className={`px-3 py-1 rounded-md text-xs font-medium border transition ${
+                selectedUser
+                  ? "border-purple-300 bg-purple-50 text-purple-700"
+                  : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {selectedUser ? `User: ${selectedUser.split("@")[0]}` : "User"} ▾
+            </button>
+            {showUserDropdown && (
+              <div className="absolute right-0 mt-1 w-56 bg-white border rounded-lg shadow-lg z-50 py-1 max-h-64 overflow-y-auto">
+                <button
+                  onClick={() => { setSelectedUser(""); setShowUserDropdown(false); }}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 ${!selectedUser ? "font-medium text-green-700 bg-green-50" : "text-gray-700"}`}
+                >
+                  All Users
+                </button>
+                {allUsers.map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => { setSelectedUser(u); setShowUserDropdown(false); }}
+                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 ${selectedUser === u ? "font-medium text-green-700 bg-green-50" : "text-gray-700"}`}
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={exportCSV}
             disabled={sortedRecords.length === 0}

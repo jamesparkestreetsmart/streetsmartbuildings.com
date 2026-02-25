@@ -74,6 +74,12 @@ interface HvacZone {
 interface Profile {
   profile_id: string;
   profile_name: string;
+  occupied_heat_f?: number | null;
+  occupied_cool_f?: number | null;
+  unoccupied_heat_f?: number | null;
+  unoccupied_cool_f?: number | null;
+  occupied_hvac_mode?: string | null;
+  unoccupied_hvac_mode?: string | null;
 }
 
 // ── Zone-config types (from ZoneSpaceConfig) ────────────────────────
@@ -391,15 +397,9 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
     control_scope: "open",
     equipment_id: "",
     thermostat_device_id: "",
-    setpoint_min_f: 68,
-    setpoint_max_f: 76,
-    hvac_mode: "auto",
-    fan_mode: "auto",
-    setpoint_min_unoccupied_f: 60,
-    setpoint_max_unoccupied_f: 80,
-    hvac_mode_unoccupied: "auto",
-    fan_mode_unoccupied: "auto",
+    profile_id: "",
   });
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [availableEquipment, setAvailableEquipment] = useState<
     { equipment_id: string; equipment_name: string }[]
@@ -409,12 +409,8 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
     { device_id: string; device_name: string; ha_device_id: string }[]
   >([]);
 
-  const zoneTypeDefaults: Record<string, { min: number; max: number; minUnocc: number; maxUnocc: number }> = {
-    undefined: { min: 68, max: 76, minUnocc: 60, maxUnocc: 80 },
-    customer: { min: 70, max: 74, minUnocc: 60, maxUnocc: 80 },
-    employee: { min: 68, max: 76, minUnocc: 55, maxUnocc: 85 },
-    storage: { min: 55, max: 85, minUnocc: 50, maxUnocc: 90 },
-  };
+  // Map of equipment_id → zone name (for equipment already assigned to a zone)
+  const [assignedEquipment, setAssignedEquipment] = useState<Record<string, string>>({});
 
   // ── Fetches ──────────────────────────────────────────────────────
 
@@ -424,7 +420,16 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
       const res = await fetch(`/api/thermostat/profiles?org_id=${orgId}`);
       const data = await res.json();
       if (Array.isArray(data)) {
-        setProfiles(data.map((p: any) => ({ profile_id: p.profile_id, profile_name: p.profile_name })));
+        setProfiles(data.map((p: any) => ({
+          profile_id: p.profile_id,
+          profile_name: p.profile_name,
+          occupied_heat_f: p.occupied_heat_f,
+          occupied_cool_f: p.occupied_cool_f,
+          unoccupied_heat_f: p.unoccupied_heat_f,
+          unoccupied_cool_f: p.unoccupied_cool_f,
+          occupied_hvac_mode: p.occupied_hvac_mode,
+          unoccupied_hvac_mode: p.unoccupied_hvac_mode,
+        })));
       }
     } catch (err) {
       console.error("Error fetching profiles:", err);
@@ -527,13 +532,25 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   useEffect(() => {
     const initZones = async () => {
-      const { data: equipment } = await supabase
-        .from("a_equipments")
-        .select("equipment_id, equipment_name")
-        .eq("site_id", siteId)
-        .eq("equipment_group", "HVAC")
-        .order("equipment_name");
+      const [{ data: equipment }, { data: zoneEquips }] = await Promise.all([
+        supabase
+          .from("a_equipments")
+          .select("equipment_id, equipment_name")
+          .eq("site_id", siteId)
+          .eq("equipment_group", "HVAC")
+          .order("equipment_name"),
+        supabase
+          .from("a_hvac_zones")
+          .select("hvac_zone_id, name, equipment_id")
+          .eq("site_id", siteId)
+          .not("equipment_id", "is", null),
+      ]);
       setAvailableEquipment(equipment || []);
+      const assigned: Record<string, string> = {};
+      for (const z of zoneEquips || []) {
+        if (z.equipment_id) assigned[z.equipment_id] = z.name;
+      }
+      setAssignedEquipment(assigned);
 
       const { data: climateEntities } = await supabase
         .from("b_entity_sync")
@@ -911,24 +928,22 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
   // ── Zone add/edit modal handlers (unchanged) ─────────────────────
 
   const handleZoneTypeChange = (zoneType: string) => {
-    const defaults = zoneTypeDefaults[zoneType];
-    setFormData({ ...formData, zone_type: zoneType, setpoint_min_f: defaults.min, setpoint_max_f: defaults.max, setpoint_min_unoccupied_f: defaults.minUnocc, setpoint_max_unoccupied_f: defaults.maxUnocc });
+    setFormData({ ...formData, zone_type: zoneType });
   };
 
   const handleAddZone = async () => {
-    const { data: zoneData, error: zoneError } = await supabase
+    setFormError(null);
+    // Check for duplicate equipment assignment
+    if (formData.equipment_id && assignedEquipment[formData.equipment_id]) {
+      setFormError(`This equipment is already assigned to "${assignedEquipment[formData.equipment_id]}"`);
+      return;
+    }
+    const { error: zoneError } = await supabase
       .from("a_hvac_zones")
-      .insert({ site_id: siteId, org_id: orgId, name: formData.zone_name, zone_type: formData.zone_type, control_scope: formData.control_scope, equipment_id: formData.equipment_id || null, thermostat_device_id: formData.thermostat_device_id || null })
+      .insert({ site_id: siteId, org_id: orgId, name: formData.zone_name, zone_type: formData.zone_type, control_scope: formData.control_scope, equipment_id: formData.equipment_id || null, thermostat_device_id: formData.thermostat_device_id || null, profile_id: formData.profile_id || null })
       .select()
       .single();
-    if (zoneError) { console.error("Error creating zone:", zoneError); return; }
-    await supabase.from("b_hvac_zone_setpoints").insert({
-      hvac_zone_id: zoneData.hvac_zone_id,
-      setpoint_min_f: formData.setpoint_min_f, setpoint_max_f: formData.setpoint_max_f,
-      hvac_mode: formData.hvac_mode, fan_mode: formData.fan_mode,
-      setpoint_min_unoccupied_f: formData.setpoint_min_unoccupied_f, setpoint_max_unoccupied_f: formData.setpoint_max_unoccupied_f,
-      hvac_mode_unoccupied: formData.hvac_mode_unoccupied, fan_mode_unoccupied: formData.fan_mode_unoccupied,
-    });
+    if (zoneError) { console.error("Error creating zone:", zoneError); setFormError(zoneError.message); return; }
     setShowAddModal(false);
     resetForm();
     fetchZones();
@@ -936,8 +951,13 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   const handleUpdateZone = async () => {
     if (!editingZone) return;
-    await supabase.from("a_hvac_zones").update({ name: formData.zone_name, zone_type: formData.zone_type, control_scope: formData.control_scope, equipment_id: formData.equipment_id || null, thermostat_device_id: formData.thermostat_device_id || null }).eq("hvac_zone_id", editingZone.hvac_zone_id);
-    await supabase.from("b_hvac_zone_setpoints").update({ setpoint_min_f: formData.setpoint_min_f, setpoint_max_f: formData.setpoint_max_f, hvac_mode: formData.hvac_mode, fan_mode: formData.fan_mode, setpoint_min_unoccupied_f: formData.setpoint_min_unoccupied_f, setpoint_max_unoccupied_f: formData.setpoint_max_unoccupied_f, hvac_mode_unoccupied: formData.hvac_mode_unoccupied, fan_mode_unoccupied: formData.fan_mode_unoccupied }).eq("hvac_zone_id", editingZone.hvac_zone_id);
+    setFormError(null);
+    // Check for duplicate equipment assignment (allow self)
+    if (formData.equipment_id && assignedEquipment[formData.equipment_id] && formData.equipment_id !== editingZone.equipment_id) {
+      setFormError(`This equipment is already assigned to "${assignedEquipment[formData.equipment_id]}"`);
+      return;
+    }
+    await supabase.from("a_hvac_zones").update({ name: formData.zone_name, zone_type: formData.zone_type, control_scope: formData.control_scope, equipment_id: formData.equipment_id || null, thermostat_device_id: formData.thermostat_device_id || null, profile_id: formData.profile_id || null }).eq("hvac_zone_id", editingZone.hvac_zone_id);
     setEditingZone(null);
     resetForm();
     fetchZones();
@@ -950,12 +970,14 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
   };
 
   const resetForm = () => {
-    setFormData({ zone_name: "", zone_type: "undefined", control_scope: "open", equipment_id: "", thermostat_device_id: "", setpoint_min_f: 68, setpoint_max_f: 76, hvac_mode: "auto", fan_mode: "auto", setpoint_min_unoccupied_f: 60, setpoint_max_unoccupied_f: 80, hvac_mode_unoccupied: "auto", fan_mode_unoccupied: "auto" });
+    setFormData({ zone_name: "", zone_type: "undefined", control_scope: "open", equipment_id: "", thermostat_device_id: "", profile_id: "" });
+    setFormError(null);
   };
 
   const openEditModal = (zone: HvacZone) => {
     setEditingZone(zone);
-    setFormData({ zone_name: zone.zone_name, zone_type: zone.zone_type, control_scope: zone.control_scope, equipment_id: zone.equipment_id || "", thermostat_device_id: zone.thermostat_device_id || "", setpoint_min_f: zone.policy_setpoint_min_f || 68, setpoint_max_f: zone.policy_setpoint_max_f || 76, hvac_mode: zone.policy_hvac_mode || "auto", fan_mode: zone.policy_fan_mode || "auto", setpoint_min_unoccupied_f: zone.policy_setpoint_min_unoccupied_f || 55, setpoint_max_unoccupied_f: zone.policy_setpoint_max_unoccupied_f || 85, hvac_mode_unoccupied: zone.policy_hvac_mode_unoccupied || "auto", fan_mode_unoccupied: zone.policy_fan_mode_unoccupied || "auto" });
+    setFormError(null);
+    setFormData({ zone_name: zone.zone_name, zone_type: zone.zone_type, control_scope: zone.control_scope, equipment_id: zone.equipment_id || "", thermostat_device_id: zone.thermostat_device_id || "", profile_id: zone.profile_id || "" });
   };
 
   // ── Display helpers ──────────────────────────────────────────────
@@ -1556,11 +1578,14 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
         </div>
       )}
 
-      {/* Add/Edit Modal (unchanged) */}
+      {/* Add/Edit Modal */}
       {(showAddModal || editingZone) && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">{editingZone ? "Edit HVAC Zone" : "Add HVAC Zone"}</h3>
+            {formError && (
+              <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{formError}</div>
+            )}
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -1569,9 +1594,18 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">HVAC Equipment</label>
-                  <select value={formData.equipment_id} onChange={(e) => setFormData({ ...formData, equipment_id: e.target.value })} className="w-full border rounded-lg px-3 py-2">
+                  <select value={formData.equipment_id} onChange={(e) => { setFormError(null); setFormData({ ...formData, equipment_id: e.target.value }); }} className="w-full border rounded-lg px-3 py-2">
                     <option value="">— Select —</option>
-                    {availableEquipment.map((eq) => <option key={eq.equipment_id} value={eq.equipment_id}>{eq.equipment_name}</option>)}
+                    {availableEquipment.map((eq) => {
+                      const assignedTo = assignedEquipment[eq.equipment_id];
+                      const isOwnEquipment = editingZone?.equipment_id === eq.equipment_id;
+                      const isDisabled = !!assignedTo && !isOwnEquipment;
+                      return (
+                        <option key={eq.equipment_id} value={eq.equipment_id} disabled={isDisabled}>
+                          {eq.equipment_name}{isDisabled ? ` (assigned to ${assignedTo})` : ""}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
                 <div>
@@ -1592,29 +1626,22 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                 </select>
                 {availableThermostats.length === 0 && <p className="text-xs text-gray-500 mt-1">No climate devices found. Sync devices from Home Assistant first.</p>}
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="border rounded-lg p-4 bg-green-50/50">
-                  <h4 className="font-semibold text-green-700 mb-3">Occupied (Open Hours)</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-medium text-gray-600 mb-1">Heat (°F)</label><input type="number" value={formData.setpoint_min_f} onChange={(e) => setFormData({ ...formData, setpoint_min_f: Number(e.target.value) })} className="w-full border rounded px-2 py-1.5 text-sm" /></div>
-                    <div><label className="block text-xs font-medium text-gray-600 mb-1">Cool (°F)</label><input type="number" value={formData.setpoint_max_f} onChange={(e) => setFormData({ ...formData, setpoint_max_f: Number(e.target.value) })} className="w-full border rounded px-2 py-1.5 text-sm" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mt-3">
-                    <div><label className="block text-xs font-medium text-gray-600 mb-1">HVAC Mode</label><select value={formData.hvac_mode} onChange={(e) => setFormData({ ...formData, hvac_mode: e.target.value })} className="w-full border rounded px-2 py-1.5 text-sm"><option value="auto">Auto</option><option value="heat">Heat Only</option><option value="cool">Cool Only</option><option value="off">Off</option></select></div>
-                    <div><label className="block text-xs font-medium text-gray-600 mb-1">Fan Mode</label><select value={formData.fan_mode} onChange={(e) => setFormData({ ...formData, fan_mode: e.target.value })} className="w-full border rounded px-2 py-1.5 text-sm"><option value="auto">Auto</option><option value="on">Always On</option></select></div>
-                  </div>
-                </div>
-                <div className="border rounded-lg p-4 bg-gray-50">
-                  <h4 className="font-semibold text-gray-600 mb-3">Unoccupied (Closed Hours)</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-medium text-gray-600 mb-1">Heat (°F)</label><input type="number" value={formData.setpoint_min_unoccupied_f} onChange={(e) => setFormData({ ...formData, setpoint_min_unoccupied_f: Number(e.target.value) })} className="w-full border rounded px-2 py-1.5 text-sm" /></div>
-                    <div><label className="block text-xs font-medium text-gray-600 mb-1">Cool (°F)</label><input type="number" value={formData.setpoint_max_unoccupied_f} onChange={(e) => setFormData({ ...formData, setpoint_max_unoccupied_f: Number(e.target.value) })} className="w-full border rounded px-2 py-1.5 text-sm" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mt-3">
-                    <div><label className="block text-xs font-medium text-gray-600 mb-1">HVAC Mode</label><select value={formData.hvac_mode_unoccupied} onChange={(e) => setFormData({ ...formData, hvac_mode_unoccupied: e.target.value })} className="w-full border rounded px-2 py-1.5 text-sm"><option value="auto">Auto</option><option value="heat">Heat Only</option><option value="cool">Cool Only</option><option value="off">Off</option></select></div>
-                    <div><label className="block text-xs font-medium text-gray-600 mb-1">Fan Mode</label><select value={formData.fan_mode_unoccupied} onChange={(e) => setFormData({ ...formData, fan_mode_unoccupied: e.target.value })} className="w-full border rounded px-2 py-1.5 text-sm"><option value="auto">Auto</option><option value="on">Always On</option><option value="off">Off</option></select></div>
-                  </div>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Profile</label>
+                <select value={formData.profile_id} onChange={(e) => setFormData({ ...formData, profile_id: e.target.value })} className="w-full border rounded-lg px-3 py-2">
+                  <option value="">— Select Profile —</option>
+                  {profiles.map((p) => <option key={p.profile_id} value={p.profile_id}>{p.profile_name}</option>)}
+                </select>
+                {(() => {
+                  const selectedProfile = profiles.find((p) => p.profile_id === formData.profile_id);
+                  if (!selectedProfile) return null;
+                  return (
+                    <div className="mt-2 px-3 py-2 rounded-lg bg-gray-50 border text-xs text-gray-600">
+                      <span className="font-medium">{selectedProfile.profile_name}:</span>{" "}
+                      Occupied {selectedProfile.occupied_heat_f ?? "—"}°–{selectedProfile.occupied_cool_f ?? "—"}°F {selectedProfile.occupied_hvac_mode || "auto"} | Unoccupied {selectedProfile.unoccupied_heat_f ?? "—"}°–{selectedProfile.unoccupied_cool_f ?? "—"}°F {selectedProfile.unoccupied_hvac_mode || "auto"}
+                    </div>
+                  );
+                })()}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Control Scope</label>
