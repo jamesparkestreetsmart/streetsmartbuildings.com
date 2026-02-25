@@ -1,8 +1,8 @@
-// app/f/[orgCode]/[siteSlug]/[equipmentSlug]/[spaceSlug]/page.tsx
+// app/f/[siteSlug]/[equipmentSlug]/[spaceSlug]/page.tsx
 //
 // Public QR Comfort Feedback Page
-// URL: /f/{org_identifier}/{site_slug}/{equipment_slug}/{space_slug}
-// Example: /f/WKSR/park-0024/rtu-1/back-kitchen
+// URL: /f/{site_slug}/{equipment_slug}/{space_slug}
+// Example: /f/wksr-0024/house-hvac/kitchen
 //
 // Data source: b_zone_setpoint_log (via resolve API)
 // Same fields as SpaceHvacTable component
@@ -55,9 +55,9 @@ interface ResolvedData {
 type Rating = 'too_hot' | 'comfortable' | 'too_cold';
 
 const RATINGS: { id: Rating; emoji: string; label: string; sub: string; color: string; bg: string }[] = [
-  { id: 'too_hot', emoji: '🥵', label: 'Too Hot', sub: 'Uncomfortably warm', color: '#EF4444', bg: '#FEF2F2' },
-  { id: 'comfortable', emoji: '😊', label: 'Feels Great', sub: 'Comfortable', color: '#10B981', bg: '#ECFDF5' },
-  { id: 'too_cold', emoji: '🥶', label: 'Too Cold', sub: 'Uncomfortably cold', color: '#3B82F6', bg: '#EFF6FF' },
+  { id: 'too_hot', emoji: '\uD83E\uDD75', label: 'Too Hot', sub: 'Uncomfortably warm', color: '#EF4444', bg: '#FEF2F2' },
+  { id: 'comfortable', emoji: '\uD83D\uDE0A', label: 'Feels Great', sub: 'Comfortable', color: '#10B981', bg: '#ECFDF5' },
+  { id: 'too_cold', emoji: '\uD83E\uDD76', label: 'Too Cold', sub: 'Uncomfortably cold', color: '#3B82F6', bg: '#EFF6FF' },
 ];
 
 // ─── Score Badge (matches AdjBadge logic from SpaceHvacTable) ───
@@ -88,7 +88,6 @@ function ScoreBadge({ label, value, icon }: { label: string; value: number | nul
 
 export default function ComfortFeedbackPage() {
   const params = useParams();
-  const orgCode = params.orgCode as string;
   const siteSlug = params.siteSlug as string;
   const equipmentSlug = params.equipmentSlug as string;
   const spaceSlug = params.spaceSlug as string;
@@ -110,7 +109,7 @@ export default function ComfortFeedbackPage() {
     (async () => {
       try {
         const res = await fetch(
-          `/api/public/comfort-feedback/resolve?org=${encodeURIComponent(orgCode)}&site=${encodeURIComponent(siteSlug)}&equipment=${encodeURIComponent(equipmentSlug)}&space=${encodeURIComponent(spaceSlug)}`
+          `/api/public/comfort-feedback/resolve?site=${encodeURIComponent(siteSlug)}&equipment=${encodeURIComponent(equipmentSlug)}&space=${encodeURIComponent(spaceSlug)}`
         );
         if (!res.ok) {
           const err = await res.json();
@@ -126,7 +125,7 @@ export default function ComfortFeedbackPage() {
         setLoading(false);
       }
     })();
-  }, [orgCode, siteSlug, equipmentSlug, spaceSlug]);
+  }, [siteSlug, equipmentSlug, spaceSlug]);
 
   // ─── Silent GPS ───
   useEffect(() => {
@@ -206,6 +205,7 @@ export default function ComfortFeedbackPage() {
           <div style={{ width: 32, height: 32, margin: '0 auto', border: '3px solid #E2E8F0', borderTopColor: '#F59E0B', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
           <p style={{ color: '#94A3B8', fontSize: 14, marginTop: 16 }}>Loading location data...</p>
         </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div></div>
     );
   }
@@ -215,7 +215,7 @@ export default function ComfortFeedbackPage() {
     return (
       <div style={S.page}><div style={S.wrap}>
         <div style={{ ...S.card, textAlign: 'center', marginTop: 60, padding: '48px 24px' }}>
-          <span style={{ fontSize: 48, display: 'block', marginBottom: 16 }}>😕</span>
+          <span style={{ fontSize: 48, display: 'block', marginBottom: 16 }}>{'\uD83D\uDE15'}</span>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: '#0F172A', margin: '0 0 8px' }}>Location Not Found</h2>
           <p style={{ fontSize: 14, color: '#64748B', margin: 0 }}>{error || 'The QR code may be outdated.'}</p>
         </div>
@@ -241,10 +241,10 @@ export default function ComfortFeedbackPage() {
             Your comfort rating has been recorded and sent to the building management team.
           </p>
           <div style={{ display: 'inline-block', fontSize: 12, fontWeight: 600, color: '#475569', backgroundColor: '#F1F5F9', borderRadius: 8, padding: '6px 14px', marginBottom: 14 }}>
-            {selectedSpace === 'general' ? `${data.equipment.equipment_name} · General` : `${selectedSpaceObj?.name} · ${data.equipment.equipment_name}`}
+            {selectedSpace === 'general' ? `${data.equipment.equipment_name} \u00B7 General` : `${selectedSpaceObj?.name} \u00B7 ${data.equipment.equipment_name}`}
           </div>
           <p style={{ fontSize: 12, color: '#CBD5E1', margin: 0 }}>
-            {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · {data.site.site_name}
+            {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} \u00B7 {data.site.site_name}
           </p>
         </div>
       </div><Footer /></div>
@@ -271,7 +271,7 @@ export default function ComfortFeedbackPage() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
             </svg>
-            <span>{data.site.site_name} — {data.site.address}</span>
+            <span>{data.site.site_name} {'\u2014'} {data.site.address}</span>
           </div>
         </div>
 
@@ -280,7 +280,7 @@ export default function ComfortFeedbackPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 6 }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
-                {data.equipment.equipment_name} · {data.equipment.equipment_group || data.equipment.equipment_type_id || 'HVAC'}
+                {data.equipment.equipment_name} {'\u00B7'} {data.equipment.equipment_group || data.equipment.equipment_type_id || 'HVAC'}
               </div>
               <h2 style={{ fontSize: 18, fontWeight: 700, color: '#0F172A', margin: 0 }}>
                 {data.zone?.name || 'Zone'}
@@ -306,14 +306,14 @@ export default function ComfortFeedbackPage() {
                 <div style={{ flex: 1, padding: '12px 14px', textAlign: 'center' }}>
                   <div style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Active Setpoint</div>
                   <div style={{ fontSize: 17, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
-                    {snap.active_heat_f ?? '—'}° – {snap.active_cool_f ?? '—'}°F
+                    {snap.active_heat_f ?? '\u2014'}{'\u00B0'} {'\u2013'} {snap.active_cool_f ?? '\u2014'}{'\u00B0'}F
                   </div>
                 </div>
                 <div style={{ width: 1, height: 40, backgroundColor: '#E2E8F0', flexShrink: 0 }}/>
                 <div style={{ flex: 1, padding: '12px 14px', textAlign: 'center' }}>
                   <div style={{ fontSize: 10, fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Profile Setpoint</div>
                   <div style={{ fontSize: 17, fontWeight: 800, color: '#94A3B8', letterSpacing: '-0.02em' }}>
-                    {snap.profile_heat_f ?? '—'}° – {snap.profile_cool_f ?? '—'}°F
+                    {snap.profile_heat_f ?? '\u2014'}{'\u00B0'} {'\u2013'} {snap.profile_cool_f ?? '\u2014'}{'\u00B0'}F
                     <span style={{ fontSize: 10, marginLeft: 4, color: '#CBD5E1' }}>
                       ({snap.phase === 'occupied' ? 'occ' : 'unocc'})
                     </span>
@@ -323,18 +323,18 @@ export default function ComfortFeedbackPage() {
 
               {/* Four Scores — matches AdjBadge from SpaceHvacTable */}
               <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-                <ScoreBadge label="Feels Like" value={snap.feels_like_adj} icon="🌡" />
-                <ScoreBadge label="Occupancy" value={snap.occupancy_adj} icon="👥" />
-                <ScoreBadge label="Manager" value={snap.manager_adj} icon="👤" />
-                <ScoreBadge label="Smart Start" value={snap.smart_start_adj} icon="⚡" />
+                <ScoreBadge label="Feels Like" value={snap.feels_like_adj} icon={'\uD83C\uDF21'} />
+                <ScoreBadge label="Occupancy" value={snap.occupancy_adj} icon={'\uD83D\uDC65'} />
+                <ScoreBadge label="Manager" value={snap.manager_adj} icon={'\uD83D\uDC64'} />
+                <ScoreBadge label="Smart Start" value={snap.smart_start_adj} icon={'\u26A1'} />
               </div>
 
               {/* Zone Readings */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 0', borderTop: '1px solid #F1F5F9' }}>
                 {[
-                  { label: 'Zone Temp', value: snap.zone_temp_f != null ? `${snap.zone_temp_f}°F` : '—', color: '#12723A' },
-                  { label: 'Humidity', value: snap.zone_humidity != null ? `${snap.zone_humidity}%` : '—', color: '#80B52C' },
-                  { label: 'Feels Like', value: snap.feels_like_temp_f != null ? `${snap.feels_like_temp_f}°F` : '—',
+                  { label: 'Zone Temp', value: snap.zone_temp_f != null ? `${snap.zone_temp_f}\u00B0F` : '\u2014', color: '#12723A' },
+                  { label: 'Humidity', value: snap.zone_humidity != null ? `${snap.zone_humidity}%` : '\u2014', color: '#80B52C' },
+                  { label: 'Feels Like', value: snap.feels_like_temp_f != null ? `${snap.feels_like_temp_f}\u00B0F` : '\u2014',
                     color: (snap.zone_temp_f != null && snap.feels_like_temp_f != null && Math.abs(snap.feels_like_temp_f - snap.zone_temp_f) >= 2) ? '#DC2626' : '#64748B' },
                   { label: 'Source', value: data.temp_source, color: '#64748B' },
                 ].map((r, i) => (
@@ -465,7 +465,7 @@ export default function ComfortFeedbackPage() {
           </button>
 
           <p style={{ fontSize: 11, color: '#CBD5E1', textAlign: 'center', marginTop: 12, marginBottom: 0 }}>
-            🔒 Anonymous · No login · No personal data stored
+            {'\uD83D\uDD12'} Anonymous {'\u00B7'} No login {'\u00B7'} No personal data stored
           </p>
         </div>
       </div>
@@ -477,7 +477,7 @@ export default function ComfortFeedbackPage() {
 
 function Footer() {
   return (
-    <div style={{ marginTop: 24, fontSize: 12, color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div style={{ marginTop: 24, fontSize: 12, color: '#94A3B8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, paddingBottom: 24 }}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'linear-gradient(135deg, #F59E0B, #EF4444)', display: 'inline-block' }}/>
       Powered by <strong style={{ marginLeft: 3 }}>Eagle Eyes</strong>&nbsp;Building Solutions
     </div>

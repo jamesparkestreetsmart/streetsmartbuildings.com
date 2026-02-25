@@ -1,12 +1,3 @@
-// app/api/public/comfort-feedback/resolve/route.ts
-//
-// Resolves a QR code URL into zone, equipment, space data, and latest zone snapshot.
-// PUBLIC endpoint - no auth required.
-//
-// Data source: b_zone_setpoint_log (same table as Space & HVAC dashboard)
-//
-// GET /api/public/comfort-feedback/resolve?org={org_identifier}&site={site_slug}&equipment={equipment_slug}&space={space_slug}
-
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -18,35 +9,32 @@ const supabase = createClient(
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const orgCode = searchParams.get('org');
     const siteSlug = searchParams.get('site');
     const equipmentSlug = searchParams.get('equipment');
     const spaceSlug = searchParams.get('space');
 
-    if (!orgCode || !siteSlug || !equipmentSlug || !spaceSlug) {
+    if (!siteSlug || !equipmentSlug || !spaceSlug) {
       return NextResponse.json(
-        { error: 'Missing required parameters: org, site, equipment, space' },
+        { error: 'Missing required parameters: site, equipment, space' },
         { status: 400 }
       );
     }
 
-    // 1. Resolve org → site → equipment chain
-    const { data: org } = await supabase
-      .from('a_organizations')
-      .select('org_id, org_name, org_identifier')
-      .eq('org_identifier', orgCode.toUpperCase())
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
-
     const { data: site } = await supabase
       .from('a_sites')
-      .select('site_id, site_name, site_slug, address_line1, city, state, latitude, longitude')
-      .eq('org_id', org.org_id)
+      .select('site_id, site_name, site_slug, org_id, address_line1, city, state, latitude, longitude')
       .eq('site_slug', siteSlug)
       .single();
 
     if (!site) return NextResponse.json({ error: 'Site not found' }, { status: 404 });
+
+    const { data: org } = await supabase
+      .from('a_organizations')
+      .select('org_id, org_name, org_identifier')
+      .eq('org_id', site.org_id)
+      .single();
+
+    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
 
     const { data: equipment } = await supabase
       .from('a_equipments')
@@ -57,17 +45,14 @@ export async function GET(request: NextRequest) {
 
     if (!equipment) return NextResponse.json({ error: 'Equipment not found' }, { status: 404 });
 
-    // 2. Look up HVAC zone for this equipment
     const { data: zone } = await supabase
       .from('a_hvac_zones')
       .select('hvac_zone_id, name, zone_type, control_scope, is_override, thermostat_device_id')
       .eq('equipment_id', equipment.equipment_id)
       .single();
 
-    // 3. Get all spaces for this zone
     let spaces: any[] = [];
     if (zone) {
-      // Spaces linked via hvac_zone_id
       const { data: zoneSpaces } = await supabase
         .from('a_spaces')
         .select('space_id, name, slug, space_type, hvac_zone_id, zone_weight')
@@ -78,7 +63,6 @@ export async function GET(request: NextRequest) {
       spaces = zoneSpaces || [];
     }
 
-    // Also check a_equipment_served_spaces
     const { data: servedSpaces } = await supabase
       .from('a_equipment_served_spaces')
       .select('space_id, a_spaces!inner(space_id, name, slug, space_type, hvac_zone_id, zone_weight)')
@@ -96,8 +80,6 @@ export async function GET(request: NextRequest) {
 
     const defaultSpace = spaces.find((s: any) => s.slug === spaceSlug) || null;
 
-    // 4. Latest zone snapshot from b_zone_setpoint_log
-    //    This is the SAME data source as the Space & HVAC table
     let zoneSnapshot = null;
     if (zone) {
       const { data: latestLog } = await supabase
@@ -120,8 +102,6 @@ export async function GET(request: NextRequest) {
       zoneSnapshot = latestLog || null;
     }
 
-    // 5. Temp source: check a_space_sensors for temperature sensors
-    //    Same logic as SpaceHvacTable component
     let tempSource = 'Thermostat';
     if (spaces.length > 0) {
       const spaceIds = spaces.map((s: any) => s.space_id);
@@ -137,7 +117,6 @@ export async function GET(request: NextRequest) {
       if (sensors && sensors.length > 0) tempSource = 'Zone Avg';
     }
 
-    // 6. Smart start enabled (per device, not per zone)
     let smartStartEnabled = false;
     if (zone?.thermostat_device_id) {
       const { data: dev } = await supabase
@@ -148,7 +127,6 @@ export async function GET(request: NextRequest) {
       smartStartEnabled = dev?.smart_start_enabled || false;
     }
 
-    // 7. Response
     return NextResponse.json({
       organization: {
         org_id: org.org_id,

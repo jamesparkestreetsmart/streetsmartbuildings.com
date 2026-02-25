@@ -131,6 +131,9 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
     // User filter
     if (selectedUser && (r.created_by || "system") !== selectedUser) return false;
 
+    // Hide routine "Already at target" cron entries (noise) — keep failures visible
+    if (r.message?.includes('Already at target')) return false;
+
     return true;
   });
 
