@@ -105,9 +105,29 @@ function AdjBadge({ value, label }: { value: number | null; label?: string }) {
 
 /** Manager offset badge (°F) */
 function ManagerBadge({ value }: { value: number | null }) {
-  if (value === null || value === 0) return <span className="text-gray-400">—</span>;
+  if (value === null || value === 0) return <span className="text-gray-400">0</span>;
   if (value > 0) return <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">+{value}°F</span>;
   return <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">{value}°F</span>;
+}
+
+/** Compute remaining override minutes from log history.
+ *  logRows are sorted newest-first. Returns 0 if no active override. */
+function computeRemainingOverride(logRows: LogRow[], maxMinutes: number | null): number {
+  if (!maxMinutes || maxMinutes <= 0) return 0;
+  if (!logRows || logRows.length === 0) return 0;
+  const latest = logRows[0];
+  if (latest.manager_adj === null || latest.manager_adj === 0) return 0;
+  // Walk backwards through rows to find when the override started
+  let overrideStartedAt = new Date(latest.recorded_at);
+  for (let i = 1; i < logRows.length; i++) {
+    if (logRows[i].manager_adj === null || logRows[i].manager_adj === 0) {
+      overrideStartedAt = new Date(logRows[i - 1].recorded_at);
+      break;
+    }
+    overrideStartedAt = new Date(logRows[i].recorded_at);
+  }
+  const elapsedMinutes = (Date.now() - overrideStartedAt.getTime()) / (60 * 1000);
+  return Math.max(0, Math.round(maxMinutes - elapsedMinutes));
 }
 
 const COL_COUNT = 22;
@@ -391,7 +411,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
               <th className={TH_G4_S}>Sensors</th>
               {/* G5 — Manager (amber) */}
               <th className={TH_G5_P}>Manager</th>
-              <th className={TH_G5_S}>Override</th>
+              <th className={TH_G5_S}>Remaining</th>
               {/* G6 — Smart Start (teal) */}
               <th className={TH_G6_P}>SS Score</th>
               <th className={TH_G6_S}>SS Enabled</th>
@@ -609,14 +629,15 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         <ManagerBadge value={log.manager_adj} />
                       </td>
 
-                      {/* G5: Override (rowSpan) */}
+                      {/* G5: Remaining override time (rowSpan) */}
                       {isFirst && (
                         <td className={`${TD} align-top text-center`} rowSpan={rowCount}>
-                          {group.zone.manager_override_reset_minutes != null && group.zone.manager_override_reset_minutes > 0 ? (
-                            <span className="text-xs text-amber-700">{group.zone.manager_override_reset_minutes} min</span>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
+                          {(() => {
+                            const remaining = computeRemainingOverride(group.logRows, group.zone.manager_override_reset_minutes);
+                            return remaining > 0
+                              ? <span className="text-xs font-medium text-amber-700">{remaining} min</span>
+                              : <span className="text-gray-400">0</span>;
+                          })()}
                         </td>
                       )}
 
