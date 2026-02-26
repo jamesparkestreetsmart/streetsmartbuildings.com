@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
-async function getCallerEmail(): Promise<string> {
+async function getCallerUserId(): Promise<string | null> {
   try {
     const cookieStore = await cookies();
     const authClient = createServerClient(
@@ -14,8 +14,8 @@ async function getCallerEmail(): Promise<string> {
       { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
     );
     const { data: { user } } = await authClient.auth.getUser();
-    return user?.email || "system";
-  } catch { return "system"; }
+    return user?.id || null;
+  } catch { return null; }
 }
 
 const supabase = createClient(
@@ -23,64 +23,67 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// GET: Fetch notifications (with status filter)
+// GET: Fetch dashboard notifications for current user
 export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("org_id");
-  const status = req.nextUrl.searchParams.get("status"); // 'active', 'all'
   const limit = parseInt(req.nextUrl.searchParams.get("limit") || "50");
 
   if (!orgId) return NextResponse.json({ error: "org_id required" }, { status: 400 });
 
+  const userId = await getCallerUserId();
+
+  // Fetch notifications: user-specific OR org-wide (subscription_id = null)
   let query = supabase
     .from("b_alert_notifications")
     .select("*")
     .eq("org_id", orgId)
+    .eq("channel", "dashboard")
     .order("created_at", { ascending: false })
     .limit(Math.min(limit, 200));
 
-  if (status && status !== "all") {
-    query = query.eq("status", status);
+  if (userId) {
+    // Show notifications for this user OR org-wide ones (no specific recipient)
+    query = query.or(`recipient_user_id.eq.${userId},recipient_user_id.is.null`);
   }
 
   const { data: notifications, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Also get count of active notifications for badge
-  const { count } = await supabase
+  // Count unread
+  let countQuery = supabase
     .from("b_alert_notifications")
     .select("id", { count: "exact", head: true })
     .eq("org_id", orgId)
-    .eq("status", "active");
+    .eq("channel", "dashboard")
+    .in("status", ["pending", "sent"]);
+
+  if (userId) {
+    countQuery = countQuery.or(`recipient_user_id.eq.${userId},recipient_user_id.is.null`);
+  }
+
+  const { count } = await countQuery;
 
   return NextResponse.json({
     notifications: notifications || [],
-    active_count: count || 0,
+    unread_count: count || 0,
   });
 }
 
-// PATCH: Acknowledge or dismiss a notification
+// PATCH: Mark notification as read
 export async function PATCH(req: NextRequest) {
-  const callerEmail = await getCallerEmail();
   const body = await req.json();
-  const { id, action } = body; // action: 'acknowledge', 'dismiss', 'resolve'
+  const { id, action } = body;
 
-  if (!id || !action) {
-    return NextResponse.json({ error: "id and action required" }, { status: 400 });
-  }
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const updates: Record<string, any> = {};
 
-  if (action === "acknowledge") {
-    updates.status = "acknowledged";
-    updates.acknowledged_by = callerEmail;
-    updates.acknowledged_at = new Date().toISOString();
+  if (action === "read") {
+    updates.status = "read";
+    updates.read_at = new Date().toISOString();
   } else if (action === "dismiss") {
     updates.status = "dismissed";
-    updates.acknowledged_by = callerEmail;
-    updates.acknowledged_at = new Date().toISOString();
-  } else if (action === "resolve") {
-    updates.status = "resolved";
-    updates.resolved_at = new Date().toISOString();
+    updates.read_at = updates.read_at || new Date().toISOString();
   }
 
   const { data: notif, error } = await supabase

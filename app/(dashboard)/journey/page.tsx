@@ -41,7 +41,7 @@ export default function JourneyPage() {
   const [records, setRecords] = useState<RecordLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [sites, setSites] = useState<SiteOption[]>([]);
-  const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set(["org", "sites", "equipment", "devices"]));
+  const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set(["org"]));
 
   // Fetch sites for this org
   useEffect(() => {

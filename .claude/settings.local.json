@@ -4,7 +4,9 @@
       "Bash(git push:*)",
       "Bash(npx tsc:*)",
       "Bash(curl:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(tail:)",
+      "Bash(tail:*)"
     ]
   }
 }

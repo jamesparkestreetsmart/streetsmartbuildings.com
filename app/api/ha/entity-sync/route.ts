@@ -1,6 +1,7 @@
 // app/api/ha/entity-sync/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { evaluateRealtime } from "@/lib/alert-evaluator";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -403,6 +404,24 @@ export async function POST(req: NextRequest) {
       } else {
         stateChangesLogged = stateChangeRows.length;
         console.log(`[entity-sync] Logged ${stateChangeRows.length} state transitions`);
+      }
+
+      // ─── Alert Evaluation (realtime) ──────────────────────────────────────
+      // Evaluate each changed entity against alert definitions
+      for (const sc of stateChangeRows) {
+        try {
+          await evaluateRealtime(
+            supabase,
+            sc.entity_id,
+            sc.new_state,
+            sc.previous_state,
+            org_id,
+            site_id
+          );
+        } catch (alertErr) {
+          console.error("[entity-sync] Alert evaluation error:", alertErr);
+          // Never let alert evaluation break entity sync
+        }
       }
     }
   } catch (stateChangeErr: any) {

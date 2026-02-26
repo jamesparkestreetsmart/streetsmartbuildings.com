@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useOrg } from "@/context/OrgContext";
 import AlertRulesManager from "@/components/alerts/AlertRulesManager";
+import AlertSubscriptions from "@/components/alerts/AlertSubscriptions";
 
 type LiveAlert = {
   alert_id: number;
@@ -642,7 +643,10 @@ export default function AlertsPage() {
       {activeTab === "configuration" && (
         <>
           {selectedOrgId ? (
-            <AlertRulesManager orgId={selectedOrgId} />
+            <div className="space-y-6">
+              <AlertRulesManager orgId={selectedOrgId} />
+              <AlertSubscriptions orgId={selectedOrgId} />
+            </div>
           ) : (
             <div className="text-sm text-gray-400 py-8 text-center">
               Select an organization to configure alert rules.

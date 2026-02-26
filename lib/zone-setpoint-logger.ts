@@ -4,7 +4,7 @@
 
 import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync, ResolvedSetpoints } from "@/lib/setpoint-resolver";
-import { processAlerts } from "./alert-processor";
+import { evaluateCron } from "@/lib/alert-evaluator";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1442,20 +1442,12 @@ export async function logZoneSetpointSnapshot(
       }
     }
 
-    // 10. Alert processing — evaluate rules against active anomaly events
+    // 10. Alert evaluation v2 — evaluate all alert definitions for this org
     if (orgId) {
       try {
-        const { data: activeAnomalies } = await supabase
-          .from("b_anomaly_events")
-          .select("*")
-          .eq("org_id", orgId)
-          .is("ended_at", null);
-
-        if (activeAnomalies?.length) {
-          await processAlerts(supabase, orgId, activeAnomalies);
-        }
+        await evaluateCron(supabase, orgId);
       } catch (alertErr) {
-        console.error("[CRON] Alert processing error:", alertErr);
+        console.error("[CRON] Alert evaluation error:", alertErr);
         // Never let alert failures break the cron
       }
     }
