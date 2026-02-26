@@ -141,8 +141,11 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
   }, [orgId]);
 
   const fetchSensorsForType = useCallback(async (eqGroup: string) => {
-    const res = await fetch(`/api/alerts/entities?org_id=${orgId}&level=sensors&equipment_group=${encodeURIComponent(eqGroup)}`);
+    const url = `/api/alerts/entities?org_id=${orgId}&level=sensors&equipment_group=${encodeURIComponent(eqGroup)}`;
+    console.log("[AlertRulesManager] fetchSensorsForType URL:", url);
+    const res = await fetch(url);
     const data = await res.json();
+    console.log("[AlertRulesManager] fetchSensorsForType response:", JSON.stringify(data));
     setSensors(data.sensors || []);
   }, [orgId]);
 
@@ -242,12 +245,18 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
         body.window_minutes = parseInt(form.window_minutes) || 15;
       }
 
+      console.log("[AlertRulesManager] POST body:", JSON.stringify(body, null, 2));
+
       const res = await fetch("/api/alerts/rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await res.json();
+      if (!res.ok) {
+        console.error("[AlertRulesManager] API error:", data);
+        return;
+      }
       if (data.definition) {
         setDefinitions((prev) => [{ ...data.definition, active_instances: 0 }, ...prev]);
         setShowCreate(false);
@@ -538,10 +547,15 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
                     </div>
                   )}
 
-                  {/* Sensor selector */}
+                  {/* Reading selector */}
+                  {(form.selectedEquipmentType || form.selectedEquipmentId) && sensors.length === 0 && (
+                    <div className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
+                      No sensor readings found for this equipment type. Ensure sensors are assigned via the Gateways page.
+                    </div>
+                  )}
                   {(form.selectedEquipmentType || form.selectedEquipmentId) && sensors.length > 0 && (
                     <div>
-                      <label className="text-sm font-medium text-gray-700">What to Measure</label>
+                      <label className="text-sm font-medium text-gray-700">Reading</label>
                       <select
                         value={form.sensorMode === "equipment_type" ? form.selectedSensorType : form.selectedEntityId}
                         onChange={(e) => {
@@ -555,12 +569,16 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
                       >
                         <option value="">Select sensor...</option>
                         {sensors.map((s) => {
-                          const key = s.entity_id || s.sensor_type || s.label;
+                          // For equipment_type mode: value is sensor_type
+                          // For specific_equipment mode: value is entity_id
+                          const val = form.sensorMode === "equipment_type"
+                            ? (s.sensor_type || s.label)
+                            : (s.entity_id || s.sensor_type || s.label);
                           const display = form.sensorMode === "equipment_type"
                             ? `${s.label}${s.unit ? ` (${s.unit})` : ""} — ${s.entity_count}/${s.total_equipment} equipment`
                             : `${s.label}${s.unit ? ` (${s.unit})` : ""}`;
                           return (
-                            <option key={key} value={key!}>
+                            <option key={val} value={val}>
                               {display}
                             </option>
                           );
@@ -765,7 +783,13 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
                 </button>
                 <button
                   onClick={createDefinition}
-                  disabled={!form.name || saving}
+                  disabled={
+                    !form.name || saving ||
+                    (form.entity_type === "sensor" && form.sensorMode === "equipment_type" && (!form.selectedEquipmentType || !form.selectedSensorType)) ||
+                    (form.entity_type === "sensor" && form.sensorMode === "specific_equipment" && !form.selectedEntityId) ||
+                    (form.entity_type === "derived" && !form.derived_metric) ||
+                    (form.entity_type === "anomaly" && !form.anomaly_type)
+                  }
                   className="px-4 py-1.5 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600 disabled:opacity-50"
                 >
                   {saving ? "Creating..." : "Create Definition"}

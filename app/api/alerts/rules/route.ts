@@ -111,7 +111,10 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[ALERT RULES POST]", JSON.stringify(error, null, 2));
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   // Activity log
   await supabase.from("b_records_log").insert({

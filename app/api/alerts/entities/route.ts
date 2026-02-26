@@ -120,17 +120,19 @@ export async function GET(req: NextRequest) {
 
     if (siteId) eqQuery = eqQuery.eq("site_id", siteId);
 
-    const { data: equipmentList } = await eqQuery;
+    const { data: equipmentList, error: eqError } = await eqQuery;
+    console.log("[ENTITIES] equipment_group query:", { equipmentGroup, orgId, siteId, count: equipmentList?.length, error: eqError?.message });
     const eqIds = (equipmentList || []).map((e: any) => e.equipment_id);
     const totalEquipment = eqIds.length;
 
     if (eqIds.length === 0) return NextResponse.json({ sensors: [] });
 
     // Get all sensors across all equipment of this type
-    const { data: sensors } = await supabase
+    const { data: sensors, error: sError } = await supabase
       .from("a_sensors")
       .select("sensor_type, label")
       .in("equipment_id", eqIds);
+    console.log("[ENTITIES] sensors query:", { eqIds: eqIds.slice(0, 5), totalSensors: sensors?.length, error: sError?.message, sampleTypes: (sensors || []).slice(0, 5).map((s: any) => s.sensor_type) });
 
     // Count how many equipment have each sensor_type
     const sensorTypeCounts: Record<string, { count: number; label: string }> = {};
@@ -138,7 +140,14 @@ export async function GET(req: NextRequest) {
       const st = s.sensor_type;
       if (!st) continue;
       if (!sensorTypeCounts[st]) {
-        sensorTypeCounts[st] = { count: 0, label: s.label || st };
+        // Extract sensor role from label format "Equipment Name — Sensor Role"
+        let displayLabel = st;
+        if (s.label && s.label.includes(" — ")) {
+          displayLabel = s.label.split(" — ").pop() || st;
+        } else if (s.label) {
+          displayLabel = s.label;
+        }
+        sensorTypeCounts[st] = { count: 0, label: displayLabel };
       }
       sensorTypeCounts[st].count++;
     }
@@ -172,9 +181,11 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Return common sensors (present on at least half the equipment)
+    // Return all sensor types found (at least 1 occurrence)
+    const threshold = 1;
+    console.log("[ENTITIES] sensorTypeCounts:", JSON.stringify(sensorTypeCounts), "threshold:", threshold, "totalEquipment:", totalEquipment);
     const commonSensors = Object.entries(sensorTypeCounts)
-      .filter(([, data]) => data.count >= Math.ceil(totalEquipment * 0.3))
+      .filter(([, data]) => data.count >= threshold)
       .map(([sensorType, data]) => ({
         sensor_type: sensorType,
         label: data.label,
@@ -182,6 +193,7 @@ export async function GET(req: NextRequest) {
         entity_count: data.count,
         total_equipment: totalEquipment,
       }));
+    console.log("[ENTITIES] returning commonSensors:", commonSensors.length, commonSensors.map((s: any) => s.sensor_type));
 
     return NextResponse.json({ sensors: commonSensors });
   }
