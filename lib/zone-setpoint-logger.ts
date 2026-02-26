@@ -455,7 +455,12 @@ async function getEquipmentSensors(
     if (!entity?.last_state) continue;
 
     // Determine sensor role from label (format: "Equipment Name — role") or sensor_type
-    const role = (mapping.label?.split(" — ")[1] || mapping.sensor_type || "").toLowerCase();
+    // Normalize: lowercase + spaces→underscores so "Power Factor" matches "power_factor"
+    const role = (mapping.label?.split(" — ")[1] || mapping.sensor_type || "")
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+
+    console.log(`[SENSOR-DEBUG] role="${role}" entity=${mapping.entity_id} type=${mapping.sensor_type} label="${mapping.label}" val="${entityMap.get(mapping.entity_id)?.last_state}"`);
 
     // Handle binary sensors first (before parseFloat)
     const rawStateStr = (entity.last_state || "").toLowerCase();
