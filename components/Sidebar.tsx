@@ -9,7 +9,7 @@ import FeedbackModal from "@/components/FeedbackModal";
 import NotificationBell from "@/components/alerts/NotificationBell";
 
 const links = [
-  { href: "/live", label: "Alerts (Live & History)", activeMatch: ["/live", "/history"] },
+  { href: "/live", label: "Alerts (Live, History & Config)", activeMatch: ["/live", "/history"] },
   { href: "/sites", label: "Sites" },
   { href: "/benchmark", label: "Equipment Benchmarking" },
   { href: "/journey", label: "My Journey" },

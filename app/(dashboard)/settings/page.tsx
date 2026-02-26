@@ -194,10 +194,19 @@ export default function SettingsPage() {
       setOrgDraft(orgData);
     }
     if (memberData) {
-      // Service providers see all members, customers only see visible ones
-      const visibleMembers = isServiceProvider
+      let visibleMembers = isServiceProvider
         ? memberData
         : memberData.filter((m: any) => m.visibility !== 'hidden');
+
+      // Hide Street Smart Buildings platform operators from client org user lists.
+      // They have legitimate memberships for admin access, but clients shouldn't see them.
+      const isSSBOrg = orgData?.org_identifier === "SSB1";
+      if (!isSSBOrg) {
+        visibleMembers = visibleMembers.filter(
+          (m: any) => !m.email?.endsWith("@streetsmartbuildings.com")
+        );
+      }
+
       setMembers(visibleMembers);
     }
     if (jobTitleData) setJobTitles(jobTitleData);

@@ -7,7 +7,6 @@ import { useOrg } from "@/context/OrgContext";
 import IntegrationRoadmap from "@/components/IntegrationRoadmap";
 import IntegrationSpec from "@/components/IntegrationSpec";
 import GlobalOperationsPanel from "@/components/journey/GlobalOperationsPanel";
-import AlertRulesManager from "@/components/alerts/AlertRulesManager";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,7 +41,7 @@ export default function JourneyPage() {
   const [records, setRecords] = useState<RecordLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [sites, setSites] = useState<SiteOption[]>([]);
-  const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set(["org"]));
+  const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set(["org", "sites", "equipment", "devices"]));
 
   // Fetch sites for this org
   useEffect(() => {
@@ -115,6 +114,9 @@ export default function JourneyPage() {
 
   // Filter records based on active scopes (client-side)
   const filteredRecords = records.filter((r) => {
+    // Hide "Already at target" cron noise
+    if (r.message && r.message.includes("Already at target")) return false;
+
     // Org-level events: no site, equipment, or device
     const isOrgLevel = !r.site_id && !r.equipment_id && !r.device_id;
     // Site-level: has site but no equipment/device
@@ -469,13 +471,6 @@ export default function JourneyPage() {
       {selectedOrgId && (
         <div className="mt-10 max-w-5xl mx-auto">
           <GlobalOperationsPanel orgId={selectedOrgId} />
-        </div>
-      )}
-
-      {/* Alert Rules Manager */}
-      {selectedOrgId && (
-        <div className="mt-6 max-w-5xl mx-auto">
-          <AlertRulesManager orgId={selectedOrgId} />
         </div>
       )}
 

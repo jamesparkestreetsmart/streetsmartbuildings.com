@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { useOrg } from "@/context/OrgContext";
+import AlertRulesManager from "@/components/alerts/AlertRulesManager";
 
 type LiveAlert = {
   alert_id: number;
@@ -42,11 +44,13 @@ interface AlertHistoryRow {
 type SortColumn = keyof LiveAlert;
 type SortOrder = "asc" | "desc";
 type RangeOption = "7" | "30" | "90" | "custom";
-type Tab = "live" | "history";
+type Tab = "live" | "history" | "configuration";
 
 export default function AlertsPage() {
   const searchParams = useSearchParams();
-  const activeTab: Tab = searchParams.get("tab") === "history" ? "history" : "live";
+  const { selectedOrgId } = useOrg();
+  const tabParam = searchParams.get("tab");
+  const activeTab: Tab = tabParam === "history" ? "history" : tabParam === "configuration" ? "configuration" : "live";
 
   // Live Alerts state
   const [liveRows, setLiveRows] = useState<LiveAlert[]>([]);
@@ -317,6 +321,16 @@ export default function AlertsPage() {
           }`}
         >
           Alert History
+        </Link>
+        <Link
+          href="/live?tab=configuration"
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === "configuration"
+              ? "border-b-2 border-green-600 text-green-700"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Configuration
         </Link>
       </div>
 
@@ -621,6 +635,19 @@ export default function AlertsPage() {
               </tbody>
             </table>
           </div>
+        </>
+      )}
+
+      {/* ===== Configuration Tab ===== */}
+      {activeTab === "configuration" && (
+        <>
+          {selectedOrgId ? (
+            <AlertRulesManager orgId={selectedOrgId} />
+          ) : (
+            <div className="text-sm text-gray-400 py-8 text-center">
+              Select an organization to configure alert rules.
+            </div>
+          )}
         </>
       )}
     </div>
