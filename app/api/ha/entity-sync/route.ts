@@ -188,13 +188,15 @@ export async function POST(req: NextRequest) {
   const entityIds = incoming.map((e) => e.entity_id);
   const { data: existingEntities } = await supabase
     .from("b_entity_sync")
-    .select("entity_id, sensor_type")
+    .select("entity_id, sensor_type, last_state")
     .eq("site_id", site_id)
     .in("entity_id", entityIds);
 
   const existingSensorTypes = new Map<string, string | null>();
+  const previousStates = new Map<string, string | null>();
   for (const e of existingEntities || []) {
     existingSensorTypes.set(e.entity_id, e.sensor_type);
+    previousStates.set(e.entity_id, e.last_state);
   }
 
   // Resolve orphan entities
@@ -277,6 +279,138 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ─── State Change Detection ───────────────────────────────────────────────
+  // Compare previous state to new state for each entity.
+  // Write transition records for entities that actually changed.
+
+  let stateChangesLogged = 0;
+
+  try {
+    // Load sensor role mappings for this site's equipment
+    // a_sensors maps entity_id → equipment_id + role (label)
+    const { data: sensorMappings } = await supabase
+      .from("a_sensors")
+      .select("entity_id, equipment_id, label, sensor_type")
+      .eq("site_id", site_id)
+      .in("entity_id", entityIds);
+
+    const sensorRoleMap = new Map<string, { equipment_id: string | null; role: string }>();
+    for (const m of sensorMappings || []) {
+      if (!m.entity_id) continue;
+      // Role extracted from label format: "Equipment Name — role"
+      const role = (m.label?.split(" — ")[1] || m.sensor_type || "").toLowerCase();
+      sensorRoleMap.set(m.entity_id, {
+        equipment_id: m.equipment_id || null,
+        role,
+      });
+    }
+
+    // Also check for climate entities (thermostat state changes)
+    const climateEntities = new Set<string>();
+    for (const e of incoming) {
+      if (e.domain === "climate") climateEntities.add(e.entity_id);
+    }
+
+    // Detect transitions
+    const stateChangeRows: any[] = [];
+
+    for (const row of rows) {
+      const prevState = previousStates.get(row.entity_id);
+      const newState = row.last_state;
+
+      // Skip if no previous state (first sync) or state unchanged
+      if (prevState === undefined || prevState === null) continue;
+      if (prevState === newState) continue;
+
+      // Determine if this entity is tracked (has a sensor role or is a climate entity)
+      const mapping = sensorRoleMap.get(row.entity_id);
+      const isClimate = climateEntities.has(row.entity_id);
+
+      // Only log transitions for tracked entities
+      if (!mapping && !isClimate) continue;
+
+      const role = mapping?.role || (isClimate ? "thermostat_state" : null);
+      const eqId = mapping?.equipment_id || null;
+
+      // Derive high-level event from the transition
+      let derivedEvent: string | null = null;
+
+      if (role) {
+        const prevNum = parseFloat(prevState);
+        const newNum = parseFloat(newState as string);
+
+        if (role.includes("compressor") || role.includes("comp")) {
+          // Compressor current: crossing threshold = on/off
+          const threshold = 0.5; // Will be refined per-zone later
+          const wasOn = !isNaN(prevNum) && prevNum > threshold;
+          const isOn = !isNaN(newNum) && newNum > threshold;
+          if (!wasOn && isOn) derivedEvent = "compressor_on";
+          else if (wasOn && !isOn) derivedEvent = "compressor_off";
+        } else if (role.includes("power") && !role.includes("factor") && !role.includes("reactive") && !role.includes("apparent")) {
+          // Power draw transition
+          const wasDrawing = !isNaN(prevNum) && prevNum > 0.05;
+          const isDrawing = !isNaN(newNum) && newNum > 0.05;
+          if (!wasDrawing && isDrawing) derivedEvent = "power_draw_started";
+          else if (wasDrawing && !isDrawing) derivedEvent = "power_draw_stopped";
+        } else if (role.includes("cabinet") || role === "cabinet_door_state") {
+          const wasOpen = ["on", "open", "true", "1"].includes(prevState.toLowerCase());
+          const isOpen = ["on", "open", "true", "1"].includes((newState as string).toLowerCase());
+          if (!wasOpen && isOpen) derivedEvent = "cabinet_opened";
+          else if (wasOpen && !isOpen) derivedEvent = "cabinet_closed";
+        } else if (role.includes("water") && role.includes("leak")) {
+          const wasWet = ["on", "wet", "true", "1", "detected"].includes(prevState.toLowerCase());
+          const isWet = ["on", "wet", "true", "1", "detected"].includes((newState as string).toLowerCase());
+          if (!wasWet && isWet) derivedEvent = "water_leak_detected";
+          else if (wasWet && !isWet) derivedEvent = "water_leak_cleared";
+        } else if (isClimate || role === "thermostat_state") {
+          // HVAC action changes: idle → heating, cooling → idle, etc.
+          const newLower = (newState as string).toLowerCase();
+          if (newLower === "idle" || newLower === "off") derivedEvent = "hvac_idle";
+          else if (newLower === "heating" || newLower === "heat") derivedEvent = "hvac_heating";
+          else if (newLower === "cooling" || newLower === "cool") derivedEvent = "hvac_cooling";
+          else if (newLower === "fan") derivedEvent = "hvac_fan_only";
+          else derivedEvent = `hvac_${newLower}`;
+        }
+      }
+
+      stateChangeRows.push({
+        site_id,
+        entity_id: row.entity_id,
+        equipment_id: eqId,
+        ha_device_id: row.ha_device_id || null,
+        previous_state: prevState,
+        new_state: newState,
+        changed_at: row.last_updated || new Date().toISOString(),
+        state_role: role,
+        derived_event: derivedEvent,
+        metadata: {
+          friendly_name: row.friendly_name,
+          domain: row.domain,
+          unit: row.unit_of_measurement,
+        },
+      });
+    }
+
+    // Batch insert state changes
+    if (stateChangeRows.length > 0) {
+      const { error: scError } = await supabase
+        .from("b_state_change_log")
+        .insert(stateChangeRows);
+
+      if (scError) {
+        console.error("[entity-sync] State change log error:", scError.message);
+        // Don't fail the whole sync — this is supplementary logging
+      } else {
+        stateChangesLogged = stateChangeRows.length;
+        console.log(`[entity-sync] Logged ${stateChangeRows.length} state transitions`);
+      }
+    }
+  } catch (stateChangeErr: any) {
+    // Non-fatal — log and continue with the main upsert
+    console.error("[entity-sync] State change tracking error:", stateChangeErr.message);
+  }
+  // ─── End State Change Detection ────────────────────────────────────────────
+
   const { error } = await supabase
     .from("b_entity_sync")
     .upsert(rows, {
@@ -300,6 +434,7 @@ export async function POST(req: NextRequest) {
     message: "Entities synced successfully",
     count: rows.length,
     orphans_matched: orphanMap.size,
+    state_changes_logged: stateChangesLogged,
     sensor_types: {
       auto_assigned: autoAssigned,
       preserved: preserved,

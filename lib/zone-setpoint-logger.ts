@@ -360,11 +360,29 @@ export async function getOccupancyReading(
 // ─── Equipment Sensors ────────────────────────────────────────────────────────
 
 interface EquipmentSensorReading {
+  // Existing
   supply_temp_f: number | null;
   return_temp_f: number | null;
   delta_t: number | null;
   power_kw: number | null;
   comp_on: boolean | null;
+  // Power Meter
+  apparent_power_kva: number | null;
+  compressor_current_a: number | null;
+  energy_kwh: number | null;
+  line_voltage_v: number | null;
+  power_factor: number | null;
+  reactive_power_kvar: number | null;
+  frequency_hz: number | null;
+  // Street Smarts
+  cabinet_door_open: boolean | null;
+  filter_pressure_pa: number | null;
+  water_leak: boolean | null;
+  // Eagle Eyes Pro
+  condenser_coil_in_f: number | null;
+  condenser_coil_out_f: number | null;
+  evaporator_coil_in_f: number | null;
+  evaporator_coil_out_f: number | null;
 }
 
 async function getEquipmentSensors(
@@ -378,6 +396,20 @@ async function getEquipmentSensors(
     delta_t: null,
     power_kw: null,
     comp_on: null,
+    apparent_power_kva: null,
+    compressor_current_a: null,
+    energy_kwh: null,
+    line_voltage_v: null,
+    power_factor: null,
+    reactive_power_kvar: null,
+    frequency_hz: null,
+    cabinet_door_open: null,
+    filter_pressure_pa: null,
+    water_leak: null,
+    condenser_coil_in_f: null,
+    condenser_coil_out_f: null,
+    evaporator_coil_in_f: null,
+    evaporator_coil_out_f: null,
   };
 
   if (!equipmentId) return result;
@@ -421,11 +453,23 @@ async function getEquipmentSensors(
     if (!mapping.entity_id) continue;
     const entity = entityMap.get(mapping.entity_id);
     if (!entity?.last_state) continue;
-    let val = parseFloat(entity.last_state);
-    if (isNaN(val)) continue;
 
     // Determine sensor role from label (format: "Equipment Name — role") or sensor_type
     const role = (mapping.label?.split(" — ")[1] || mapping.sensor_type || "").toLowerCase();
+
+    // Handle binary sensors first (before parseFloat)
+    const rawStateStr = (entity.last_state || "").toLowerCase();
+    if (role.includes("cabinet") || role === "cabinet_door_state") {
+      result.cabinet_door_open = rawStateStr === "on" || rawStateStr === "open" || rawStateStr === "true" || rawStateStr === "1";
+      continue;
+    }
+    if (role.includes("water") && role.includes("leak") || role === "water_leak_state") {
+      result.water_leak = rawStateStr === "on" || rawStateStr === "wet" || rawStateStr === "true" || rawStateStr === "1" || rawStateStr === "detected";
+      continue;
+    }
+
+    let val = parseFloat(entity.last_state);
+    if (isNaN(val)) continue;
 
     // Apply CT inversion for power/current roles
     const isCTRole = role.includes("power") || role.includes("compressor") || role.includes("current") || role.includes("energy");
@@ -441,8 +485,39 @@ async function getEquipmentSensors(
       result.delta_t = val;
     } else if (role.includes("power")) {
       result.power_kw = val;
+    } else if (role.includes("compressor") && (role.includes("current") || role === "compressor_current")) {
+      result.compressor_current_a = val;
+      result.comp_on = val > 0.5;
     } else if (role.includes("compressor")) {
       result.comp_on = val > 0.5;
+    }
+    // ── Power Meter sensors ──
+    else if (role.includes("apparent") || role === "apparent_power") {
+      result.apparent_power_kva = val;
+    } else if (role.includes("energy") || role === "energy_kwh") {
+      result.energy_kwh = val;
+    } else if (role.includes("voltage") || role === "line_voltage") {
+      result.line_voltage_v = val;
+    } else if (role.includes("power_factor") || role === "power_factor") {
+      result.power_factor = val;
+    } else if (role.includes("reactive") || role === "reactive_power") {
+      result.reactive_power_kvar = val;
+    } else if (role.includes("frequency") || role === "frequency") {
+      result.frequency_hz = val;
+    }
+    // ── Eagle Eyes Pro sensors ──
+    else if (role.includes("condenser") && role.includes("in") || role === "condenser_coil_in_temp") {
+      result.condenser_coil_in_f = val;
+    } else if (role.includes("condenser") && role.includes("out") || role === "condenser_coil_out_temp") {
+      result.condenser_coil_out_f = val;
+    } else if (role.includes("evaporator") && role.includes("in") || role === "evaporator_coil_in_temp") {
+      result.evaporator_coil_in_f = val;
+    } else if (role.includes("evaporator") && role.includes("out") || role === "evaporator_coil_out_temp") {
+      result.evaporator_coil_out_f = val;
+    }
+    // ── Street Smarts sensors (numeric) ──
+    else if (role.includes("filter") && role.includes("pressure") || role === "filter_differential_pressure") {
+      result.filter_pressure_pa = val;
     }
   }
 
@@ -452,6 +527,264 @@ async function getEquipmentSensors(
   }
 
   return result;
+}
+
+// ─── Anomaly Thresholds ───────────────────────────────────────────────────────
+
+const ANOMALY_DEFAULTS = {
+  coil_freeze_temp_f: 35,
+  delayed_response_min: 15,
+  idle_heat_gain_f: 2,
+  long_cycle_min: 120,
+  short_cycle_count_1h: 4,
+  filter_restriction_delta_t_max: 25,
+  refrigerant_low_delta_t_min: 5,
+  efficiency_ratio_min_pct: 40,
+  compressor_current_threshold_a: 1.0,
+};
+
+function getThreshold(zoneThresholds: Record<string, any> | null, key: string): number {
+  const val = zoneThresholds?.[key];
+  if (val !== undefined && val !== null && typeof val === "number") return val;
+  return (ANOMALY_DEFAULTS as any)[key] ?? 0;
+}
+
+interface AnomalyResult {
+  running_state: boolean | null;
+  coil_freeze: boolean | null;
+  delayed_temp_response: boolean | null;
+  efficiency_ratio: number | null;
+  filter_restriction: boolean | null;
+  idle_heat_gain: boolean | null;
+  long_cycle: boolean | null;
+  outdoor_air_temp_f: number | null;
+  refrigerant_low: boolean | null;
+  short_cycling: boolean | null;
+  line_current_a: number | null;
+  cycle_count_1h: number | null;
+  continuous_run_min: number | null;
+  energy_delta_kwh: number | null;
+  anomaly_flags: string[];
+  anomaly_count: number;
+}
+
+async function computeAnomalies(
+  supabase: SupabaseClient,
+  siteId: string,
+  zoneId: string,
+  equipSensors: EquipmentSensorReading,
+  zoneTempF: number | null,
+  hvacAction: string | null,
+  zoneThresholds: Record<string, any> | null,
+  siteLatitude: number | null,
+  siteLongitude: number | null,
+): Promise<AnomalyResult> {
+  const flags: string[] = [];
+  const t = (key: string) => getThreshold(zoneThresholds, key);
+
+  // ── Running State ──
+  let runningState: boolean | null = null;
+  if (equipSensors.compressor_current_a !== null) {
+    runningState = equipSensors.compressor_current_a > t("compressor_current_threshold_a");
+  } else if (hvacAction) {
+    runningState = hvacAction !== "idle" && hvacAction !== "off";
+  }
+
+  // ── Line Current ──
+  const lineCurrent = equipSensors.compressor_current_a;
+
+  // ── Coil Freeze ──
+  let coilFreeze: boolean | null = null;
+  if (equipSensors.supply_temp_f !== null) {
+    coilFreeze = equipSensors.supply_temp_f < t("coil_freeze_temp_f");
+    if (coilFreeze) flags.push("coil_freeze");
+  }
+
+  // ── Filter Restriction ──
+  let filterRestriction: boolean | null = null;
+  if (equipSensors.delta_t !== null && runningState === true) {
+    filterRestriction = Math.abs(equipSensors.delta_t) > t("filter_restriction_delta_t_max");
+    if (filterRestriction) flags.push("filter_restriction");
+  }
+
+  // ── Refrigerant Low ──
+  let refrigerantLow: boolean | null = null;
+  if (equipSensors.delta_t !== null && runningState === true) {
+    refrigerantLow = Math.abs(equipSensors.delta_t) < t("refrigerant_low_delta_t_min");
+    if (refrigerantLow) flags.push("refrigerant_low");
+  }
+
+  // ── Efficiency Ratio ──
+  let efficiencyRatio: number | null = null;
+  if (equipSensors.delta_t !== null && equipSensors.power_kw !== null && equipSensors.power_kw > 0.01) {
+    efficiencyRatio = Math.round((Math.abs(equipSensors.delta_t) / equipSensors.power_kw) * 100) / 100;
+  }
+
+  // ── Cycle Tracking (Short Cycling + Long Cycle) ──
+  let cycleCount1h: number | null = null;
+  let continuousRunMin: number | null = null;
+  let shortCycling: boolean | null = null;
+  let longCycle: boolean | null = null;
+
+  try {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data: recentLogs } = await supabase
+      .from("b_zone_setpoint_log")
+      .select("comp_on, recorded_at")
+      .eq("hvac_zone_id", zoneId)
+      .gte("recorded_at", oneHourAgo)
+      .order("recorded_at", { ascending: true });
+
+    if (recentLogs && recentLogs.length > 1) {
+      // Count on→off transitions (cycles)
+      let cycles = 0;
+      for (let i = 1; i < recentLogs.length; i++) {
+        if (recentLogs[i - 1].comp_on === true && recentLogs[i].comp_on === false) {
+          cycles++;
+        }
+      }
+      cycleCount1h = cycles;
+      shortCycling = cycles > t("short_cycle_count_1h");
+      if (shortCycling) flags.push("short_cycling");
+
+      // Continuous run: count consecutive true from latest backward
+      let runMinutes = 0;
+      for (let i = recentLogs.length - 1; i >= 0; i--) {
+        if (recentLogs[i].comp_on === true) {
+          runMinutes += 5;
+        } else {
+          break;
+        }
+      }
+      continuousRunMin = runMinutes;
+
+      // Also check beyond the 1-hour window for long cycle detection
+      if (runMinutes >= 55) {
+        const twoHoursAgo = new Date(Date.now() - t("long_cycle_min") * 60 * 1000).toISOString();
+        const { data: extendedLogs } = await supabase
+          .from("b_zone_setpoint_log")
+          .select("comp_on, recorded_at")
+          .eq("hvac_zone_id", zoneId)
+          .gte("recorded_at", twoHoursAgo)
+          .order("recorded_at", { ascending: true });
+
+        if (extendedLogs) {
+          let extRunMin = 0;
+          for (let i = extendedLogs.length - 1; i >= 0; i--) {
+            if (extendedLogs[i].comp_on === true) {
+              extRunMin += 5;
+            } else {
+              break;
+            }
+          }
+          continuousRunMin = extRunMin;
+        }
+      }
+
+      longCycle = continuousRunMin > t("long_cycle_min");
+      if (longCycle) flags.push("long_cycle");
+    }
+  } catch (err: any) {
+    console.error("[zone-setpoint-logger] Cycle tracking error:", err.message);
+  }
+
+  // ── Idle Heat Gain ──
+  let idleHeatGain: boolean | null = null;
+  if (runningState === false && zoneTempF !== null) {
+    try {
+      const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      const { data: recentTemp } = await supabase
+        .from("b_zone_setpoint_log")
+        .select("zone_temp_f, comp_on")
+        .eq("hvac_zone_id", zoneId)
+        .gte("recorded_at", fifteenMinAgo)
+        .order("recorded_at", { ascending: true })
+        .limit(1);
+
+      if (recentTemp && recentTemp.length > 0 && recentTemp[0].zone_temp_f !== null) {
+        const tempRise = zoneTempF - recentTemp[0].zone_temp_f;
+        const wasIdle = recentTemp[0].comp_on === false;
+        idleHeatGain = wasIdle && tempRise > t("idle_heat_gain_f");
+        if (idleHeatGain) flags.push("idle_heat_gain");
+      }
+    } catch (err: any) {
+      console.error("[zone-setpoint-logger] Idle heat gain error:", err.message);
+    }
+  }
+
+  // ── Delayed Temp Response ──
+  let delayedTempResponse: boolean | null = null;
+  if (runningState === true && zoneTempF !== null) {
+    try {
+      const delayMin = t("delayed_response_min");
+      const delayAgo = new Date(Date.now() - delayMin * 60 * 1000).toISOString();
+      const { data: activationLogs } = await supabase
+        .from("b_zone_setpoint_log")
+        .select("zone_temp_f, comp_on, hvac_action, recorded_at")
+        .eq("hvac_zone_id", zoneId)
+        .gte("recorded_at", delayAgo)
+        .order("recorded_at", { ascending: true });
+
+      if (activationLogs && activationLogs.length >= 3) {
+        const allRunning = activationLogs.every((l: any) => l.comp_on === true);
+        if (allRunning) {
+          const firstTemp = activationLogs[0].zone_temp_f;
+          if (firstTemp !== null) {
+            const tempChange = Math.abs(zoneTempF - firstTemp);
+            delayedTempResponse = tempChange < 0.5;
+            if (delayedTempResponse) flags.push("delayed_temp_response");
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("[zone-setpoint-logger] Delayed response error:", err.message);
+    }
+  }
+
+  // ── Energy Delta ──
+  let energyDelta: number | null = null;
+  if (equipSensors.energy_kwh !== null) {
+    try {
+      const { data: lastLog } = await supabase
+        .from("b_zone_setpoint_log")
+        .select("energy_kwh")
+        .eq("hvac_zone_id", zoneId)
+        .not("energy_kwh", "is", null)
+        .order("recorded_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (lastLog?.energy_kwh !== null && lastLog?.energy_kwh !== undefined) {
+        energyDelta = Math.round((equipSensors.energy_kwh - lastLog.energy_kwh) * 1000) / 1000;
+        if (energyDelta < 0) energyDelta = 0; // Handle meter resets
+      }
+    } catch {
+      // First entry or no previous — that's fine
+    }
+  }
+
+  // ── Outdoor Air Temp ──
+  // TODO: Implement weather API fetch using siteLatitude/siteLongitude
+  let outdoorAirTempF: number | null = null;
+
+  return {
+    running_state: runningState,
+    coil_freeze: coilFreeze,
+    delayed_temp_response: delayedTempResponse,
+    efficiency_ratio: efficiencyRatio,
+    filter_restriction: filterRestriction,
+    idle_heat_gain: idleHeatGain,
+    long_cycle: longCycle,
+    outdoor_air_temp_f: outdoorAirTempF,
+    refrigerant_low: refrigerantLow,
+    short_cycling: shortCycling,
+    line_current_a: lineCurrent,
+    cycle_count_1h: cycleCount1h,
+    continuous_run_min: continuousRunMin,
+    energy_delta_kwh: energyDelta,
+    anomaly_flags: flags,
+    anomaly_count: flags.length,
+  };
 }
 
 // ─── Main Logger ──────────────────────────────────────────────────────────────
@@ -464,7 +797,7 @@ export async function logZoneSetpointSnapshot(
     // 1. Get site timezone
     const { data: siteInfo } = await supabase
       .from("a_sites")
-      .select("timezone")
+      .select("timezone, latitude, longitude")
       .eq("site_id", siteId)
       .single();
 
@@ -477,7 +810,7 @@ export async function logZoneSetpointSnapshot(
     const { data: zones } = await supabase
       .from("a_hvac_zones")
       .select(
-        "hvac_zone_id, equipment_id, thermostat_device_id, profile_id, is_override, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode"
+        "hvac_zone_id, equipment_id, thermostat_device_id, profile_id, is_override, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode, anomaly_thresholds"
       )
       .eq("site_id", siteId)
       .eq("control_scope", "managed")
@@ -653,6 +986,19 @@ export async function logZoneSetpointSnapshot(
       // ── Equipment sensors ──
       const equipSensors = await getEquipmentSensors(supabase, siteId, zone.equipment_id);
 
+      // ── Anomaly detection ──
+      const anomalies = await computeAnomalies(
+        supabase,
+        siteId,
+        zone.hvac_zone_id,
+        equipSensors,
+        sensorReading.zone_temp_f,
+        tState?.hvac_action || null,
+        zone.anomaly_thresholds || null,
+        siteInfo?.latitude || null,
+        siteInfo?.longitude || null,
+      );
+
       // ── Build adjustment_factors JSONB ──
       const adjustmentFactors = [
         {
@@ -727,6 +1073,40 @@ export async function logZoneSetpointSnapshot(
         power_kw: equipSensors.power_kw,
         comp_on: equipSensors.comp_on,
         adjustment_factors: adjustmentFactors,
+        // Power Meter
+        apparent_power_kva: equipSensors.apparent_power_kva,
+        compressor_current_a: equipSensors.compressor_current_a,
+        energy_kwh: equipSensors.energy_kwh,
+        energy_delta_kwh: anomalies.energy_delta_kwh,
+        line_voltage_v: equipSensors.line_voltage_v,
+        power_factor: equipSensors.power_factor,
+        reactive_power_kvar: equipSensors.reactive_power_kvar,
+        frequency_hz: equipSensors.frequency_hz,
+        // Anomaly Detection
+        running_state: anomalies.running_state,
+        coil_freeze: anomalies.coil_freeze,
+        delayed_temp_response: anomalies.delayed_temp_response,
+        efficiency_ratio: anomalies.efficiency_ratio,
+        filter_restriction: anomalies.filter_restriction,
+        idle_heat_gain: anomalies.idle_heat_gain,
+        long_cycle: anomalies.long_cycle,
+        outdoor_air_temp_f: anomalies.outdoor_air_temp_f,
+        refrigerant_low: anomalies.refrigerant_low,
+        short_cycling: anomalies.short_cycling,
+        line_current_a: anomalies.line_current_a,
+        cycle_count_1h: anomalies.cycle_count_1h,
+        continuous_run_min: anomalies.continuous_run_min,
+        anomaly_flags: anomalies.anomaly_flags,
+        anomaly_count: anomalies.anomaly_count,
+        // Street Smarts
+        cabinet_door_open: equipSensors.cabinet_door_open,
+        filter_pressure_pa: equipSensors.filter_pressure_pa,
+        water_leak: equipSensors.water_leak,
+        // Eagle Eyes Pro
+        condenser_coil_in_f: equipSensors.condenser_coil_in_f,
+        condenser_coil_out_f: equipSensors.condenser_coil_out_f,
+        evaporator_coil_in_f: equipSensors.evaporator_coil_in_f,
+        evaporator_coil_out_f: equipSensors.evaporator_coil_out_f,
       });
     }
 
