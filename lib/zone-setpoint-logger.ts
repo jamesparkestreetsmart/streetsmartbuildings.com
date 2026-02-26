@@ -477,35 +477,45 @@ async function getEquipmentSensors(
       val = val * -1;
     }
 
-    if (role.includes("supply") && role.includes("air") || role === "supply_air_temp" || role === "supply_temp") {
+    // ── Specific power-related roles FIRST (before generic "power" check) ──
+    if (role.includes("apparent") || role === "apparent_power") {
+      result.apparent_power_kva = val;
+    } else if (role.includes("power_factor") || role === "power_factor") {
+      result.power_factor = val;
+    } else if (role.includes("reactive") || role === "reactive_power") {
+      result.reactive_power_kvar = val;
+    }
+    // ── Specific compressor current BEFORE generic compressor ──
+    else if ((role.includes("compressor") && role.includes("current")) || role === "compressor_current") {
+      result.compressor_current_a = val;
+    }
+    // ── Energy ──
+    else if (role.includes("energy") || role === "energy_kwh") {
+      result.energy_kwh = val;
+    }
+    // ── Voltage ──
+    else if (role.includes("voltage") || role === "line_voltage") {
+      result.line_voltage_v = val;
+    }
+    // ── Frequency ──
+    else if (role.includes("frequency") || role === "frequency") {
+      result.frequency_hz = val;
+    }
+    // ── Now the generic/original checks ──
+    else if (role.includes("supply") && role.includes("air") || role === "supply_air_temp" || role === "supply_temp") {
       result.supply_temp_f = val;
     } else if (role.includes("return") && role.includes("air") || role === "return_air_temp" || role === "return_temp") {
       result.return_temp_f = val;
     } else if (role.includes("delta") || role === "delta_t") {
       result.delta_t = val;
-    } else if (role.includes("power")) {
+    } else if (role.includes("power") && !role.includes("factor") && !role.includes("reactive") && !role.includes("apparent")) {
+      // Generic power — only matches "power_kw", "power", etc. NOT apparent/reactive/factor
       result.power_kw = val;
-    } else if (role.includes("compressor") && (role.includes("current") || role === "compressor_current")) {
-      result.compressor_current_a = val;
-      result.comp_on = val > 0.5;
-    } else if (role.includes("compressor")) {
+    } else if (role.includes("compressor") || role === "comp") {
+      // Generic compressor — for comp_on (boolean threshold)
       result.comp_on = val > 0.5;
     }
-    // ── Power Meter sensors ──
-    else if (role.includes("apparent") || role === "apparent_power") {
-      result.apparent_power_kva = val;
-    } else if (role.includes("energy") || role === "energy_kwh") {
-      result.energy_kwh = val;
-    } else if (role.includes("voltage") || role === "line_voltage") {
-      result.line_voltage_v = val;
-    } else if (role.includes("power_factor") || role === "power_factor") {
-      result.power_factor = val;
-    } else if (role.includes("reactive") || role === "reactive_power") {
-      result.reactive_power_kvar = val;
-    } else if (role.includes("frequency") || role === "frequency") {
-      result.frequency_hz = val;
-    }
-    // ── Eagle Eyes Pro sensors ──
+    // ── Eagle Eyes Pro coil sensors ──
     else if (role.includes("condenser") && role.includes("in") || role === "condenser_coil_in_temp") {
       result.condenser_coil_in_f = val;
     } else if (role.includes("condenser") && role.includes("out") || role === "condenser_coil_out_temp") {
@@ -515,7 +525,7 @@ async function getEquipmentSensors(
     } else if (role.includes("evaporator") && role.includes("out") || role === "evaporator_coil_out_temp") {
       result.evaporator_coil_out_f = val;
     }
-    // ── Street Smarts sensors (numeric) ──
+    // ── Filter pressure ──
     else if (role.includes("filter") && role.includes("pressure") || role === "filter_differential_pressure") {
       result.filter_pressure_pa = val;
     }
