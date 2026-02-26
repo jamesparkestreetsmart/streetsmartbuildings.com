@@ -4,6 +4,7 @@
 
 import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync, ResolvedSetpoints } from "@/lib/setpoint-resolver";
+import { processAlerts } from "./alert-processor";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -460,7 +461,22 @@ async function getEquipmentSensors(
       .toLowerCase()
       .replace(/\s+/g, "_");
 
-    console.log(`[SENSOR-DEBUG] role="${role}" entity=${mapping.entity_id} type=${mapping.sensor_type} label="${mapping.label}" val="${entityMap.get(mapping.entity_id)?.last_state}"`);
+    console.log(`[SENSOR-DEBUG] role="${role}" entity=${mapping.entity_id} type=${mapping.sensor_type} label="${mapping.label}" val="${entity.last_state}"`);
+
+    // ── HARDCODE DEBUG: bypass role matching for known problem entities ──
+    if (mapping.entity_id === "sensor.pm3255_apparent_power_total") {
+      const dbgVal = parseFloat(entity.last_state);
+      console.log(`[HARDCODE-DEBUG] apparent_power entity found, role="${role}", state="${entity.last_state}", parsed=${dbgVal}`);
+      if (!isNaN(dbgVal)) result.apparent_power_kva = dbgVal;
+      continue;
+    }
+    if (mapping.entity_id === "sensor.pm3255_power_factor") {
+      const dbgVal = parseFloat(entity.last_state);
+      console.log(`[HARDCODE-DEBUG] power_factor entity found, role="${role}", state="${entity.last_state}", parsed=${dbgVal}`);
+      if (!isNaN(dbgVal)) result.power_factor = dbgVal;
+      continue;
+    }
+    // ── END HARDCODE DEBUG — remove after verifying values populate ──
 
     // Handle binary sensors first (before parseFloat)
     const rawStateStr = (entity.last_state || "").toLowerCase();
@@ -493,6 +509,8 @@ async function getEquipmentSensors(
     // ── Specific compressor current BEFORE generic compressor ──
     else if ((role.includes("compressor") && role.includes("current")) || role === "compressor_current") {
       result.compressor_current_a = val;
+      // Also derive comp_on from current draw (>1A = running)
+      result.comp_on = val > 1.0;
     }
     // ── Energy ──
     else if (role.includes("energy") || role === "energy_kwh") {
@@ -802,6 +820,278 @@ async function computeAnomalies(
   };
 }
 
+// ─── Compressor Cycle Tracking ────────────────────────────────────────────────
+
+async function trackCompressorCycle(
+  supabase: SupabaseClient,
+  orgId: string,
+  siteId: string,
+  zoneId: string,
+  equipmentId: string | null,
+  compOn: boolean | null,
+  equipSensors: EquipmentSensorReading,
+  zoneTempF: number | null,
+  hvacAction: string | null,
+  activeSetpointF: number | null,
+): Promise<void> {
+  if (!equipmentId) return;
+
+  try {
+    // Look for an open cycle for this equipment
+    const { data: openCycle } = await supabase
+      .from("b_compressor_cycles")
+      .select("id, started_at, avg_power_kw, peak_power_kw, peak_current_a, metadata")
+      .eq("equipment_id", equipmentId)
+      .is("ended_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const isOn = compOn === true;
+
+    if (isOn && !openCycle) {
+      // Compressor just turned on — start new cycle
+      const hvacMode = hvacAction === "cooling" || hvacAction === "heating" || hvacAction === "fan"
+        ? hvacAction : "unknown";
+
+      await supabase.from("b_compressor_cycles").insert({
+        org_id: orgId,
+        site_id: siteId,
+        hvac_zone_id: zoneId,
+        equipment_id: equipmentId,
+        started_at: new Date().toISOString(),
+        hvac_mode: hvacMode,
+        avg_power_kw: equipSensors.power_kw,
+        peak_power_kw: equipSensors.power_kw,
+        peak_current_a: equipSensors.compressor_current_a,
+        start_zone_temp_f: zoneTempF,
+        start_supply_temp_f: equipSensors.supply_temp_f,
+        start_setpoint_f: activeSetpointF,
+        metadata: {
+          sample_count: 1,
+          start_energy_kwh: equipSensors.energy_kwh,
+        },
+      });
+      console.log(`[compressor-cycle] Opened new cycle for equipment ${equipmentId}`);
+
+    } else if (isOn && openCycle) {
+      // Compressor still running — update running averages
+      const meta = (openCycle.metadata as any) || {};
+      const sampleCount = (meta.sample_count || 1) + 1;
+      const oldAvg = openCycle.avg_power_kw || 0;
+      const newPower = equipSensors.power_kw || 0;
+      const newAvg = ((oldAvg * (sampleCount - 1)) + newPower) / sampleCount;
+
+      const now = new Date();
+      const startedAt = new Date(openCycle.started_at);
+      const durationMin = (now.getTime() - startedAt.getTime()) / 60000;
+
+      await supabase
+        .from("b_compressor_cycles")
+        .update({
+          duration_min: Math.round(durationMin * 10) / 10,
+          avg_power_kw: Math.round(newAvg * 1000) / 1000,
+          peak_power_kw: Math.max(openCycle.peak_power_kw || 0, newPower),
+          peak_current_a: Math.max(
+            openCycle.peak_current_a || 0,
+            equipSensors.compressor_current_a || 0
+          ),
+          metadata: { ...meta, sample_count: sampleCount },
+        })
+        .eq("id", openCycle.id);
+
+    } else if (!isOn && openCycle) {
+      // Compressor turned off — close the cycle
+      const now = new Date();
+      const startedAt = new Date(openCycle.started_at);
+      const durationMin = (now.getTime() - startedAt.getTime()) / 60000;
+
+      const meta = (openCycle.metadata as any) || {};
+      const startEnergy = meta.start_energy_kwh;
+      let totalEnergy: number | null = null;
+      if (startEnergy != null && equipSensors.energy_kwh != null) {
+        totalEnergy = Math.round((equipSensors.energy_kwh - startEnergy) * 1000) / 1000;
+        if (totalEnergy < 0) totalEnergy = null; // Handle meter resets
+      }
+
+      const startZoneTemp = meta.start_zone_temp_f ?? null;
+      let tempDelta: number | null = null;
+      if (startZoneTemp != null && zoneTempF != null) {
+        tempDelta = Math.round((zoneTempF - startZoneTemp) * 10) / 10;
+      }
+
+      let efficiencyRatio: number | null = null;
+      if (tempDelta != null && totalEnergy != null && totalEnergy > 0) {
+        efficiencyRatio = Math.round((Math.abs(tempDelta) / totalEnergy) * 1000) / 1000;
+      }
+
+      await supabase
+        .from("b_compressor_cycles")
+        .update({
+          ended_at: now.toISOString(),
+          duration_min: Math.round(durationMin * 10) / 10,
+          end_zone_temp_f: zoneTempF,
+          end_supply_temp_f: equipSensors.supply_temp_f,
+          temp_delta_f: tempDelta,
+          total_energy_kwh: totalEnergy,
+          efficiency_ratio: efficiencyRatio,
+        })
+        .eq("id", openCycle.id);
+
+      console.log(`[compressor-cycle] Closed cycle ${openCycle.id}, duration=${Math.round(durationMin)}min`);
+    }
+    // else: compressor off and no open cycle — idle, nothing to do
+  } catch (err: any) {
+    console.error("[compressor-cycle] Error:", err.message);
+  }
+}
+
+// ─── Anomaly Event Management ────────────────────────────────────────────────
+
+const ANOMALY_SEVERITY: Record<string, string> = {
+  coil_freeze: "critical",
+  short_cycling: "warning",
+  long_cycle: "warning",
+  filter_restriction: "warning",
+  refrigerant_low: "critical",
+  idle_heat_gain: "info",
+  delayed_temp_response: "warning",
+};
+
+const ANOMALY_UNITS: Record<string, string> = {
+  coil_freeze: "\u00B0F",
+  short_cycling: "cycles/hr",
+  long_cycle: "min",
+  filter_restriction: "\u00B0F \u0394T",
+  refrigerant_low: "\u00B0F \u0394T",
+  idle_heat_gain: "\u00B0F",
+  delayed_temp_response: "min",
+};
+
+async function manageAnomalyEvents(
+  supabase: SupabaseClient,
+  orgId: string,
+  siteId: string,
+  zoneId: string,
+  equipmentId: string | null,
+  anomalies: AnomalyResult,
+  equipSensors: EquipmentSensorReading,
+  zoneTempF: number | null,
+): Promise<void> {
+  if (!orgId) return;
+
+  // Map anomaly flags to their current values for peak tracking
+  const anomalyValues: Record<string, number | null> = {
+    coil_freeze: equipSensors.supply_temp_f,
+    short_cycling: anomalies.cycle_count_1h,
+    long_cycle: anomalies.continuous_run_min,
+    filter_restriction: equipSensors.delta_t != null ? Math.abs(equipSensors.delta_t) : null,
+    refrigerant_low: equipSensors.delta_t != null ? Math.abs(equipSensors.delta_t) : null,
+    idle_heat_gain: zoneTempF,
+    delayed_temp_response: anomalies.continuous_run_min,
+  };
+
+  // All anomaly types we track
+  const allTypes = Object.keys(ANOMALY_SEVERITY);
+
+  try {
+    // Fetch all open anomaly events for this zone/equipment
+    const { data: openEvents } = await supabase
+      .from("b_anomaly_events")
+      .select("id, anomaly_type, peak_value, started_at")
+      .eq("site_id", siteId)
+      .eq("hvac_zone_id", zoneId)
+      .is("ended_at", null);
+
+    const openByType = new Map<string, any>();
+    for (const e of openEvents || []) {
+      openByType.set(e.anomaly_type, e);
+    }
+
+    const activeFlags = new Set(anomalies.anomaly_flags);
+
+    for (const anomalyType of allTypes) {
+      const isActive = activeFlags.has(anomalyType);
+      const openEvent = openByType.get(anomalyType);
+      const currentValue = anomalyValues[anomalyType];
+
+      if (isActive && !openEvent) {
+        // Condition just started — open new event
+        const triggerSnapshot: Record<string, any> = {};
+        if (zoneTempF != null) triggerSnapshot.zone_temp_f = zoneTempF;
+        if (equipSensors.supply_temp_f != null) triggerSnapshot.supply_temp_f = equipSensors.supply_temp_f;
+        if (equipSensors.return_temp_f != null) triggerSnapshot.return_temp_f = equipSensors.return_temp_f;
+        if (equipSensors.delta_t != null) triggerSnapshot.delta_t = equipSensors.delta_t;
+        if (equipSensors.power_kw != null) triggerSnapshot.power_kw = equipSensors.power_kw;
+        if (equipSensors.compressor_current_a != null) triggerSnapshot.compressor_current_a = equipSensors.compressor_current_a;
+        if (anomalies.cycle_count_1h != null) triggerSnapshot.cycle_count_1h = anomalies.cycle_count_1h;
+        if (anomalies.continuous_run_min != null) triggerSnapshot.continuous_run_min = anomalies.continuous_run_min;
+
+        await supabase.from("b_anomaly_events").insert({
+          org_id: orgId,
+          site_id: siteId,
+          hvac_zone_id: zoneId,
+          equipment_id: equipmentId,
+          anomaly_type: anomalyType,
+          severity: ANOMALY_SEVERITY[anomalyType] || "info",
+          started_at: new Date().toISOString(),
+          peak_value: currentValue,
+          peak_value_unit: ANOMALY_UNITS[anomalyType] || null,
+          trigger_snapshot: triggerSnapshot,
+        });
+
+        console.log(`[anomaly-events] Opened ${anomalyType} event for zone ${zoneId}`);
+
+      } else if (isActive && openEvent) {
+        // Condition still active — update peak value if worse
+        // For coil_freeze, "worse" means lower temp. For most others, higher is worse.
+        let shouldUpdate = false;
+        if (currentValue != null && openEvent.peak_value != null) {
+          if (anomalyType === "coil_freeze") {
+            shouldUpdate = currentValue < openEvent.peak_value;
+          } else {
+            shouldUpdate = currentValue > openEvent.peak_value;
+          }
+        } else if (currentValue != null && openEvent.peak_value == null) {
+          shouldUpdate = true;
+        }
+
+        if (shouldUpdate) {
+          await supabase
+            .from("b_anomaly_events")
+            .update({ peak_value: currentValue })
+            .eq("id", openEvent.id);
+        }
+
+      } else if (!isActive && openEvent) {
+        // Condition cleared — close the event
+        const now = new Date();
+        const startedAt = new Date(openEvent.started_at);
+        const durationMin = Math.round((now.getTime() - startedAt.getTime()) / 60000);
+
+        const resolutionSnapshot: Record<string, any> = {};
+        if (zoneTempF != null) resolutionSnapshot.zone_temp_f = zoneTempF;
+        if (equipSensors.supply_temp_f != null) resolutionSnapshot.supply_temp_f = equipSensors.supply_temp_f;
+        if (equipSensors.delta_t != null) resolutionSnapshot.delta_t = equipSensors.delta_t;
+
+        await supabase
+          .from("b_anomaly_events")
+          .update({
+            ended_at: now.toISOString(),
+            duration_min: durationMin,
+            resolution_snapshot: resolutionSnapshot,
+          })
+          .eq("id", openEvent.id);
+
+        console.log(`[anomaly-events] Closed ${anomalyType} event for zone ${zoneId}, duration=${durationMin}min`);
+      }
+      // else: not active and no open event — nothing to do
+    }
+  } catch (err: any) {
+    console.error("[anomaly-events] Error:", err.message);
+  }
+}
+
 // ─── Main Logger ──────────────────────────────────────────────────────────────
 
 export async function logZoneSetpointSnapshot(
@@ -809,12 +1099,14 @@ export async function logZoneSetpointSnapshot(
   siteId: string
 ): Promise<void> {
   try {
-    // 1. Get site timezone
+    // 1. Get site timezone + org_id
     const { data: siteInfo } = await supabase
       .from("a_sites")
-      .select("timezone, latitude, longitude")
+      .select("timezone, latitude, longitude, org_id")
       .eq("site_id", siteId)
       .single();
+
+    const orgId: string | null = siteInfo?.org_id || null;
 
     const tz = siteInfo?.timezone || "America/Chicago";
 
@@ -1014,6 +1306,23 @@ export async function logZoneSetpointSnapshot(
         siteInfo?.longitude || null,
       );
 
+      // ── Compressor cycle tracking ──
+      if (orgId) {
+        await trackCompressorCycle(
+          supabase, orgId, siteId, zone.hvac_zone_id, zone.equipment_id,
+          equipSensors.comp_on, equipSensors,
+          sensorReading.zone_temp_f, tState?.hvac_action || null, activeHeat,
+        );
+      }
+
+      // ── Anomaly event management ──
+      if (orgId) {
+        await manageAnomalyEvents(
+          supabase, orgId, siteId, zone.hvac_zone_id, zone.equipment_id,
+          anomalies, equipSensors, sensorReading.zone_temp_f,
+        );
+      }
+
       // ── Build adjustment_factors JSONB ──
       const adjustmentFactors = [
         {
@@ -1130,6 +1439,24 @@ export async function logZoneSetpointSnapshot(
       const { error } = await supabase.from("b_zone_setpoint_log").insert(rows);
       if (error) {
         console.error("[zone-setpoint-logger] Insert error:", error.message);
+      }
+    }
+
+    // 10. Alert processing — evaluate rules against active anomaly events
+    if (orgId) {
+      try {
+        const { data: activeAnomalies } = await supabase
+          .from("b_anomaly_events")
+          .select("*")
+          .eq("org_id", orgId)
+          .is("ended_at", null);
+
+        if (activeAnomalies?.length) {
+          await processAlerts(supabase, orgId, activeAnomalies);
+        }
+      } catch (alertErr) {
+        console.error("[CRON] Alert processing error:", alertErr);
+        // Never let alert failures break the cron
       }
     }
   } catch (err: any) {

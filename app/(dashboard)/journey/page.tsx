@@ -6,6 +6,8 @@ import { createClient } from "@supabase/supabase-js";
 import { useOrg } from "@/context/OrgContext";
 import IntegrationRoadmap from "@/components/IntegrationRoadmap";
 import IntegrationSpec from "@/components/IntegrationSpec";
+import GlobalOperationsPanel from "@/components/journey/GlobalOperationsPanel";
+import AlertRulesManager from "@/components/alerts/AlertRulesManager";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -462,6 +464,20 @@ export default function JourneyPage() {
           )}
         </div>
       </div>
+
+      {/* Global Operations Panel */}
+      {selectedOrgId && (
+        <div className="mt-10 max-w-5xl mx-auto">
+          <GlobalOperationsPanel orgId={selectedOrgId} />
+        </div>
+      )}
+
+      {/* Alert Rules Manager */}
+      {selectedOrgId && (
+        <div className="mt-6 max-w-5xl mx-auto">
+          <AlertRulesManager orgId={selectedOrgId} />
+        </div>
+      )}
 
       {/* Integration Roadmap */}
       <div className="mt-10 max-w-5xl mx-auto">

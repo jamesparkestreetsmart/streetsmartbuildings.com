@@ -14,7 +14,7 @@ import InventoryTab from "@/components/inventory/InventoryTab";
 import SiteActivityLog from "@/components/SiteActivityLog";
 import LogicMap from "@/components/logic-map/LogicMap";
 import AnomalyThresholdsPanel from "@/components/AnomalyThresholdsPanel";
-import StateChangeEventsTable from "@/components/equipment/StateChangeEventsTable";
+import CompressorCycleTable from "@/components/equipment/CompressorCycleTable";
 import AnomalyEventsTable from "@/components/equipment/AnomalyEventsTable";
 
 export default function TabClientWrapper({ siteId }: { siteId: string }) {
@@ -110,7 +110,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
           </div>
           <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />
           <SpaceHvacTable siteId={siteId} />
-          <StateChangeEventsTable siteId={siteId} />
+          <CompressorCycleTable siteId={siteId} />
           <AnomalyEventsTable siteId={siteId} />
         </>
       )}
