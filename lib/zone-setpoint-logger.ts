@@ -5,6 +5,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync, ResolvedSetpoints } from "@/lib/setpoint-resolver";
 import { evaluateCron } from "@/lib/alert-evaluator";
+import { processDeliveryQueue } from "@/lib/alert-delivery";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1497,6 +1498,16 @@ export async function logZoneSetpointSnapshot(
         console.error("[CRON] Alert evaluation error:", alertErr);
         // Never let alert failures break the cron
       }
+    }
+
+    // 11. Deliver pending alert notifications (SMS + email)
+    try {
+      const deliveryResult = await processDeliveryQueue(supabase);
+      if (deliveryResult.sent > 0 || deliveryResult.failed > 0) {
+        console.log(`[CRON] Delivery: ${deliveryResult.sent} sent, ${deliveryResult.failed} failed`);
+      }
+    } catch (deliveryErr) {
+      console.error("[CRON] Delivery worker error:", deliveryErr);
     }
   } catch (err: any) {
     console.error("[zone-setpoint-logger] Error:", err.message);
