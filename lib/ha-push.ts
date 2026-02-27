@@ -800,6 +800,7 @@ export async function executePushForSite(
       if (pushResult.pushed) {
         stateUpdate.last_pushed_heat_f = desired.heat_setpoint_f;
         stateUpdate.last_pushed_cool_f = desired.cool_setpoint_f;
+        stateUpdate.last_pushed_at = new Date().toISOString();
       }
 
       await supabase

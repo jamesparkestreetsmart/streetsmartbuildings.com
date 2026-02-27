@@ -430,6 +430,383 @@ export async function POST(req: NextRequest) {
   }
   // ─── End State Change Detection ────────────────────────────────────────────
 
+  // ─── Real-time Manager Override Detection (Climate Entities) ─────────────
+  // When a climate entity's target_temp_low or target_temp_high changes,
+  // check if it's a manager override and apply guardrails.
+  let overridesDetected = 0;
+
+  try {
+    const climateIncoming = incoming.filter((e) => e.domain === "climate");
+    const SRKEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (climateIncoming.length > 0 && SRKEY) {
+      const svcSupabase = createClient(SUPABASE_URL, SRKEY, {
+        auth: { persistSession: false },
+      });
+
+      for (const ce of climateIncoming) {
+        try {
+          // Extract target temps from incoming entity attributes
+          const raw = ce as any;
+          const incomingHeat: number | null =
+            raw.target_temp_low ??
+            raw.attributes?.target_temp_low ??
+            null;
+          const incomingCool: number | null =
+            raw.target_temp_high ??
+            raw.attributes?.target_temp_high ??
+            null;
+
+          // If no target temp data in the payload, skip (cron will catch it)
+          if (incomingHeat == null && incomingCool == null) continue;
+
+          // Load b_thermostat_state for this climate entity
+          const { data: ts } = await svcSupabase
+            .from("b_thermostat_state")
+            .select("*")
+            .eq("entity_id", ce.entity_id)
+            .eq("site_id", site_id)
+            .maybeSingle();
+
+          if (!ts) continue;
+
+          // Update b_thermostat_state with incoming target temps
+          const tsUpdate: Record<string, any> = {
+            last_synced_at: new Date().toISOString(),
+          };
+          if (incomingHeat != null) tsUpdate.target_temp_low_f = incomingHeat;
+          if (incomingCool != null) tsUpdate.target_temp_high_f = incomingCool;
+          const rawTemp =
+            raw.current_temperature ?? raw.attributes?.current_temperature;
+          if (rawTemp != null) tsUpdate.current_temperature_f = rawTemp;
+
+          await svcSupabase
+            .from("b_thermostat_state")
+            .update(tsUpdate)
+            .eq("entity_id", ce.entity_id)
+            .eq("site_id", site_id);
+
+          // 30-second cooldown: skip if Eagle Eyes just pushed
+          if (ts.last_pushed_at) {
+            const elapsed =
+              Date.now() - new Date(ts.last_pushed_at).getTime();
+            if (elapsed < 30_000) {
+              console.log(
+                `[entity-sync] Override skip for ${ce.entity_id} — ${Math.round(elapsed / 1000)}s since last push`
+              );
+              continue;
+            }
+          }
+
+          // Must have a last_pushed reference to detect override
+          if (ts.last_pushed_heat_f == null) continue;
+
+          // Already in override? Skip (ha-push cron manages the timer)
+          if (ts.manager_override_active) continue;
+
+          // Compare incoming vs last pushed
+          const refHeat = incomingHeat ?? ts.target_temp_low_f;
+          if (refHeat == null) continue;
+
+          const delta = Math.abs(refHeat - ts.last_pushed_heat_f);
+          if (delta < 1.0) continue; // No significant change
+
+          console.log(
+            `[entity-sync] Manager override detected on ${ce.entity_id}: ` +
+              `incoming=${refHeat}°F vs pushed=${ts.last_pushed_heat_f}°F (delta=${delta}°F)`
+          );
+
+          // ── Load zone + profile for guardrails ──
+          const { data: syncRow } = await svcSupabase
+            .from("b_entity_sync")
+            .select("ha_device_id")
+            .eq("entity_id", ce.entity_id)
+            .eq("site_id", site_id)
+            .maybeSingle();
+
+          if (!syncRow?.ha_device_id) continue;
+
+          const { data: device } = await svcSupabase
+            .from("a_devices")
+            .select("device_id")
+            .eq("ha_device_id", syncRow.ha_device_id)
+            .eq("site_id", site_id)
+            .maybeSingle();
+
+          if (!device) continue;
+
+          const { data: zone } = await svcSupabase
+            .from("a_hvac_zones")
+            .select(
+              "hvac_zone_id, name, equipment_id, profile_id, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes"
+            )
+            .eq("thermostat_device_id", device.device_id)
+            .eq("site_id", site_id)
+            .maybeSingle();
+
+          if (!zone) continue;
+
+          // Load profile guardrails if zone has a profile
+          let profileGuardrails: {
+            manager_offset_up_f?: number | null;
+            manager_offset_down_f?: number | null;
+            manager_override_reset_minutes?: number | null;
+          } = {};
+          if (zone.profile_id) {
+            const { data: p } = await svcSupabase
+              .from("b_thermostat_profiles")
+              .select(
+                "manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes"
+              )
+              .eq("profile_id", zone.profile_id)
+              .maybeSingle();
+            if (p) profileGuardrails = p;
+          }
+
+          const maxRaise =
+            zone.manager_offset_up_f ??
+            profileGuardrails.manager_offset_up_f ??
+            4;
+          const maxLower =
+            zone.manager_offset_down_f ??
+            profileGuardrails.manager_offset_down_f ??
+            4;
+          const resetMinutes =
+            zone.manager_override_reset_minutes ??
+            profileGuardrails.manager_override_reset_minutes ??
+            120;
+
+          // Expected = last pushed (profile + all adjustments at push time)
+          const expected = ts.last_pushed_heat_f;
+          const managerAdj =
+            Math.round((refHeat - expected) * 10) / 10;
+
+          // Load site info for HA credentials and logging
+          const { data: siteInfo } = await svcSupabase
+            .from("a_sites")
+            .select("ha_url, ha_token, timezone, org_id")
+            .eq("site_id", site_id)
+            .single();
+
+          const localDate = new Date().toLocaleDateString("en-CA", {
+            timeZone: siteInfo?.timezone || "America/Chicago",
+          });
+
+          let finalHeat = refHeat;
+          let finalCool =
+            incomingCool ?? ts.target_temp_high_f ?? null;
+          let bounced = false;
+
+          // ── Check guardrails ──
+          if (managerAdj > maxRaise) {
+            finalHeat = expected + maxRaise;
+            bounced = true;
+            console.log(
+              `[entity-sync] Override exceeds +${maxRaise}°F — bouncing to ${finalHeat}°F`
+            );
+          } else if (managerAdj < -maxLower) {
+            finalHeat = expected - maxLower;
+            bounced = true;
+            console.log(
+              `[entity-sync] Override exceeds -${maxLower}°F — bouncing to ${finalHeat}°F`
+            );
+          }
+
+          // Also check cool side
+          if (
+            finalCool != null &&
+            ts.last_pushed_cool_f != null
+          ) {
+            const coolAdj = finalCool - ts.last_pushed_cool_f;
+            if (coolAdj > maxRaise) {
+              finalCool = ts.last_pushed_cool_f + maxRaise;
+              bounced = true;
+            } else if (coolAdj < -maxLower) {
+              finalCool = ts.last_pushed_cool_f - maxLower;
+              bounced = true;
+            }
+          }
+
+          // ── Bounce back to HA if guardrails exceeded ──
+          if (bounced && siteInfo?.ha_url && siteInfo?.ha_token) {
+            try {
+              const hvacMode = ts.hvac_mode || "heat_cool";
+              const tempBody: Record<string, any> = {
+                entity_id: ce.entity_id,
+              };
+              if (hvacMode === "heat_cool" && finalCool != null) {
+                tempBody.target_temp_low = finalHeat;
+                tempBody.target_temp_high = finalCool;
+              } else {
+                tempBody.temperature = finalHeat;
+              }
+
+              await fetch(
+                `${siteInfo.ha_url}/api/services/climate/set_temperature`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${siteInfo.ha_token}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify(tempBody),
+                }
+              );
+              console.log(
+                `[entity-sync] Bounced override on ${ce.entity_id} to ${finalHeat}°F`
+              );
+            } catch (haErr: any) {
+              console.error(
+                `[entity-sync] HA bounce-back failed for ${ce.entity_id}:`,
+                haErr.message
+              );
+            }
+          }
+
+          // ── Log to b_records_log ──
+          try {
+            if (bounced) {
+              await svcSupabase.from("b_records_log").insert({
+                site_id,
+                org_id: siteInfo?.org_id || org_id,
+                equipment_id: zone.equipment_id || null,
+                event_type: "manager_override_rejected",
+                event_date: localDate,
+                message: `Manager override rejected: ${managerAdj > 0 ? "+" : ""}${managerAdj}°F exceeds max ${managerAdj > 0 ? `+${maxRaise}` : `-${maxLower}`}°F, reset to ${finalHeat}°F (${zone.name})`,
+                source: "entity_sync",
+                metadata: {
+                  entity_id: ce.entity_id,
+                  zone_name: zone.name,
+                  requested: refHeat,
+                  clamped: finalHeat,
+                  manager_adj: managerAdj,
+                },
+                created_by: "eagle_eyes",
+              });
+            } else {
+              await svcSupabase.from("b_records_log").insert({
+                site_id,
+                org_id: siteInfo?.org_id || org_id,
+                equipment_id: zone.equipment_id || null,
+                event_type: "manager_override",
+                event_date: localDate,
+                message: `Manager override: ${managerAdj > 0 ? "+" : ""}${managerAdj}°F (${zone.name}), expires in ${Math.round(resetMinutes / 60)}hr`,
+                source: "entity_sync",
+                metadata: {
+                  entity_id: ce.entity_id,
+                  zone_name: zone.name,
+                  new_heat: finalHeat,
+                  manager_adj: managerAdj,
+                  reset_minutes: resetMinutes,
+                },
+                created_by: "eagle_eyes",
+              });
+            }
+          } catch (logErr: any) {
+            console.error(
+              `[entity-sync] Override log error:`,
+              logErr.message
+            );
+          }
+
+          // ── Update b_thermostat_state with override info ──
+          const overrideUpdate: Record<string, any> = {
+            manager_override_active: true,
+            manager_override_heat_f: finalHeat,
+            manager_override_cool_f: finalCool,
+            manager_override_started_at: new Date().toISOString(),
+            manager_override_remaining_min: resetMinutes,
+            last_pushed_heat_f: finalHeat,
+            last_pushed_cool_f: finalCool,
+          };
+          if (bounced) {
+            // Set cooldown so echo from bounce-back push is ignored
+            overrideUpdate.last_pushed_at = new Date().toISOString();
+          }
+
+          await svcSupabase
+            .from("b_thermostat_state")
+            .update(overrideUpdate)
+            .eq("entity_id", ce.entity_id)
+            .eq("site_id", site_id);
+
+          // ── Immediate b_zone_setpoint_log snapshot ──
+          try {
+            const { data: lastLog } = await svcSupabase
+              .from("b_zone_setpoint_log")
+              .select("*")
+              .eq("hvac_zone_id", zone.hvac_zone_id)
+              .order("recorded_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            await svcSupabase.from("b_zone_setpoint_log").insert({
+              site_id,
+              hvac_zone_id: zone.hvac_zone_id,
+              phase: lastLog?.phase || "occupied",
+              profile_heat_f: lastLog?.profile_heat_f || null,
+              profile_cool_f: lastLog?.profile_cool_f || null,
+              feels_like_adj: lastLog?.feels_like_adj || 0,
+              smart_start_adj: lastLog?.smart_start_adj || 0,
+              occupancy_adj: lastLog?.occupancy_adj || 0,
+              manager_adj: managerAdj,
+              active_heat_f: finalHeat,
+              active_cool_f: finalCool,
+              zone_temp_f: lastLog?.zone_temp_f || null,
+              zone_humidity: lastLog?.zone_humidity || null,
+              feels_like_temp_f: lastLog?.feels_like_temp_f || null,
+              occupied_sensor_count:
+                lastLog?.occupied_sensor_count || 0,
+              fan_mode: ts.fan_mode || null,
+              hvac_action: ts.hvac_action || null,
+              supply_temp_f: lastLog?.supply_temp_f || null,
+              return_temp_f: lastLog?.return_temp_f || null,
+              delta_t: lastLog?.delta_t || null,
+              power_kw: lastLog?.power_kw || null,
+              comp_on: lastLog?.comp_on || null,
+              adjustment_factors: [
+                ...(lastLog?.adjustment_factors?.filter(
+                  (f: any) => f.name !== "manager"
+                ) || []),
+                {
+                  name: "manager",
+                  heat_adj: managerAdj,
+                  cool_adj: managerAdj,
+                  value: managerAdj,
+                  reason: bounced
+                    ? `Override rejected: ${managerAdj > 0 ? "+" : ""}${managerAdj}°F → clamped to ${managerAdj > 0 ? `+${maxRaise}` : `-${maxLower}`}°F`
+                    : `Manager override ${managerAdj > 0 ? "+" : ""}${managerAdj}°F`,
+                },
+              ],
+            });
+            console.log(
+              `[entity-sync] Wrote immediate setpoint log for zone ${zone.name}`
+            );
+          } catch (logErr: any) {
+            console.error(
+              `[entity-sync] Immediate setpoint log error:`,
+              logErr.message
+            );
+          }
+
+          overridesDetected++;
+        } catch (ceErr: any) {
+          console.error(
+            `[entity-sync] Override detection error for ${ce.entity_id}:`,
+            ceErr.message
+          );
+        }
+      }
+    }
+  } catch (overrideErr: any) {
+    // Non-fatal — log and continue with the main upsert
+    console.error(
+      "[entity-sync] Manager override detection error:",
+      overrideErr.message
+    );
+  }
+  // ─── End Manager Override Detection ──────────────────────────────────────
+
   const { error } = await supabase
     .from("b_entity_sync")
     .upsert(rows, {
@@ -454,6 +831,7 @@ export async function POST(req: NextRequest) {
     count: rows.length,
     orphans_matched: orphanMap.size,
     state_changes_logged: stateChangesLogged,
+    overrides_detected: overridesDetected,
     sensor_types: {
       auto_assigned: autoAssigned,
       preserved: preserved,

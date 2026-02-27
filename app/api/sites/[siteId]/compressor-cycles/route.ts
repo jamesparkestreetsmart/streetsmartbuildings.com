@@ -21,9 +21,7 @@ export async function GET(
   try {
     let query = supabase
       .from("b_compressor_cycles")
-      .select(
-        "id, hvac_zone_id, equipment_id, started_at, ended_at, duration_min, hvac_mode, stage1_minutes, stage2_minutes, avg_power_kw, peak_power_kw, total_energy_kwh, peak_current_a, start_zone_temp_f, end_zone_temp_f, temp_delta_f, start_supply_temp_f, end_supply_temp_f, start_setpoint_f, efficiency_ratio"
-      )
+      .select("*")
       .eq("site_id", siteId)
       .order("started_at", { ascending: false })
       .limit(limit);
@@ -33,14 +31,22 @@ export async function GET(
     const { data, error } = await query;
 
     if (error) {
+      console.error(
+        "[compressor-cycles] Query error:",
+        error.message,
+        "| code:", error.code,
+        "| details:", (error as any).details,
+        "| hint:", (error as any).hint
+      );
       return NextResponse.json(
-        { ok: false, error: error.message },
+        { ok: false, error: error.message, code: error.code },
         { status: 500 }
       );
     }
 
     return NextResponse.json(data || []);
   } catch (err: any) {
+    console.error("[compressor-cycles] Unexpected error:", err);
     return NextResponse.json(
       { ok: false, error: err.message },
       { status: 500 }
