@@ -444,21 +444,33 @@ export async function POST(req: NextRequest) {
         auth: { persistSession: false },
       });
 
+      // Cache site HA credentials (loaded once if needed)
+      let cachedSiteHA: {
+        ha_url: string | null;
+        ha_token: string | null;
+        timezone: string | null;
+        org_id: string | null;
+      } | null = null;
+
       for (const ce of climateIncoming) {
         try {
           // Extract target temps from incoming entity attributes
           const raw = ce as any;
-          const incomingHeat: number | null =
+          let incomingHeat: number | null =
             raw.target_temp_low ??
             raw.attributes?.target_temp_low ??
             null;
-          const incomingCool: number | null =
+          let incomingCool: number | null =
             raw.target_temp_high ??
             raw.attributes?.target_temp_high ??
             null;
 
-          // If no target temp data in the payload, skip (cron will catch it)
-          if (incomingHeat == null && incomingCool == null) continue;
+          // Log what the addon actually sends (first time diagnostic)
+          console.log(
+            `[entity-sync] Climate entity ${ce.entity_id}: state=${ce.state}, ` +
+              `hasTargetTempLow=${incomingHeat != null}, hasTargetTempHigh=${incomingCool != null}, ` +
+              `hasAttributes=${raw.attributes != null}`
+          );
 
           // Load b_thermostat_state for this climate entity
           const { data: ts } = await svcSupabase
@@ -469,22 +481,6 @@ export async function POST(req: NextRequest) {
             .maybeSingle();
 
           if (!ts) continue;
-
-          // Update b_thermostat_state with incoming target temps
-          const tsUpdate: Record<string, any> = {
-            last_synced_at: new Date().toISOString(),
-          };
-          if (incomingHeat != null) tsUpdate.target_temp_low_f = incomingHeat;
-          if (incomingCool != null) tsUpdate.target_temp_high_f = incomingCool;
-          const rawTemp =
-            raw.current_temperature ?? raw.attributes?.current_temperature;
-          if (rawTemp != null) tsUpdate.current_temperature_f = rawTemp;
-
-          await svcSupabase
-            .from("b_thermostat_state")
-            .update(tsUpdate)
-            .eq("entity_id", ce.entity_id)
-            .eq("site_id", site_id);
 
           // 30-second cooldown: skip if Eagle Eyes just pushed
           if (ts.last_pushed_at) {
@@ -504,8 +500,96 @@ export async function POST(req: NextRequest) {
           // Already in override? Skip (ha-push cron manages the timer)
           if (ts.manager_override_active) continue;
 
-          // Compare incoming vs last pushed
-          const refHeat = incomingHeat ?? ts.target_temp_low_f;
+          // If payload has no target temps, read from HA API directly
+          if (incomingHeat == null && incomingCool == null) {
+            if (!cachedSiteHA) {
+              const { data: s } = await svcSupabase
+                .from("a_sites")
+                .select("ha_url, ha_token, timezone, org_id")
+                .eq("site_id", site_id)
+                .single();
+              cachedSiteHA = s || {
+                ha_url: null,
+                ha_token: null,
+                timezone: null,
+                org_id: null,
+              };
+            }
+            if (cachedSiteHA.ha_url && cachedSiteHA.ha_token) {
+              try {
+                const haRes = await fetch(
+                  `${cachedSiteHA.ha_url}/api/states/${ce.entity_id}`,
+                  {
+                    method: "GET",
+                    headers: {
+                      Authorization: `Bearer ${cachedSiteHA.ha_token}`,
+                      "Content-Type": "application/json",
+                    },
+                    signal: AbortSignal.timeout(5000),
+                  }
+                );
+                if (haRes.ok) {
+                  const haState = await haRes.json();
+                  const attrs = haState.attributes || {};
+                  incomingHeat = attrs.target_temp_low ?? null;
+                  incomingCool = attrs.target_temp_high ?? null;
+                  console.log(
+                    `[entity-sync] HA API read for ${ce.entity_id}: heat=${incomingHeat}, cool=${incomingCool}`
+                  );
+
+                  // Update b_thermostat_state with fresh HA data
+                  const freshUpdate: Record<string, any> = {
+                    last_synced_at: new Date().toISOString(),
+                  };
+                  if (incomingHeat != null)
+                    freshUpdate.target_temp_low_f = incomingHeat;
+                  if (incomingCool != null)
+                    freshUpdate.target_temp_high_f = incomingCool;
+                  if (attrs.current_temperature != null)
+                    freshUpdate.current_temperature_f =
+                      attrs.current_temperature;
+                  if (attrs.hvac_action)
+                    freshUpdate.hvac_action = attrs.hvac_action;
+
+                  await svcSupabase
+                    .from("b_thermostat_state")
+                    .update(freshUpdate)
+                    .eq("entity_id", ce.entity_id)
+                    .eq("site_id", site_id);
+                }
+              } catch (haErr: any) {
+                console.error(
+                  `[entity-sync] HA API read failed for ${ce.entity_id}:`,
+                  haErr.message
+                );
+              }
+            }
+          } else {
+            // Payload has temps — update b_thermostat_state directly
+            const tsUpdate: Record<string, any> = {
+              last_synced_at: new Date().toISOString(),
+            };
+            if (incomingHeat != null)
+              tsUpdate.target_temp_low_f = incomingHeat;
+            if (incomingCool != null)
+              tsUpdate.target_temp_high_f = incomingCool;
+            const rawTemp =
+              raw.current_temperature ??
+              raw.attributes?.current_temperature;
+            if (rawTemp != null) tsUpdate.current_temperature_f = rawTemp;
+
+            await svcSupabase
+              .from("b_thermostat_state")
+              .update(tsUpdate)
+              .eq("entity_id", ce.entity_id)
+              .eq("site_id", site_id);
+          }
+
+          // If still no temps after HA API fallback, skip
+          if (incomingHeat == null && incomingCool == null) continue;
+
+          // Compare current actual vs last pushed
+          const refHeat = incomingHeat;
           if (refHeat == null) continue;
 
           const delta = Math.abs(refHeat - ts.last_pushed_heat_f);
@@ -513,7 +597,7 @@ export async function POST(req: NextRequest) {
 
           console.log(
             `[entity-sync] Manager override detected on ${ce.entity_id}: ` +
-              `incoming=${refHeat}°F vs pushed=${ts.last_pushed_heat_f}°F (delta=${delta}°F)`
+              `actual=${refHeat}°F vs pushed=${ts.last_pushed_heat_f}°F (delta=${delta}°F)`
           );
 
           // ── Load zone + profile for guardrails ──
@@ -581,12 +665,21 @@ export async function POST(req: NextRequest) {
           const managerAdj =
             Math.round((refHeat - expected) * 10) / 10;
 
-          // Load site info for HA credentials and logging
-          const { data: siteInfo } = await svcSupabase
-            .from("a_sites")
-            .select("ha_url, ha_token, timezone, org_id")
-            .eq("site_id", site_id)
-            .single();
+          // Load site info (cached) for HA credentials and logging
+          if (!cachedSiteHA) {
+            const { data: s } = await svcSupabase
+              .from("a_sites")
+              .select("ha_url, ha_token, timezone, org_id")
+              .eq("site_id", site_id)
+              .single();
+            cachedSiteHA = s || {
+              ha_url: null,
+              ha_token: null,
+              timezone: null,
+              org_id: null,
+            };
+          }
+          const siteInfo = cachedSiteHA;
 
           const localDate = new Date().toLocaleDateString("en-CA", {
             timeZone: siteInfo?.timezone || "America/Chicago",

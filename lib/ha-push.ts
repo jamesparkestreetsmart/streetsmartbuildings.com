@@ -666,18 +666,126 @@ export async function executePushForSite(
 
       if (haActualHeat != null && Math.abs(haActualHeat - lastPushedHeat) >= 1.0) {
         // Manager changed the thermostat at the wall
-        const haActualCool = thermoState.target_temp_high_f ?? null;
-        console.log(`[ha-push] Zone "${zone.name}": Manager override detected! HA actual=${haActualHeat}°F vs last pushed=${lastPushedHeat}°F (delta=${Math.round((haActualHeat - lastPushedHeat) * 10) / 10}°F). Skipping push for ${overrideResetMinutes}m.`);
+        let haActualCool = thermoState.target_temp_high_f ?? null;
+        const managerAdj = Math.round((haActualHeat - lastPushedHeat) * 10) / 10;
+        const maxRaise = resolved.manager_offset_up_f ?? 4;
+        const maxLower = resolved.manager_offset_down_f ?? 4;
+
+        console.log(`[ha-push] Zone "${zone.name}": Manager override detected! HA actual=${haActualHeat}°F vs last pushed=${lastPushedHeat}°F (adj=${managerAdj > 0 ? "+" : ""}${managerAdj}°F, guardrails: +${maxRaise}/-${maxLower})`);
+
+        // ── Guardrail enforcement ──
+        let finalHeat = haActualHeat;
+        let finalCool = haActualCool;
+        let bounced = false;
+
+        if (managerAdj > maxRaise) {
+          finalHeat = lastPushedHeat + maxRaise;
+          bounced = true;
+          console.log(`[ha-push] Zone "${zone.name}": Override +${managerAdj}°F exceeds max +${maxRaise}°F — bouncing to ${finalHeat}°F`);
+        } else if (managerAdj < -maxLower) {
+          finalHeat = lastPushedHeat - maxLower;
+          bounced = true;
+          console.log(`[ha-push] Zone "${zone.name}": Override ${managerAdj}°F exceeds max -${maxLower}°F — bouncing to ${finalHeat}°F`);
+        }
+
+        // Also check cool side
+        if (finalCool != null && thermoState.last_pushed_cool_f != null) {
+          const coolAdj = finalCool - thermoState.last_pushed_cool_f;
+          if (coolAdj > maxRaise) {
+            finalCool = thermoState.last_pushed_cool_f + maxRaise;
+            bounced = true;
+          } else if (coolAdj < -maxLower) {
+            finalCool = thermoState.last_pushed_cool_f - maxLower;
+            bounced = true;
+          }
+        }
+
+        // Bounce back to HA if guardrails exceeded
+        if (bounced) {
+          try {
+            const hvacMode = thermoState.hvac_mode || "heat_cool";
+            const tempBody: Record<string, any> = { entity_id: climateEntityId };
+            if (hvacMode === "heat_cool" && finalCool != null) {
+              tempBody.target_temp_low = finalHeat;
+              tempBody.target_temp_high = finalCool;
+            } else {
+              tempBody.temperature = finalHeat;
+            }
+
+            await haFetch(
+              `${config.haUrl}/api/services/climate/set_temperature`,
+              config.haToken,
+              { method: "POST", body: JSON.stringify(tempBody) }
+            );
+            console.log(`[ha-push] Zone "${zone.name}": Bounced override to ${finalHeat}°F`);
+          } catch (bounceErr: any) {
+            console.error(`[ha-push] Zone "${zone.name}": Bounce-back failed:`, bounceErr.message);
+          }
+
+          // Log rejection
+          try {
+            await supabase.from("b_records_log").insert({
+              org_id: site?.org_id || null,
+              site_id: siteId,
+              equipment_id: zone.equipment_id || null,
+              event_type: "manager_override_rejected",
+              event_date: targetDate,
+              message: `Manager override rejected: ${managerAdj > 0 ? "+" : ""}${managerAdj}°F exceeds max ${managerAdj > 0 ? `+${maxRaise}` : `-${maxLower}`}°F, reset to ${finalHeat}°F (${zone.name})`,
+              source: "ha_push",
+              metadata: {
+                entity_id: climateEntityId,
+                zone_name: zone.name,
+                requested: haActualHeat,
+                clamped: finalHeat,
+                manager_adj: managerAdj,
+              },
+              created_by: triggeredBy || "eagle_eyes",
+            });
+          } catch (logErr) {
+            console.error("[ha-push] Failed to log override rejection:", logErr);
+          }
+        } else {
+          // Log accepted override
+          try {
+            await supabase.from("b_records_log").insert({
+              org_id: site?.org_id || null,
+              site_id: siteId,
+              equipment_id: zone.equipment_id || null,
+              event_type: "manager_override",
+              event_date: targetDate,
+              message: `Manager override: ${managerAdj > 0 ? "+" : ""}${managerAdj}°F (${zone.name}), expires in ${Math.round(overrideResetMinutes / 60)}hr`,
+              source: "ha_push",
+              metadata: {
+                entity_id: climateEntityId,
+                zone_name: zone.name,
+                new_heat: finalHeat,
+                manager_adj: managerAdj,
+                reset_minutes: overrideResetMinutes,
+              },
+              created_by: triggeredBy || "eagle_eyes",
+            });
+          } catch (logErr) {
+            console.error("[ha-push] Failed to log override acceptance:", logErr);
+          }
+        }
+
+        // Update b_thermostat_state with override info
+        const overrideUpdate: Record<string, any> = {
+          manager_override_active: true,
+          manager_override_heat_f: finalHeat,
+          manager_override_cool_f: finalCool,
+          manager_override_started_at: new Date().toISOString(),
+          manager_override_remaining_min: overrideResetMinutes,
+          last_pushed_heat_f: finalHeat,
+          last_pushed_cool_f: finalCool,
+        };
+        if (bounced) {
+          overrideUpdate.last_pushed_at = new Date().toISOString();
+        }
 
         await supabase
           .from("b_thermostat_state")
-          .update({
-            manager_override_active: true,
-            manager_override_heat_f: haActualHeat,
-            manager_override_cool_f: haActualCool,
-            manager_override_started_at: new Date().toISOString(),
-            manager_override_remaining_min: overrideResetMinutes,
-          })
+          .update(overrideUpdate)
           .eq("entity_id", climateEntityId)
           .eq("site_id", siteId);
 
@@ -686,8 +794,10 @@ export async function executePushForSite(
           hvac_zone_id: zone.hvac_zone_id,
           entity_id: climateEntityId,
           pushed: false,
-          reason: `New manager override detected (${haActualHeat}°F vs pushed ${lastPushedHeat}°F) — holding for ${overrideResetMinutes}m`,
-          actions: [],
+          reason: bounced
+            ? `Manager override bounced (${managerAdj > 0 ? "+" : ""}${managerAdj}°F exceeded ±${maxRaise}°F, clamped to ${finalHeat}°F) — holding for ${overrideResetMinutes}m`
+            : `Manager override accepted (${managerAdj > 0 ? "+" : ""}${managerAdj}°F) — holding for ${overrideResetMinutes}m`,
+          actions: bounced ? [`bounce_back:${finalHeat}`] : [],
         });
         continue;
       }

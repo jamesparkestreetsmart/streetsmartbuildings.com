@@ -259,21 +259,40 @@ export default function SpaceHvacTable({ siteId }: Props) {
       }
     }
 
-    // Fetch override state from b_thermostat_state for all thermostats at this site
+    // Fetch override state from b_thermostat_state for all thermostats at this site.
+    // Override code updates rows by entity_id (climate entity), so look up the
+    // climate entity_id for each ha_device_id via b_entity_sync, then query by entity_id.
     const overrideByHaDevice: Record<string, { active: boolean; remaining: number | null }> = {};
     const haDeviceIds = Object.values(haDeviceIdByDevice).filter(Boolean);
     if (haDeviceIds.length > 0) {
-      const { data: tStates } = await supabase
-        .from("b_thermostat_state")
-        .select("ha_device_id, manager_override_active, manager_override_remaining_min")
+      // Get climate entity IDs for these HA devices
+      const { data: climateEntities } = await supabase
+        .from("b_entity_sync")
+        .select("entity_id, ha_device_id")
         .eq("site_id", siteId)
+        .ilike("entity_id", "climate.%")
         .in("ha_device_id", haDeviceIds);
-      for (const ts of tStates || []) {
-        if (ts.ha_device_id) {
-          overrideByHaDevice[ts.ha_device_id] = {
-            active: ts.manager_override_active || false,
-            remaining: ts.manager_override_remaining_min ?? null,
-          };
+
+      const climateEntityIds = (climateEntities || []).map((e: any) => e.entity_id).filter(Boolean);
+      const entityToHaDevice: Record<string, string> = {};
+      for (const e of climateEntities || []) {
+        if (e.entity_id && e.ha_device_id) entityToHaDevice[e.entity_id] = e.ha_device_id;
+      }
+
+      if (climateEntityIds.length > 0) {
+        const { data: tStates } = await supabase
+          .from("b_thermostat_state")
+          .select("entity_id, manager_override_active, manager_override_remaining_min")
+          .eq("site_id", siteId)
+          .in("entity_id", climateEntityIds);
+        for (const ts of tStates || []) {
+          const haDevId = entityToHaDevice[ts.entity_id];
+          if (haDevId) {
+            overrideByHaDevice[haDevId] = {
+              active: ts.manager_override_active || false,
+              remaining: ts.manager_override_remaining_min ?? null,
+            };
+          }
         }
       }
     }
@@ -736,8 +755,14 @@ export default function SpaceHvacTable({ siteId }: Props) {
                       {isFirst && (
                         <td className={`${TD} align-top text-center`} rowSpan={rowCount}>
                           {group.zone.manager_override_active && (group.zone.manager_override_remaining_min ?? 0) > 0
-                            ? <span className="text-xs font-medium text-amber-700">{group.zone.manager_override_remaining_min} min</span>
-                            : <span className="text-gray-400">0</span>
+                            ? (() => {
+                                const m = group.zone.manager_override_remaining_min!;
+                                const hrs = Math.floor(m / 60);
+                                const mins = m % 60;
+                                const label = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+                                return <span className="text-xs font-medium text-amber-700">{label}</span>;
+                              })()
+                            : <span className="text-gray-400">&mdash;</span>
                           }
                         </td>
                       )}
