@@ -1159,7 +1159,7 @@ export async function logZoneSetpointSnapshot(
     const { data: tStates } = await supabase
       .from("b_thermostat_state")
       .select(
-        "entity_id, ha_device_id, current_temperature_f, current_humidity, current_setpoint_f, target_temp_high_f, target_temp_low_f, fan_mode, hvac_action, last_synced_at"
+        "entity_id, ha_device_id, current_temperature_f, current_humidity, current_setpoint_f, target_temp_high_f, target_temp_low_f, fan_mode, hvac_action, last_synced_at, manager_override_active, manager_override_started_at, manager_override_remaining_min"
       )
       .eq("site_id", siteId);
 
@@ -1206,6 +1206,7 @@ export async function logZoneSetpointSnapshot(
     const rows: any[] = [];
 
     for (const zone of zones) {
+     try {
       const profile = zone.profile_id ? profileMap.get(zone.profile_id) : undefined;
       const resolved: ResolvedSetpoints = resolveZoneSetpointsSync(zone, profile);
 
@@ -1269,26 +1270,64 @@ export async function logZoneSetpointSnapshot(
         : 0;
 
       // ── Manager Adjustment ──
-      // Compare thermostat's actual setpoint against the EXPECTED setpoint
-      // (profile + non-manager adjustments). Only non-zero if someone manually
-      // changed the thermostat beyond what Eagle Eyes computed and pushed.
+      // Read the ACTUAL thermostat setpoints from HA (target_temp_low / target_temp_high).
+      // Compare against what Eagle Eyes EXPECTED to push (profile + adjustments).
+      // If someone adjusted the thermostat at the wall, the delta is the manager override.
       let managerAdj = 0;
-      if (phaseInfo.phase === "occupied" && tState) {
-        const actualSP = tState.current_setpoint_f ?? tState.target_temp_low_f;
-        const expectedSP = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj;
-        if (actualSP != null) {
-          const rawOffset = actualSP - expectedSP;
-          // Clamp to ±4
-          managerAdj = Math.max(-4, Math.min(4, rawOffset));
-          // Zero out if very small (rounding)
-          if (Math.abs(managerAdj) < 0.5) managerAdj = 0;
+      const haActualHeat = tState?.target_temp_low_f ?? tState?.current_setpoint_f ?? null;
+      const haActualCool = tState?.target_temp_high_f ?? null;
+
+      if (tState && haActualHeat != null) {
+        const expectedHeat = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj;
+        const rawOffset = Math.round((haActualHeat - expectedHeat) * 10) / 10;
+        // Clamp to ±4
+        managerAdj = Math.max(-4, Math.min(4, rawOffset));
+        // Zero out if very small (rounding noise from HA)
+        if (Math.abs(managerAdj) < 0.5) managerAdj = 0;
+        console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id} managerAdj: HA_actual_heat=${haActualHeat} expected=${expectedHeat} rawOffset=${rawOffset} managerAdj=${managerAdj}`);
+      }
+
+      // ── Override state tracking on b_thermostat_state ──
+      const climateEntityId = haDeviceId ? climateEntityByHaDevice[haDeviceId] : null;
+      const overrideResetMinutes = zone.manager_override_reset_minutes ?? 120;
+
+      if (climateEntityId) {
+        if (managerAdj !== 0 && !tState?.manager_override_active) {
+          // New override detected — record start
+          await supabase
+            .from("b_thermostat_state")
+            .update({
+              manager_override_active: true,
+              manager_override_heat_f: haActualHeat,
+              manager_override_cool_f: haActualCool,
+              manager_override_started_at: new Date().toISOString(),
+              manager_override_remaining_min: overrideResetMinutes,
+            })
+            .eq("entity_id", climateEntityId)
+            .eq("site_id", siteId);
+          console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id}: Manager override detected (adj=${managerAdj}°F), timer=${overrideResetMinutes}m`);
+        } else if (tState?.manager_override_active) {
+          // Override in progress — update remaining time
+          const startedAt = tState.manager_override_started_at
+            ? new Date(tState.manager_override_started_at).getTime() : Date.now();
+          const elapsedMin = (Date.now() - startedAt) / 60000;
+          const remaining = Math.max(0, Math.round(overrideResetMinutes - elapsedMin));
+
+          await supabase
+            .from("b_thermostat_state")
+            .update({ manager_override_remaining_min: remaining })
+            .eq("entity_id", climateEntityId)
+            .eq("site_id", siteId);
         }
       }
 
       // ── Compute final active setpoints ──
-      const totalAdj = feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
-      const activeHeat = profileHeat + totalAdj;
-      const activeCool = profileCool + totalAdj;
+      // active_heat_f / active_cool_f = what the thermostat is ACTUALLY set to
+      // If HA actual is available, use it directly. Otherwise fall back to calculated.
+      const expectedHeatTotal = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
+      const expectedCoolTotal = profileCool + feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
+      const activeHeat = haActualHeat ?? expectedHeatTotal;
+      const activeCool = haActualCool ?? expectedCoolTotal;
 
       // ── Equipment sensors ──
       const equipSensors = await getEquipmentSensors(supabase, siteId, zone.equipment_id);
@@ -1368,7 +1407,7 @@ export async function logZoneSetpointSnapshot(
           cool_adj: managerAdj,
           value: managerAdj,
           reason: managerAdj !== 0
-            ? `Manager offset ${managerAdj > 0 ? "+" : ""}${managerAdj}°F`
+            ? `Manager offset ${managerAdj > 0 ? "+" : ""}${managerAdj}°F (HA actual: ${haActualHeat}°F)`
             : "No override",
         },
       ];
@@ -1432,14 +1471,22 @@ export async function logZoneSetpointSnapshot(
         evaporator_coil_in_f: equipSensors.evaporator_coil_in_f,
         evaporator_coil_out_f: equipSensors.evaporator_coil_out_f,
       });
+     } catch (zoneErr: any) {
+      console.error(`[zone-setpoint-logger] Zone ${zone.hvac_zone_id} processing error:`, zoneErr.message);
+      // Continue to next zone — don't let one zone failure block all inserts
+     }
     }
 
     // 9. Batch insert
     if (rows.length > 0) {
       const { error } = await supabase.from("b_zone_setpoint_log").insert(rows);
       if (error) {
-        console.error("[zone-setpoint-logger] Insert error:", error.message);
+        console.error("[zone-setpoint-logger] Insert error:", error.message, error.details, error.hint);
+      } else {
+        console.log(`[zone-setpoint-logger] Inserted ${rows.length} rows for site ${siteId}`);
       }
+    } else {
+      console.log(`[zone-setpoint-logger] No rows to insert for site ${siteId} (${zones.length} zones processed)`);
     }
 
     // 10. Alert evaluation v2 — evaluate all alert definitions for this org

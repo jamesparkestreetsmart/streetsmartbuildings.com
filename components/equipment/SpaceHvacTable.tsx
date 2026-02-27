@@ -79,6 +79,8 @@ interface ZoneInfo {
   equipment_id: string | null;
   smart_start_enabled: boolean;
   manager_override_reset_minutes: number | null;
+  manager_override_active: boolean;
+  manager_override_remaining_min: number | null;
 }
 
 interface SpaceInfo {
@@ -242,27 +244,54 @@ export default function SpaceHvacTable({ siteId }: Props) {
       console.error("[SpaceHvacTable] Zones query error:", zonesError);
     }
 
-    // Get smart_start_enabled from a_devices (it's per-device, not per-zone)
+    // Get smart_start_enabled from a_devices + ha_device_id for thermostat state lookup
     const thermoDeviceIds = (zonesData || []).map((z: any) => z.thermostat_device_id).filter(Boolean);
     let ssEnabledByDevice: Record<string, boolean> = {};
+    let haDeviceIdByDevice: Record<string, string> = {};
     if (thermoDeviceIds.length > 0) {
       const { data: devData } = await supabase
         .from("a_devices")
-        .select("device_id, smart_start_enabled")
+        .select("device_id, smart_start_enabled, ha_device_id")
         .in("device_id", thermoDeviceIds);
       for (const d of devData || []) {
         ssEnabledByDevice[d.device_id] = d.smart_start_enabled || false;
+        if (d.ha_device_id) haDeviceIdByDevice[d.device_id] = d.ha_device_id;
       }
     }
 
-    const zones = (zonesData || []).map((z: any) => ({
-      hvac_zone_id: z.hvac_zone_id,
-      name: z.name,
-      zone_type: z.zone_type || null,
-      equipment_id: z.equipment_id,
-      smart_start_enabled: ssEnabledByDevice[z.thermostat_device_id] || false,
-      manager_override_reset_minutes: z.manager_override_reset_minutes,
-    })) as ZoneInfo[];
+    // Fetch override state from b_thermostat_state for all thermostats at this site
+    const overrideByHaDevice: Record<string, { active: boolean; remaining: number | null }> = {};
+    const haDeviceIds = Object.values(haDeviceIdByDevice).filter(Boolean);
+    if (haDeviceIds.length > 0) {
+      const { data: tStates } = await supabase
+        .from("b_thermostat_state")
+        .select("ha_device_id, manager_override_active, manager_override_remaining_min")
+        .eq("site_id", siteId)
+        .in("ha_device_id", haDeviceIds);
+      for (const ts of tStates || []) {
+        if (ts.ha_device_id) {
+          overrideByHaDevice[ts.ha_device_id] = {
+            active: ts.manager_override_active || false,
+            remaining: ts.manager_override_remaining_min ?? null,
+          };
+        }
+      }
+    }
+
+    const zones = (zonesData || []).map((z: any) => {
+      const haDevId = haDeviceIdByDevice[z.thermostat_device_id] || "";
+      const overrideState = overrideByHaDevice[haDevId];
+      return {
+        hvac_zone_id: z.hvac_zone_id,
+        name: z.name,
+        zone_type: z.zone_type || null,
+        equipment_id: z.equipment_id,
+        smart_start_enabled: ssEnabledByDevice[z.thermostat_device_id] || false,
+        manager_override_reset_minutes: z.manager_override_reset_minutes,
+        manager_override_active: overrideState?.active || false,
+        manager_override_remaining_min: overrideState?.remaining ?? null,
+      };
+    }) as ZoneInfo[];
     const zoneMap: Record<string, ZoneInfo> = {};
     for (const z of zones) zoneMap[z.hvac_zone_id] = z;
 
@@ -706,12 +735,10 @@ export default function SpaceHvacTable({ siteId }: Props) {
                       {/* G5: Remaining override time (rowSpan) */}
                       {isFirst && (
                         <td className={`${TD} align-top text-center`} rowSpan={rowCount}>
-                          {(() => {
-                            const remaining = computeRemainingOverride(group.logRows, group.zone.manager_override_reset_minutes);
-                            return remaining > 0
-                              ? <span className="text-xs font-medium text-amber-700">{remaining} min</span>
-                              : <span className="text-gray-400">0</span>;
-                          })()}
+                          {group.zone.manager_override_active && (group.zone.manager_override_remaining_min ?? 0) > 0
+                            ? <span className="text-xs font-medium text-amber-700">{group.zone.manager_override_remaining_min} min</span>
+                            : <span className="text-gray-400">0</span>
+                          }
                         </td>
                       )}
 

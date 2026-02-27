@@ -613,6 +613,86 @@ export async function executePushForSite(
       thermoState = s2;
     }
 
+    // ── Manager Override: Check before computing/pushing ──
+    const overrideResetMinutes = resolved.manager_override_reset_minutes ?? 120;
+    const isOverrideActive = thermoState?.manager_override_active === true;
+
+    if (isOverrideActive) {
+      const startedAt = thermoState?.manager_override_started_at
+        ? new Date(thermoState.manager_override_started_at).getTime() : 0;
+      const elapsedMin = startedAt ? (Date.now() - startedAt) / 60000 : Infinity;
+      const remaining = Math.max(0, Math.round(overrideResetMinutes - elapsedMin));
+
+      if (overrideResetMinutes > 0 && elapsedMin >= overrideResetMinutes) {
+        // Override expired — clear it and push profile setpoint
+        console.log(`[ha-push] Zone "${zone.name}": Manager override expired (${Math.round(elapsedMin)}min elapsed) — resetting to profile`);
+        await supabase
+          .from("b_thermostat_state")
+          .update({
+            manager_override_active: false,
+            manager_override_heat_f: null,
+            manager_override_cool_f: null,
+            manager_override_started_at: null,
+            manager_override_remaining_min: 0,
+          })
+          .eq("entity_id", climateEntityId)
+          .eq("site_id", siteId);
+        // Continue to push the profile setpoint
+      } else {
+        // Override still active — skip push
+        console.log(`[ha-push] Zone "${zone.name}": Skipping push — manager override active (${remaining}m remaining)`);
+        await supabase
+          .from("b_thermostat_state")
+          .update({
+            manager_override_remaining_min: remaining,
+          })
+          .eq("entity_id", climateEntityId)
+          .eq("site_id", siteId);
+
+        results.push({
+          zone_name: zone.name || "",
+          hvac_zone_id: zone.hvac_zone_id,
+          entity_id: climateEntityId,
+          pushed: false,
+          reason: `Manager override active (${remaining}m remaining)`,
+          actions: [],
+        });
+        continue;
+      }
+    } else if (thermoState?.last_pushed_heat_f != null) {
+      // Check for NEW manager override: compare HA actual vs what we last pushed
+      const haActualHeat = thermoState.target_temp_low_f ?? thermoState.current_setpoint_f;
+      const lastPushedHeat = thermoState.last_pushed_heat_f;
+
+      if (haActualHeat != null && Math.abs(haActualHeat - lastPushedHeat) >= 1.0) {
+        // Manager changed the thermostat at the wall
+        const haActualCool = thermoState.target_temp_high_f ?? null;
+        console.log(`[ha-push] Zone "${zone.name}": Manager override detected! HA actual=${haActualHeat}°F vs last pushed=${lastPushedHeat}°F (delta=${Math.round((haActualHeat - lastPushedHeat) * 10) / 10}°F). Skipping push for ${overrideResetMinutes}m.`);
+
+        await supabase
+          .from("b_thermostat_state")
+          .update({
+            manager_override_active: true,
+            manager_override_heat_f: haActualHeat,
+            manager_override_cool_f: haActualCool,
+            manager_override_started_at: new Date().toISOString(),
+            manager_override_remaining_min: overrideResetMinutes,
+          })
+          .eq("entity_id", climateEntityId)
+          .eq("site_id", siteId);
+
+        results.push({
+          zone_name: zone.name || "",
+          hvac_zone_id: zone.hvac_zone_id,
+          entity_id: climateEntityId,
+          pushed: false,
+          reason: `New manager override detected (${haActualHeat}°F vs pushed ${lastPushedHeat}°F) — holding for ${overrideResetMinutes}m`,
+          actions: [],
+        });
+        continue;
+      }
+    }
+
     // ── Compute active setpoint adjustments ──
     const profile = zone.profile_id ? profileMap.get(zone.profile_id) : undefined;
     const flEnabled = profile?.feels_like_enabled ?? true;
@@ -711,12 +791,20 @@ export async function executePushForSite(
       : thermoState?.eagle_eye_directive || "No push needed";
 
     if (climateEntityId) {
+      const stateUpdate: Record<string, any> = {
+        eagle_eye_directive: directiveText,
+        directive_generated_at: new Date().toISOString(),
+      };
+
+      // Track what we pushed so we can detect manager overrides next cycle
+      if (pushResult.pushed) {
+        stateUpdate.last_pushed_heat_f = desired.heat_setpoint_f;
+        stateUpdate.last_pushed_cool_f = desired.cool_setpoint_f;
+      }
+
       await supabase
         .from("b_thermostat_state")
-        .update({
-          eagle_eye_directive: directiveText,
-          directive_generated_at: new Date().toISOString(),
-        })
+        .update(stateUpdate)
         .eq("entity_id", climateEntityId)
         .eq("site_id", siteId);
     }
