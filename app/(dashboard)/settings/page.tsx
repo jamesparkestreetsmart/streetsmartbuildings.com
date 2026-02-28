@@ -37,6 +37,19 @@ interface MemberRecord {
   last_updated_at: string;
 }
 
+// ── NEW: pending invite from a_org_invites ──────────────────────────────────
+interface InviteRecord {
+  invite_id: string;
+  org_id: string;
+  invite_email: string;
+  default_job_title: string | null;
+  default_role: string | null;
+  default_capability_preset: string | null;
+  status: string; // "active" | "accepted" | "revoked"
+  created_at: string;
+  created_by_user: string | null;
+}
+
 interface SiteRecord {
   site_id: string;
   industry: string | null;
@@ -79,7 +92,7 @@ interface UserProfile {
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Users, Building2, Pencil, Save, X, MapPin, User, Settings2 } from "lucide-react";
+import { Plus, Users, Building2, Pencil, Save, X, MapPin, User, Settings2, Mail, RefreshCw, Trash2 } from "lucide-react";
 
 // Helper to format billing address for display
 const formatBillingAddress = (org: Organization): string => {
@@ -100,6 +113,8 @@ export default function SettingsPage() {
    
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<MemberRecord[]>([]);
+  // ── NEW: pending invites state ────────────────────────────────────────────
+  const [pendingInvites, setPendingInvites] = useState<InviteRecord[]>([]);
   const [siteCounts, setSiteCounts] = useState<SiteCount[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -117,6 +132,11 @@ export default function SettingsPage() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
+
+  // ── NEW: invite management modal ──────────────────────────────────────────
+  const [managingInvite, setManagingInvite] = useState<InviteRecord | null>(null);
+  const [inviteActionLoading, setInviteActionLoading] = useState(false);
+  const [inviteActionMessage, setInviteActionMessage] = useState<string | null>(null);
 
   // Search & Sort
   const [searchTerm, setSearchTerm] = useState("");
@@ -163,6 +183,14 @@ export default function SettingsPage() {
       .eq("org_id", orgData?.org_id)
       .order("joined_at", { ascending: false });
 
+    // ── NEW: fetch pending invites for this org ───────────────────────────
+    const { data: inviteData } = await supabase
+      .from("a_org_invites")
+      .select("*")
+      .eq("org_id", selectedOrgId)
+      .eq("status", "active")
+      .order("created_at", { ascending: false });
+
     const { data: sitesData } = await supabase
       .from("a_sites")
       .select("site_id, industry, brand")
@@ -199,7 +227,6 @@ export default function SettingsPage() {
         : memberData.filter((m: any) => m.visibility !== 'hidden');
 
       // Hide Street Smart Buildings platform operators from client org user lists.
-      // They have legitimate memberships for admin access, but clients shouldn't see them.
       const isSSBOrg = orgData?.org_identifier === "SSB1";
       if (!isSSBOrg) {
         visibleMembers = visibleMembers.filter(
@@ -209,6 +236,12 @@ export default function SettingsPage() {
 
       setMembers(visibleMembers);
     }
+
+    // ── NEW: store pending invites ────────────────────────────────────────
+    if (inviteData) {
+      setPendingInvites(inviteData as InviteRecord[]);
+    }
+
     if (jobTitleData) setJobTitles(jobTitleData);
     if (roleData) setRoles(roleData);
     if (presetData) setCapabilityPresets(presetData);
@@ -298,7 +331,6 @@ export default function SettingsPage() {
     } else {
       setProfile({ ...profile, ...profileDraft } as UserProfile);
       setEditingProfile(false);
-      // Refresh to update member list with new name
       await fetchData();
     }
   };
@@ -339,6 +371,56 @@ export default function SettingsPage() {
     });
   };
 
+  // =================== RESEND INVITE ===================
+  const resendInvite = async () => {
+    if (!managingInvite) return;
+    setInviteActionLoading(true);
+    setInviteActionMessage(null);
+    try {
+      const res = await fetch("/api/send-invite-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: managingInvite.invite_email,
+          orgId: managingInvite.org_id,
+          isReminder: true,
+        }),
+      });
+      if (res.ok) {
+        setInviteActionMessage("Reminder email sent successfully!");
+      } else {
+        setInviteActionMessage("Could not send email. Please try again.");
+      }
+    } catch {
+      setInviteActionMessage("Could not send email. Please try again.");
+    } finally {
+      setInviteActionLoading(false);
+    }
+  };
+
+  // =================== REVOKE INVITE ===================
+  const revokeInvite = async () => {
+    if (!managingInvite) return;
+    if (!confirm(`Revoke the invite for ${managingInvite.invite_email}? They won't be able to join with this invite.`)) return;
+    setInviteActionLoading(true);
+    try {
+      const { error } = await supabase
+        .from("a_org_invites")
+        .update({ status: "revoked" })
+        .eq("invite_id", managingInvite.invite_id);
+
+      if (error) {
+        alert("Failed to revoke invite: " + error.message);
+      } else {
+        setManagingInvite(null);
+        setInviteActionMessage(null);
+        await fetchData();
+      }
+    } finally {
+      setInviteActionLoading(false);
+    }
+  };
+
   // =================== ADD USER — INVITE FLOW ===================
   const addUser = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -348,7 +430,6 @@ export default function SettingsPage() {
 
     const email = inviteEmail.trim().toLowerCase();
     
-    // Validate required fields
     if (!email) {
       setInviteError("Email is required.");
       setShakeForm(true);
@@ -376,7 +457,6 @@ export default function SettingsPage() {
     setInviteLoading(true);
 
     try {
-      // Check if user already exists in a_users
       const { data: existingUser } = await supabase
         .from("a_users")
         .select("user_id")
@@ -384,7 +464,6 @@ export default function SettingsPage() {
         .maybeSingle();
 
       if (existingUser) {
-        // User exists - check if they already have a membership in this org
         const { data: existingMembership } = await supabase
           .from("a_orgs_users_memberships")
           .select("membership_id")
@@ -398,7 +477,6 @@ export default function SettingsPage() {
           return;
         }
 
-        // Create membership directly
         const { error: membershipError } = await supabase
           .from("a_orgs_users_memberships")
           .insert({
@@ -417,16 +495,15 @@ export default function SettingsPage() {
           await fetchData();
         }
       } else {
-        // User doesn't exist - check if invite already exists for this email + org
         const { data: existingInvite } = await supabase
           .from("a_org_invites")
           .select("invite_id")
           .eq("invite_email", email)
           .eq("org_id", org.org_id)
+          .eq("status", "active")
           .maybeSingle();
 
         if (existingInvite) {
-          // Send reminder email
           try {
             const res = await fetch("/api/send-invite-email", {
               method: "POST",
@@ -446,7 +523,6 @@ export default function SettingsPage() {
             setInviteMessage("An invite already exists. Reminder email could not be sent.");
           }
         } else {
-          // Create new invite
           const { error: inviteDbError } = await supabase
             .from("a_org_invites")
             .insert({
@@ -462,7 +538,6 @@ export default function SettingsPage() {
           if (inviteDbError) {
             setInviteError("Failed to create invite: " + inviteDbError.message);
           } else {
-            // Send invite email
             try {
               const res = await fetch("/api/send-invite-email", {
                 method: "POST",
@@ -475,7 +550,7 @@ export default function SettingsPage() {
                 }),
               });
               if (res.ok) {
-                setInviteMessage("Invite created and email sent! User will be added when they sign up.");
+                setInviteMessage("Invite sent! They'll be added when they sign up.");
               } else {
                 const errData = await res.json();
                 console.error("Email send error:", errData);
@@ -485,6 +560,8 @@ export default function SettingsPage() {
               console.error("Email fetch error:", emailErr);
               setInviteMessage("Invite created but email could not be sent. User can still sign up with the org code.");
             }
+            // Refresh so the invite shows in the table immediately
+            await fetchData();
           }
         }
       }
@@ -496,7 +573,6 @@ export default function SettingsPage() {
     }
   };
 
-  // Reset invite form
   const resetInviteForm = () => {
     setInviteEmail("");
     setInviteJobTitle("");
@@ -516,6 +592,14 @@ export default function SettingsPage() {
     }
   };
 
+  // ── NEW: helper to look up labels from lookup tables ─────────────────────
+  const getJobTitleLabel = (key: string | null) =>
+    jobTitles.find((j) => j.job_title_key === key)?.label ?? key ?? "-";
+  const getRoleLabel = (key: string | null) =>
+    roles.find((r) => r.role === key)?.label ?? key ?? "-";
+  const getPresetLabel = (key: string | null) =>
+    capabilityPresets.find((c) => c.preset_key === key)?.label ?? key ?? "-";
+
   const filteredAndSortedMembers = members
     .filter((m) => {
       const s = searchTerm.toLowerCase();
@@ -534,6 +618,16 @@ export default function SettingsPage() {
       if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
       return 0;
     });
+
+  // ── NEW: filter pending invites by search term ────────────────────────────
+  const filteredInvites = pendingInvites.filter((inv) => {
+    const s = searchTerm.toLowerCase();
+    return (
+      inv.invite_email.toLowerCase().includes(s) ||
+      (inv.default_role ?? "").toLowerCase().includes(s) ||
+      (inv.default_job_title ?? "").toLowerCase().includes(s)
+    );
+  });
 
   if (loading)
     return <div className="p-6 text-gray-500 text-sm">Loading settings...</div>;
@@ -590,10 +684,8 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* ORG FIELDS */}
         {org ? (
           <div className="grid grid-cols-2 gap-4 text-sm">
-            {/* Organization Name */}
             <div>
               <p className="text-gray-500">Organization Name</p>
               {editingOrg ? (
@@ -610,13 +702,11 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Org Identifier */}
             <div>
               <p className="text-gray-500">Organization Code</p>
               <p className="font-medium">{org.org_identifier || "-"}</p>
             </div>
 
-            {/* Owner Name */}
             <div>
               <p className="text-gray-500">Owner Name</p>
               {editingOrg ? (
@@ -647,7 +737,6 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Owner Email */}
             <div>
               <p className="text-gray-500">Owner Email</p>
               {editingOrg ? (
@@ -664,7 +753,6 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Billing Address */}
             <div className="col-span-2">
               <p className="text-gray-500">Billing Address</p>
               {editingOrg ? (
@@ -728,7 +816,6 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Created */}
             <div>
               <p className="text-gray-500">Created</p>
               <p className="font-medium">
@@ -823,7 +910,6 @@ export default function SettingsPage() {
 
         {profile ? (
           <div className="grid grid-cols-3 gap-4 text-sm">
-            {/* First Name */}
             <div>
               <p className="text-gray-500">First Name</p>
               {editingProfile ? (
@@ -840,7 +926,6 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Last Name */}
             <div>
               <p className="text-gray-500">Last Name</p>
               {editingProfile ? (
@@ -857,13 +942,11 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Email (read-only) */}
             <div>
               <p className="text-gray-500">Email</p>
               <p className="font-medium">{profile.email}</p>
             </div>
 
-            {/* Phone */}
             <div>
               <p className="text-gray-500">Phone Number</p>
               {editingProfile ? (
@@ -880,7 +963,6 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Time Format */}
             <div>
               <p className="text-gray-500">Time Format</p>
               {editingProfile ? (
@@ -899,7 +981,6 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Units */}
             <div>
               <p className="text-gray-500">Units</p>
               {editingProfile ? (
@@ -929,6 +1010,12 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3">
             <Users className="w-6 h-6 text-green-600" />
             <h2 className="text-xl font-semibold">User Management</h2>
+            {/* ── NEW: badge showing pending invite count ── */}
+            {pendingInvites.length > 0 && (
+              <span className="text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-2 py-0.5">
+                {pendingInvites.length} pending invite{pendingInvites.length !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
 
           <div className="flex gap-3 items-center">
@@ -977,6 +1064,40 @@ export default function SettingsPage() {
           </thead>
 
           <tbody>
+            {/* ── NEW: pending invite rows (shown first, amber tinted) ────── */}
+            {filteredInvites.map((inv) => (
+              <tr
+                key={`invite-${inv.invite_id}`}
+                onClick={() => {
+                  setManagingInvite(inv);
+                  setInviteActionMessage(null);
+                }}
+                className="border-b bg-amber-50 hover:bg-amber-100 transition cursor-pointer"
+              >
+                {/* Name — show envelope icon since we don't have a name yet */}
+                <td className="p-3">
+                  <span className="flex items-center gap-1.5 text-amber-700">
+                    <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="italic text-gray-500">Awaiting signup</span>
+                  </span>
+                </td>
+                <td className="p-3 text-amber-800 font-medium">{inv.invite_email}</td>
+                <td className="p-3 text-gray-400">—</td>
+                <td className="p-3">{getJobTitleLabel(inv.default_job_title)}</td>
+                <td className="p-3">{getRoleLabel(inv.default_role)}</td>
+                <td className="p-3">{getPresetLabel(inv.default_capability_preset)}</td>
+                <td className="p-3">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 border border-amber-300 rounded-full px-2 py-0.5">
+                    <Mail className="w-3 h-3" /> Invited
+                  </span>
+                </td>
+                <td className="p-3 text-gray-500">
+                  {new Date(inv.created_at).toLocaleDateString()}
+                </td>
+              </tr>
+            ))}
+
+            {/* ── Active / existing members ──────────────────────────────── */}
             {filteredAndSortedMembers.length ? (
               filteredAndSortedMembers.map((m) => (
                 <tr
@@ -1006,13 +1127,13 @@ export default function SettingsPage() {
                   </td>
                 </tr>
               ))
-            ) : (
+            ) : filteredInvites.length === 0 ? (
               <tr>
                 <td colSpan={8} className="text-center text-gray-500 p-4">
                   No users found.
                 </td>
               </tr>
-            )}
+            ) : null}
           </tbody>
         </table>
       </div>
@@ -1028,7 +1149,6 @@ export default function SettingsPage() {
             <h3 className="text-lg font-semibold mb-4">Add User</h3>
 
             {inviteMessage ? (
-              // Success state
               <div className="space-y-4">
                 <div className="bg-emerald-50 text-emerald-700 text-sm rounded-md px-4 py-3 border border-emerald-200">
                   {inviteMessage}
@@ -1058,9 +1178,7 @@ export default function SettingsPage() {
                 </div>
               </div>
             ) : (
-              // Form state
               <form onSubmit={addUser} className="space-y-4 text-sm">
-                {/* Email */}
                 <div>
                   <label className="block text-gray-600 mb-1">
                     Email<span className="text-red-500">*</span>
@@ -1074,7 +1192,6 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                {/* Job Title */}
                 <div>
                   <label className="block text-gray-600 mb-1">
                     Job Title<span className="text-red-500">*</span>
@@ -1093,7 +1210,6 @@ export default function SettingsPage() {
                   </select>
                 </div>
 
-                {/* Role */}
                 <div>
                   <label className="block text-gray-600 mb-1">
                     Role<span className="text-red-500">*</span>
@@ -1112,7 +1228,6 @@ export default function SettingsPage() {
                   </select>
                 </div>
 
-                {/* Access Level */}
                 <div>
                   <label className="block text-gray-600 mb-1">
                     Access Level<span className="text-red-500">*</span>
@@ -1168,6 +1283,74 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {/* ================= MANAGE INVITE MODAL (NEW) ================= */}
+      {managingInvite && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-[420px] p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Manage Invite</h3>
+              <button onClick={() => { setManagingInvite(null); setInviteActionMessage(null); }}>
+                <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+              </button>
+            </div>
+
+            {/* Invite details */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 space-y-1.5 text-sm">
+              <div className="flex items-center gap-2 text-amber-700 font-medium">
+                <Mail className="w-4 h-4" />
+                {managingInvite.invite_email}
+              </div>
+              <p className="text-gray-600">
+                <span className="text-gray-500">Job Title: </span>
+                {getJobTitleLabel(managingInvite.default_job_title)}
+              </p>
+              <p className="text-gray-600">
+                <span className="text-gray-500">Role: </span>
+                {getRoleLabel(managingInvite.default_role)}
+              </p>
+              <p className="text-gray-600">
+                <span className="text-gray-500">Access Level: </span>
+                {getPresetLabel(managingInvite.default_capability_preset)}
+              </p>
+              <p className="text-gray-500 text-xs mt-1">
+                Invited on {new Date(managingInvite.created_at).toLocaleDateString()}
+              </p>
+            </div>
+
+            {inviteActionMessage && (
+              <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 mb-4">
+                {inviteActionMessage}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500 mb-4">
+              This person hasn't signed up yet. You can resend the invite email or revoke it.
+            </p>
+
+            <div className="flex justify-between items-center pt-3 border-t">
+              {/* Revoke — destructive, left-aligned */}
+              <button
+                onClick={revokeInvite}
+                disabled={inviteActionLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 border border-red-300 rounded-md hover:bg-red-50 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" /> Revoke Invite
+              </button>
+
+              {/* Resend — right-aligned */}
+              <button
+                onClick={resendInvite}
+                disabled={inviteActionLoading}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-sm text-white rounded-md bg-gradient-to-r from-green-600 to-yellow-400 disabled:opacity-60"
+              >
+                <RefreshCw className="w-4 h-4" />
+                {inviteActionLoading ? "Sending..." : "Resend Email"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ================= EDIT MEMBER MODAL ================= */}
       {editingMember && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
@@ -1175,14 +1358,12 @@ export default function SettingsPage() {
             <h3 className="text-lg font-semibold mb-4">Edit Member</h3>
 
             <div className="space-y-4 text-sm">
-              {/* Read-only info */}
               <div className="bg-gray-50 rounded-lg p-3">
                 <p className="text-gray-500 text-xs mb-1">Member</p>
                 <p className="font-medium">{editingMember.first_name} {editingMember.last_name}</p>
                 <p className="text-gray-600">{editingMember.email}</p>
               </div>
 
-              {/* Job Title */}
               <div>
                 <label className="block text-gray-600 mb-1">Job Title</label>
                 <select
@@ -1201,7 +1382,6 @@ export default function SettingsPage() {
                 </select>
               </div>
 
-              {/* Role */}
               <div>
                 <label className="block text-gray-600 mb-1">Role</label>
                 <select
@@ -1219,7 +1399,6 @@ export default function SettingsPage() {
                 </select>
               </div>
 
-              {/* Access Level */}
               <div>
                 <label className="block text-gray-600 mb-1">Access Level</label>
                 <select
@@ -1238,7 +1417,6 @@ export default function SettingsPage() {
                 </select>
               </div>
 
-              {/* Status */}
               <div>
                 <label className="block text-gray-600 mb-1">Status</label>
                 <select
@@ -1277,21 +1455,11 @@ export default function SettingsPage() {
       {/* Shake Animation */}
       <style jsx>{`
         @keyframes shake {
-          0% {
-            transform: translateX(0);
-          }
-          25% {
-            transform: translateX(-5px);
-          }
-          50% {
-            transform: translateX(5px);
-          }
-          75% {
-            transform: translateX(-5px);
-          }
-          100% {
-            transform: translateX(0);
-          }
+          0% { transform: translateX(0); }
+          25% { transform: translateX(-5px); }
+          50% { transform: translateX(5px); }
+          75% { transform: translateX(-5px); }
+          100% { transform: translateX(0); }
         }
         .animate-shake {
           animation: shake 0.3s ease;
