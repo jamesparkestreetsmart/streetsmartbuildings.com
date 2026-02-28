@@ -13,13 +13,14 @@ interface HAConfig {
 // Maps a_devices.protocol → HA service domain for reload
 const PROTOCOL_TO_HA_SERVICE: Record<string, string> = {
   modbus: "modbus",
+  "z-wave": "zwave_js",
   zwave: "zwave_js",
   zwave_js: "zwave_js",
   mqtt: "mqtt",
 };
 
 // How many consecutive 5-min snapshots must be unavailable before we act
-const CONSECUTIVE_UNAVAILABLE_THRESHOLD = 2; // 10 minutes
+const CONSECUTIVE_UNAVAILABLE_THRESHOLD = 2; // ~10 minutes
 
 // ─── Main Export ─────────────────────────────────────────────────────────────
 
@@ -29,21 +30,34 @@ export async function checkIntegrationHealth(
   orgId: string,
   haConfig: HAConfig
 ): Promise<void> {
-  // 1. Get all devices for this site that have a protocol and entity_id
-  const { data: devices, error: devErr } = await supabase
-    .from("a_devices")
-    .select("device_id, equipment_id, protocol, entity_id, ha_device_id, device_name")
+  // 1. Get all sensors for this site joined to their device protocol info
+  //    Entity IDs live in a_sensors, not a_devices.entity_id
+  const { data: sensors, error: sensorErr } = await supabase
+    .from("a_sensors")
+    .select(`
+      entity_id,
+      sensor_type,
+      device_id,
+      equipment_id,
+      a_devices!inner (
+        device_id,
+        device_name,
+        protocol,
+        ha_device_id,
+        equipment_id
+      )
+    `)
     .eq("site_id", siteId)
-    .not("protocol", "is", null)
-    .not("entity_id", "is", null);
+    .not("entity_id", "is", null)
+    .not("a_devices.protocol", "is", null);
 
-  if (devErr || !devices || devices.length === 0) return;
+  if (sensorErr || !sensors || sensors.length === 0) return;
 
-  // 2. Get current entity states from b_entity_sync for this site
-  const entityIds = devices.map((d) => d.entity_id).filter(Boolean);
+  // 2. Get current entity states from b_entity_sync
+  const entityIds = sensors.map((s) => s.entity_id).filter(Boolean);
   const { data: entityStates, error: syncErr } = await supabase
     .from("b_entity_sync")
-    .select("entity_id, last_state, last_updated, equipment_id, ha_device_id")
+    .select("entity_id, last_state, last_updated, ha_device_id")
     .eq("site_id", siteId)
     .in("entity_id", entityIds);
 
@@ -51,7 +65,7 @@ export async function checkIntegrationHealth(
 
   const stateByEntity = new Map(entityStates.map((e) => [e.entity_id, e]));
 
-  // 3. Group devices by protocol + ha_device_id to detect integration-level failures
+  // 3. Group by device (protocol + ha_device_id) to detect device-level failures
   type DeviceGroup = {
     protocol: string;
     ha_device_id: string | null;
@@ -64,7 +78,10 @@ export async function checkIntegrationHealth(
 
   const groupMap = new Map<string, DeviceGroup>();
 
-  for (const device of devices) {
+  for (const sensor of sensors) {
+    const device = (sensor as any).a_devices;
+    if (!device?.protocol) continue;
+
     const key = `${device.protocol}::${device.ha_device_id || device.device_id}`;
     if (!groupMap.has(key)) {
       groupMap.set(key, {
@@ -72,15 +89,15 @@ export async function checkIntegrationHealth(
         ha_device_id: device.ha_device_id,
         device_id: device.device_id,
         device_name: device.device_name,
-        equipment_id: device.equipment_id,
+        equipment_id: sensor.equipment_id || device.equipment_id,
         entities: [],
         unavailableCount: 0,
       });
     }
     const group = groupMap.get(key)!;
-    group.entities.push(device.entity_id);
+    group.entities.push(sensor.entity_id);
 
-    const state = stateByEntity.get(device.entity_id);
+    const state = stateByEntity.get(sensor.entity_id);
     if (state?.last_state === "unavailable" || state?.last_state === "unknown") {
       group.unavailableCount++;
     }
@@ -115,7 +132,7 @@ export async function checkIntegrationHealth(
       // ── Integration is DOWN ──────────────────────────────────────────────
 
       if (!openIncident) {
-        // First detection — check how long it's been unavailable
+        // Measure how long it's been unavailable via last_updated staleness
         const oldestUnavailable = group.entities
           .map((eid) => stateByEntity.get(eid))
           .filter((s) => s?.last_state === "unavailable" || s?.last_state === "unknown")
@@ -133,10 +150,10 @@ export async function checkIntegrationHealth(
           continue;
         }
 
-        // Trigger HA reload first so we can record the result
+        // Trigger HA reload
         const reloadSuccess = await triggerHAReload(haConfig, group.protocol);
 
-        // Create new incident
+        // Create incident record
         const { data: newIncident } = await supabase
           .from("b_integration_health_log")
           .insert({
@@ -154,7 +171,7 @@ export async function checkIntegrationHealth(
           .select("id")
           .single();
 
-        // Write audit row to b_records_log
+        // Audit log
         await supabase.from("b_records_log").insert({
           org_id: orgId,
           site_id: siteId,
@@ -178,7 +195,7 @@ export async function checkIntegrationHealth(
         });
 
         console.log(
-          `[integration-health] Site ${siteId}: ${integrationName} unavailable for ~${Math.round(minutesUnavailable)}min. Reload ${reloadSuccess ? "OK" : "FAILED"}.`
+          `[integration-health] Site ${siteId}: ${integrationName} unavailable ~${Math.round(minutesUnavailable)}min. Reload ${reloadSuccess ? "OK" : "FAILED"}.`
         );
       } else {
         // ── Existing open incident — increment and retry with backoff ───────
@@ -194,7 +211,7 @@ export async function checkIntegrationHealth(
           })
           .eq("id", openIncident.id);
 
-        // Retry reload on odd attempts to avoid hammering HA
+        // Retry on odd attempts only to avoid hammering HA
         if (attempts % 2 === 1) {
           const reloadSuccess = await triggerHAReload(haConfig, group.protocol);
 
