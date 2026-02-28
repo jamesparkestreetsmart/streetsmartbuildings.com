@@ -186,22 +186,35 @@ export async function POST(req: Request) {
       );
     }
 
-    // 6) Update invite usage (only for email invites, not domain invites)
+    // 6) Fulfill the invite
+    // For email invites: mark as fulfilled (person joined)
+    // For domain invites: update usage count (domain invites serve multiple people)
     if (!isDomainInvite) {
-      const newUsedCount = (invite.used_count ?? 0) + 1;
-      let newStatus = invite.status;
-      if (invite.max_uses && newUsedCount >= invite.max_uses) {
-        newStatus = "inactive";
-      }
-
       await supabase
         .from("a_org_invites")
         .update({
-          used_count: newUsedCount,
-          status: newStatus,
+          used_count: (invite.used_count ?? 0) + 1,
+          status: "fulfilled",
+        })
+        .eq("invite_id", invite.invite_id);
+    } else {
+      // Domain invite stays active but bump usage count
+      await supabase
+        .from("a_org_invites")
+        .update({
+          used_count: (invite.used_count ?? 0) + 1,
         })
         .eq("invite_id", invite.invite_id);
     }
+
+    // Also fulfill any OTHER active email-specific invites for this user in this org
+    // (e.g., if someone was invited by email AND matched a domain invite)
+    await supabase
+      .from("a_org_invites")
+      .update({ status: "fulfilled" })
+      .eq("invite_email", email)
+      .eq("org_id", orgId)
+      .eq("status", "active");
 
     // Note: The membership INSERT trigger automatically logs the "user_joined" event
 

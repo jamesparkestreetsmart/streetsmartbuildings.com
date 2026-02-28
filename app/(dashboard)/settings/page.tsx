@@ -237,8 +237,27 @@ export default function SettingsPage() {
       setMembers(visibleMembers);
     }
 
-    // ── NEW: store pending invites ────────────────────────────────────────
-    if (inviteData) {
+    // ── Auto-fulfill invites where the person already joined ────────────
+    if (inviteData && memberData) {
+      const memberEmails = new Set(
+        memberData.map((m: any) => (m.email || "").toLowerCase()).filter(Boolean)
+      );
+      const alreadyJoined = inviteData.filter(
+        (inv: any) => memberEmails.has((inv.invite_email || "").toLowerCase())
+      );
+      if (alreadyJoined.length > 0) {
+        const fulfillIds = alreadyJoined.map((inv: any) => inv.invite_id);
+        await supabase
+          .from("a_org_invites")
+          .update({ status: "fulfilled" })
+          .eq("org_id", selectedOrgId)
+          .in("invite_id", fulfillIds);
+      }
+      const stillPending = inviteData.filter(
+        (inv: any) => !memberEmails.has((inv.invite_email || "").toLowerCase())
+      );
+      setPendingInvites(stillPending as InviteRecord[]);
+    } else if (inviteData) {
       setPendingInvites(inviteData as InviteRecord[]);
     }
 
@@ -491,6 +510,14 @@ export default function SettingsPage() {
         if (membershipError) {
           setInviteError("Failed to add user: " + membershipError.message);
         } else {
+          // Fulfill any active invite for this email in this org
+          await supabase
+            .from("a_org_invites")
+            .update({ status: "fulfilled" })
+            .eq("invite_email", email)
+            .eq("org_id", org.org_id)
+            .eq("status", "active");
+
           setInviteMessage("User added to organization successfully!");
           await fetchData();
         }
