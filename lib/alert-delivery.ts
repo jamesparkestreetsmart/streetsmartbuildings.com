@@ -1,5 +1,6 @@
 // lib/alert-delivery.ts
 import { SupabaseClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 import nodemailer from "nodemailer";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -151,25 +152,9 @@ async function sendSms(notif: PendingNotification, phoneNumber: string): Promise
   });
 }
 
-// ─── Email via Gmail/Nodemailer ──────────────────────────────────────────────
+// ─── Email via Resend (primary) or Gmail/Nodemailer (fallback) ───────────────
 
-async function sendEmail(notif: PendingNotification, emailAddress: string): Promise<void> {
-  const gmailUser = process.env.GMAIL_USER;
-  const gmailPass = process.env.GMAIL_APP_PASSWORD;
-
-  if (!gmailUser || !gmailPass) {
-    throw new Error("Gmail credentials not configured (GMAIL_USER, GMAIL_APP_PASSWORD)");
-  }
-
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: gmailUser,
-      pass: gmailPass,
-    },
-  });
-
-  // Build email HTML
+function buildEmailContent(notif: PendingNotification): { subject: string; html: string } {
   const severityColor = notif.severity === "critical" ? "#dc2626" : notif.severity === "warning" ? "#f59e0b" : "#3b82f6";
   const severityLabel = notif.severity.charAt(0).toUpperCase() + notif.severity.slice(1);
 
@@ -201,6 +186,44 @@ async function sendEmail(notif: PendingNotification, emailAddress: string): Prom
     </div>
   `;
 
+  return { subject, html };
+}
+
+async function sendEmail(notif: PendingNotification, emailAddress: string): Promise<void> {
+  const { subject, html } = buildEmailContent(notif);
+
+  // Primary: Resend
+  const resendApiKey = process.env.RESEND_API_KEY;
+  if (resendApiKey) {
+    const resend = new Resend(resendApiKey);
+    const { error } = await resend.emails.send({
+      from: "Eagle Eyes Alerts <alerts@streetsmartbuildings.com>",
+      to: emailAddress,
+      subject,
+      html,
+    });
+    if (error) {
+      throw new Error(`Resend error: ${error.message}`);
+    }
+    return;
+  }
+
+  // Fallback: Gmail/Nodemailer
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+
+  if (!gmailUser || !gmailPass) {
+    throw new Error("No email provider configured (set RESEND_API_KEY or GMAIL_USER + GMAIL_APP_PASSWORD)");
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: gmailUser,
+      pass: gmailPass,
+    },
+  });
+
   await transporter.sendMail({
     from: `Eagle Eyes Alerts <${gmailUser}>`,
     to: emailAddress,
@@ -224,18 +247,14 @@ async function resolveRecipientAddress(
   }
 
   if (channel === "sms") {
-    // Get phone from b_user_notification_prefs
-    const { data: prefs } = await supabase
-      .from("b_user_notification_prefs")
-      .select("phone_number, sms_verified")
+    // Get phone from a_users
+    const { data: user } = await supabase
+      .from("a_users")
+      .select("phone_number")
       .eq("user_id", userId)
-      .eq("org_id", orgId)
       .single();
 
-    if (!prefs?.phone_number) return null;
-    // For now, allow unverified too since we're in early stage
-    // In production, enforce: if (!prefs.sms_verified) return null;
-    return prefs.phone_number;
+    return user?.phone_number || null;
   }
 
   return null;

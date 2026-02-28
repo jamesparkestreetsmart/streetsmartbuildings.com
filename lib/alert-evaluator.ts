@@ -939,14 +939,13 @@ async function createSmsDelivery(
   title: string,
   message: string
 ): Promise<void> {
-  const { data: prefs } = await supabase
-    .from("b_user_notification_prefs")
-    .select("phone_number, sms_verified")
+  const { data: userRow } = await supabase
+    .from("a_users")
+    .select("phone_number")
     .eq("user_id", sub.user_id)
-    .eq("org_id", def.org_id)
     .single();
 
-  if (!prefs?.phone_number || !prefs?.sms_verified) return;
+  if (!userRow?.phone_number) return;
 
   await supabase.from("b_alert_notifications").insert({
     org_id: def.org_id,
@@ -955,7 +954,7 @@ async function createSmsDelivery(
     channel: "sms",
     notification_type: notificationType,
     recipient_user_id: sub.user_id,
-    recipient_address: prefs.phone_number,
+    recipient_address: userRow.phone_number,
     title,
     message,
     severity: def.severity,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 import nodemailer from "nodemailer";
 
 export const dynamic = "force-dynamic";
@@ -85,14 +86,23 @@ async function handleCron(req: NextRequest) {
       }
     }
 
-    // 4. Set up transporter
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
-    });
+    // 4. Set up email sender (Resend primary, Gmail fallback)
+    const resendApiKey = process.env.RESEND_API_KEY;
+    const useResend = !!resendApiKey;
+
+    let transporter: any = null;
+    if (!useResend) {
+      transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: process.env.GMAIL_USER,
+          pass: process.env.GMAIL_APP_PASSWORD,
+        },
+      });
+    }
+
+    const resend = useResend ? new Resend(resendApiKey) : null;
+    console.log(`[email-cron] Using ${useResend ? 'Resend' : 'Gmail'} for delivery`);
 
     // 5. Send each email, update z_marketing_leads directly
     let sentCount = 0;
@@ -120,25 +130,42 @@ async function handleCron(req: NextRequest) {
         .replace(/\{\{first_name\}\}/g, firstName)
         .replace(/\{\{email\}\}/g, lead.email);
 
-      const mailOptions: any = {
-        from: `James <${process.env.GMAIL_USER}>`,
-        to: lead.email,
-        subject,
-        text: body,
-      };
-
-      if (pdfBuffer) {
-        mailOptions.attachments = [{
-          filename: "EagleEyes_Overview_Presentation.pdf",
-          content: pdfBuffer,
-          contentType: "application/pdf",
-        }];
-      }
-
       try {
         console.log('[email-cron] Sending to:', lead.email, 'subject:', subject, 'hasPDF:', !!pdfBuffer);
-        const sendResult = await transporter.sendMail(mailOptions);
-        console.log('[email-cron] Send result:', lead.email, 'messageId:', sendResult.messageId, 'response:', sendResult.response);
+
+        if (resend) {
+          // Resend path
+          const attachments = pdfBuffer
+            ? [{ filename: "EagleEyes_Overview_Presentation.pdf", content: pdfBuffer }]
+            : undefined;
+
+          const { error: resendErr } = await resend.emails.send({
+            from: "James <alerts@streetsmartbuildings.com>",
+            to: lead.email,
+            subject,
+            text: body,
+            attachments,
+          });
+          if (resendErr) throw new Error(`Resend: ${resendErr.message}`);
+          console.log('[email-cron] Resend sent to:', lead.email);
+        } else {
+          // Gmail fallback
+          const mailOptions: any = {
+            from: `James <${process.env.GMAIL_USER}>`,
+            to: lead.email,
+            subject,
+            text: body,
+          };
+          if (pdfBuffer) {
+            mailOptions.attachments = [{
+              filename: "EagleEyes_Overview_Presentation.pdf",
+              content: pdfBuffer,
+              contentType: "application/pdf",
+            }];
+          }
+          const sendResult = await transporter.sendMail(mailOptions);
+          console.log('[email-cron] Gmail sent to:', lead.email, 'messageId:', sendResult.messageId);
+        }
 
         await supabase
           .from("z_marketing_leads")
