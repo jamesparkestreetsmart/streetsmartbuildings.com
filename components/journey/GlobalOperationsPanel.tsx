@@ -29,7 +29,36 @@ interface ThermostatProfile {
   site_count: number;
 }
 
+interface AnomalyConfigProfile {
+  profile_id: string;
+  org_id: string;
+  profile_name: string;
+  is_global: boolean;
+  created_at: string;
+  coil_freeze_temp_f: number | null;
+  delayed_response_min: number | null;
+  idle_heat_gain_f: number | null;
+  long_cycle_min: number | null;
+  short_cycle_count_1h: number | null;
+  filter_restriction_delta_t_max: number | null;
+  refrigerant_low_delta_t_min: number | null;
+  efficiency_ratio_min_pct: number | null;
+  compressor_current_threshold_a: number | null;
+}
+
 type ActiveTab = "anomaly" | "thermostat" | "storehours";
+
+const THRESHOLD_KEYS = [
+  "coil_freeze_temp_f",
+  "delayed_response_min",
+  "idle_heat_gain_f",
+  "long_cycle_min",
+  "short_cycle_count_1h",
+  "filter_restriction_delta_t_max",
+  "refrigerant_low_delta_t_min",
+  "efficiency_ratio_min_pct",
+  "compressor_current_threshold_a",
+] as const;
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -51,6 +80,18 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const [labels, setLabels] = useState<Record<string, ThresholdMeta>>({});
   const [editingThresholds, setEditingThresholds] = useState<Record<string, number>>({});
   const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
+  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set(THRESHOLD_KEYS));
+
+  // ─── Anomaly Config Profiles State ─────────────────────────────────────────
+  const [configProfiles, setConfigProfiles] = useState<AnomalyConfigProfile[]>([]);
+  const [configProfilesLoading, setConfigProfilesLoading] = useState(false);
+  const [selectedConfigProfileId, setSelectedConfigProfileId] = useState("");
+  const [showProfileList, setShowProfileList] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [saveProfileName, setSaveProfileName] = useState("");
+  const [saveProfileResult, setSaveProfileResult] = useState<string | null>(null);
+  const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
 
   // ─── Thermostat State ──────────────────────────────────────────────────────
   const [profiles, setProfiles] = useState<ThermostatProfile[]>([]);
@@ -61,6 +102,9 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const [pushing, setPushing] = useState(false);
   const [pushResult, setPushResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  // ─── Derived: checked + dirty field count ──────────────────────────────────
+  const activeFieldCount = [...checkedKeys].filter((k) => dirtyKeys.has(k)).length;
 
   // ─── Fetch zones + anomaly config ──────────────────────────────────────────
   const fetchZones = useCallback(async () => {
@@ -78,6 +122,20 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
       console.error("Failed to fetch anomaly config:", err);
     } finally {
       setZonesLoading(false);
+    }
+  }, [orgId]);
+
+  // ─── Fetch anomaly config profiles ─────────────────────────────────────────
+  const fetchConfigProfiles = useCallback(async () => {
+    setConfigProfilesLoading(true);
+    try {
+      const res = await fetch(`/api/anomaly-config/profiles?org_id=${orgId}`);
+      const data = await res.json();
+      if (data.profiles) setConfigProfiles(data.profiles);
+    } catch (err) {
+      console.error("Failed to fetch config profiles:", err);
+    } finally {
+      setConfigProfilesLoading(false);
     }
   }, [orgId]);
 
@@ -102,6 +160,10 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   }, [fetchZones]);
 
   useEffect(() => {
+    if (activeTab === "anomaly") fetchConfigProfiles();
+  }, [activeTab, fetchConfigProfiles]);
+
+  useEffect(() => {
     if (activeTab === "thermostat") fetchProfiles();
   }, [activeTab, fetchProfiles]);
 
@@ -114,6 +176,19 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
 
   const selectAllZones = () => setSelectedZoneIds(zones.map((z) => z.hvac_zone_id));
   const clearZoneSelection = () => setSelectedZoneIds([]);
+
+  // ─── Checkbox Handlers ─────────────────────────────────────────────────────
+  const toggleCheck = (key: string) => {
+    setCheckedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   // ─── Threshold Edit Handlers ───────────────────────────────────────────────
   const updateThreshold = (key: string, value: number) => {
@@ -129,16 +204,102 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const resetThresholds = () => {
     setEditingThresholds({ ...defaults });
     setDirtyKeys(new Set());
+    setCheckedKeys(new Set(THRESHOLD_KEYS));
+  };
+
+  // ─── Profile Handlers ─────────────────────────────────────────────────────
+  const applyConfigProfile = (profile: AnomalyConfigProfile) => {
+    const newThresholds: Record<string, number> = {};
+    for (const key of THRESHOLD_KEYS) {
+      const val = profile[key as keyof AnomalyConfigProfile];
+      newThresholds[key] = typeof val === "number" ? val : defaults[key] ?? 0;
+    }
+    setEditingThresholds(newThresholds);
+    setCheckedKeys(new Set(THRESHOLD_KEYS));
+    // Mark all as dirty if different from defaults
+    const newDirty = new Set<string>();
+    for (const key of THRESHOLD_KEYS) {
+      if (newThresholds[key] !== defaults[key]) newDirty.add(key);
+    }
+    setDirtyKeys(newDirty);
+    setSelectedConfigProfileId("");
+  };
+
+  const handleSelectConfigProfile = (profileId: string) => {
+    setSelectedConfigProfileId(profileId);
+    const profile = configProfiles.find((p) => p.profile_id === profileId);
+    if (profile) applyConfigProfile(profile);
+  };
+
+  const saveCurrentAsProfile = async () => {
+    if (!saveProfileName.trim()) return;
+    setSavingProfile(true);
+    setSaveProfileResult(null);
+    try {
+      const body: Record<string, any> = {
+        org_id: orgId,
+        profile_name: saveProfileName.trim(),
+      };
+      for (const key of THRESHOLD_KEYS) {
+        body[key] = editingThresholds[key] ?? defaults[key] ?? 0;
+      }
+      const res = await fetch("/api/anomaly-config/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.profile) {
+        setSaveProfileResult("Saved!");
+        setSaveProfileName("");
+        setShowSaveInput(false);
+        fetchConfigProfiles();
+        setTimeout(() => setSaveProfileResult(null), 3000);
+      } else {
+        setSaveProfileResult(data.error || "Save failed");
+      }
+    } catch {
+      setSaveProfileResult("Network error");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const deleteConfigProfile = async (profileId: string) => {
+    try {
+      const res = await fetch(
+        `/api/anomaly-config/profiles?profile_id=${profileId}&org_id=${orgId}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json();
+      if (data.success) {
+        fetchConfigProfiles();
+      }
+    } catch {
+      console.error("Failed to delete profile");
+    } finally {
+      setDeletingProfileId(null);
+    }
   };
 
   // ─── Push: Anomaly Config ─────────────────────────────────────────────────
   const pushAnomalyConfig = async () => {
-    if (!selectedZoneIds.length || !dirtyKeys.size) return;
+    if (!selectedZoneIds.length || !activeFieldCount) return;
     setPushing(true);
     setPushResult(null);
 
+    // Only include checked + dirty keys
     const changedThresholds: Record<string, number> = {};
-    dirtyKeys.forEach((key) => { changedThresholds[key] = editingThresholds[key]; });
+    dirtyKeys.forEach((key) => {
+      if (checkedKeys.has(key)) {
+        changedThresholds[key] = editingThresholds[key];
+      }
+    });
+
+    if (!Object.keys(changedThresholds).length) {
+      setPushing(false);
+      return;
+    }
 
     try {
       const res = await fetch("/api/anomaly-config", {
@@ -332,37 +493,189 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
         {activeTab === "anomaly" && (
           <div>
             <p className="text-sm text-gray-500 mb-3">
-              Edit anomaly detection thresholds and push to selected zones. Changed values are highlighted.
+              Edit anomaly detection thresholds and push to selected zones. Check fields to include in push.
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {Object.entries(labels).map(([key, meta]) => (
-                <div
-                  key={key}
-                  className={`p-3 rounded-lg border transition-colors ${
-                    dirtyKeys.has(key)
-                      ? "border-amber-300 bg-amber-50"
-                      : "border-gray-200 bg-gray-50"
-                  }`}
+
+            {/* ── Profiles Section ────────────────────────────────────── */}
+            <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Profiles</label>
+                <select
+                  value={selectedConfigProfileId}
+                  onChange={(e) => handleSelectConfigProfile(e.target.value)}
+                  className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-sm font-medium text-gray-700">{meta.label}</label>
-                    <span className="text-xs text-gray-400">{meta.unit}</span>
-                  </div>
-                  <p className="text-xs text-gray-400 mb-2">{meta.description}</p>
+                  <option value="">Load a profile...</option>
+                  {configProfiles.map((p) => (
+                    <option key={p.profile_id} value={p.profile_id}>
+                      {p.is_global
+                        ? `\uD83D\uDCCB SSB: ${p.profile_name}`
+                        : `${p.profile_name} \u00B7 ${new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                    </option>
+                  ))}
+                </select>
+                {!showSaveInput ? (
+                  <button
+                    onClick={() => { setShowSaveInput(true); setSaveProfileResult(null); }}
+                    className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-300 rounded hover:bg-indigo-50 transition-colors whitespace-nowrap"
+                  >
+                    Save Current as Profile
+                  </button>
+                ) : (
                   <div className="flex items-center gap-2">
                     <input
-                      type="number"
-                      step={key.includes("current") || key.includes("ratio") ? "0.1" : "1"}
-                      value={editingThresholds[key] ?? defaults[key] ?? 0}
-                      onChange={(e) => updateThreshold(key, parseFloat(e.target.value) || 0)}
-                      className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                      type="text"
+                      value={saveProfileName}
+                      onChange={(e) => setSaveProfileName(e.target.value)}
+                      placeholder="Profile name..."
+                      className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 w-40"
+                      autoFocus
+                      onKeyDown={(e) => { if (e.key === "Enter") saveCurrentAsProfile(); if (e.key === "Escape") { setShowSaveInput(false); setSaveProfileName(""); } }}
                     />
-                    {dirtyKeys.has(key) && (
-                      <span className="text-xs text-amber-600">was {defaults[key]}</span>
-                    )}
+                    <button
+                      onClick={saveCurrentAsProfile}
+                      disabled={!saveProfileName.trim() || savingProfile}
+                      className="px-2.5 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                    >
+                      {savingProfile ? "..." : "Confirm"}
+                    </button>
+                    <button
+                      onClick={() => { setShowSaveInput(false); setSaveProfileName(""); }}
+                      className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Cancel
+                    </button>
                   </div>
+                )}
+                {saveProfileResult && (
+                  <span className={`text-xs ${saveProfileResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
+                    {saveProfileResult}
+                  </span>
+                )}
+              </div>
+
+              {/* Collapsible profile list */}
+              {configProfiles.length > 0 && (
+                <div className="mt-2">
+                  <button
+                    onClick={() => setShowProfileList(!showProfileList)}
+                    className="text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    {showProfileList ? "\u25BC" : "\u25B6"} {configProfiles.length} saved profile(s)
+                  </button>
+                  {showProfileList && (
+                    <div className="mt-2 space-y-1">
+                      {configProfiles.map((p) => (
+                        <div
+                          key={p.profile_id}
+                          className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>{p.is_global ? "\uD83D\uDD12" : "\uD83D\uDCCB"}</span>
+                            <span className="font-medium text-gray-800">{p.profile_name}</span>
+                            <span className="text-xs text-gray-400">
+                              {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => applyConfigProfile(p)}
+                              className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                            >
+                              Apply
+                            </button>
+                            {!p.is_global && (
+                              deletingProfileId === p.profile_id ? (
+                                <span className="flex items-center gap-1 text-xs">
+                                  <span className="text-red-600">Delete?</span>
+                                  <button
+                                    onClick={() => deleteConfigProfile(p.profile_id)}
+                                    className="px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 rounded font-medium"
+                                  >
+                                    Yes
+                                  </button>
+                                  <button
+                                    onClick={() => setDeletingProfileId(null)}
+                                    className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 rounded"
+                                  >
+                                    No
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => setDeletingProfileId(p.profile_id)}
+                                  className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              ))}
+              )}
+            </div>
+
+            {/* ── Threshold Fields with Checkboxes ────────────────────── */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {Object.entries(labels).map(([key, meta]) => {
+                const isChecked = checkedKeys.has(key);
+                const isDirty = dirtyKeys.has(key);
+                return (
+                  <div
+                    key={key}
+                    className={`p-3 rounded-lg border transition-colors ${
+                      !isChecked
+                        ? "border-gray-200 bg-gray-100 opacity-60"
+                        : isDirty
+                        ? "border-amber-300 bg-amber-50"
+                        : "border-gray-200 bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleCheck(key)}
+                          className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <label className={`text-sm font-medium ${isChecked ? "text-gray-700" : "text-gray-400"}`}>
+                          {meta.label}
+                        </label>
+                      </div>
+                      <span className="text-xs text-gray-400">{meta.unit}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mb-2 ml-6">{meta.description}</p>
+                    <div className="flex items-center gap-2 ml-6">
+                      {isChecked ? (
+                        <>
+                          <input
+                            type="number"
+                            step={key.includes("current") || key.includes("ratio") ? "0.1" : "1"}
+                            value={editingThresholds[key] ?? defaults[key] ?? 0}
+                            onChange={(e) => updateThreshold(key, parseFloat(e.target.value) || 0)}
+                            className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                          {isDirty && (
+                            <span className="text-xs text-amber-600">was {defaults[key]}</span>
+                          )}
+                        </>
+                      ) : (
+                        <input
+                          type="number"
+                          disabled
+                          value=""
+                          className="w-24 px-2 py-1 text-sm border border-gray-200 rounded bg-gray-200 text-gray-400 cursor-not-allowed"
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
               <button onClick={resetThresholds} className="text-sm text-gray-500 hover:text-gray-700">
@@ -370,10 +683,12 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
               </button>
               <button
                 onClick={() => setShowConfirm(true)}
-                disabled={!selectedZoneIds.length || !dirtyKeys.size || pushing}
+                disabled={!selectedZoneIds.length || !activeFieldCount || pushing}
                 className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {pushing ? "Pushing..." : `Push to ${selectedZoneIds.length} Zone(s)`}
+                {pushing
+                  ? "Pushing..."
+                  : `Push ${activeFieldCount} Field(s) to ${selectedZoneIds.length} Zone(s)`}
               </button>
             </div>
           </div>
@@ -471,7 +786,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
               <h4 className="text-lg font-semibold text-gray-900 mb-2">Confirm Push</h4>
               <p className="text-sm text-gray-600 mb-4">
                 {activeTab === "anomaly" && (
-                  <>Push <strong>{dirtyKeys.size}</strong> threshold change(s) to <strong>{selectedZoneIds.length}</strong> zone(s)?</>
+                  <>Push <strong>{activeFieldCount}</strong> field(s) to <strong>{selectedZoneIds.length}</strong> zone(s)?</>
                 )}
                 {activeTab === "thermostat" && (
                   <>Push thermostat profile to all linked zones? This will override current setpoints for non-override zones.</>

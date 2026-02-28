@@ -1,14 +1,62 @@
 // lib/email.ts
 
+import { Resend } from "resend";
 import nodemailer from "nodemailer";
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const RESEND_FROM = "Eagle Eyes <alerts@streetsmartbuildings.com>";
+
+async function sendMail({
+  to,
+  subject,
+  html,
+  text,
+}: {
+  to: string;
+  subject: string;
+  html?: string;
+  text?: string;
+}): Promise<void> {
+  // Primary: Resend
+  const resendApiKey = process.env.RESEND_API_KEY;
+  if (resendApiKey) {
+    const resend = new Resend(resendApiKey);
+    const payload: { from: string; to: string; subject: string; html?: string; text?: string } = {
+      from: RESEND_FROM,
+      to,
+      subject,
+    };
+    if (html) payload.html = html;
+    if (text) payload.text = text;
+    const { error } = await resend.emails.send(payload as any);
+    if (error) {
+      throw new Error(`Resend error: ${error.message}`);
+    }
+    return;
+  }
+
+  // Fallback: Gmail / Nodemailer
+  const gmailUser = process.env.GMAIL_USER || process.env.SMTP_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS;
+
+  if (!gmailUser || !gmailPass) {
+    throw new Error(
+      "No email provider configured (set RESEND_API_KEY or GMAIL_USER + GMAIL_APP_PASSWORD)"
+    );
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: gmailUser, pass: gmailPass },
+  });
+
+  await transporter.sendMail({
+    from: `"Eagle Eyes" <${gmailUser}>`,
+    to,
+    subject,
+    ...(html ? { html } : {}),
+    ...(text ? { text } : {}),
+  });
+}
 
 interface SendInviteEmailParams {
   to: string;
@@ -81,8 +129,7 @@ If you didn't expect this invitation, you can safely ignore this email.
   `.trim();
 
   try {
-    await transporter.sendMail({
-      from: `"Eagle Eyes" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+    await sendMail({
       to,
       subject: `You've been invited to join ${orgName} on Eagle Eyes`,
       text,
@@ -127,8 +174,7 @@ ${body}
 Submitted via Eagle Eyes platform feedback.`;
 
   try {
-    await transporter.sendMail({
-      from: `"Eagle Eyes" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+    await sendMail({
       to: "james.parke@streetsmartbuildings.com",
       subject: `[Eagle Eyes Feedback] ${subject}`,
       text,
@@ -206,8 +252,7 @@ If you didn't expect this invitation, you can safely ignore this email.
   `.trim();
 
   try {
-    await transporter.sendMail({
-      from: `"Eagle Eyes" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+    await sendMail({
       to,
       subject: `Reminder: Complete your Eagle Eyes signup for ${orgName}`,
       text,
