@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -60,6 +60,21 @@ const THRESHOLD_KEYS = [
   "compressor_current_threshold_a",
 ] as const;
 
+// ─── Tier Badge Component ────────────────────────────────────────────────────
+
+function TierBadge({ tier }: { tier: "SSB" | "ORG" | "SITE" }) {
+  const styles = {
+    SSB: "bg-indigo-100 text-indigo-700 border-indigo-200",
+    ORG: "bg-green-100 text-green-700 border-green-200",
+    SITE: "bg-gray-100 text-gray-600 border-gray-200",
+  };
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${styles[tier]}`}>
+      {tier}
+    </span>
+  );
+}
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface GlobalOperationsPanelProps {
@@ -80,7 +95,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const [labels, setLabels] = useState<Record<string, ThresholdMeta>>({});
   const [editingThresholds, setEditingThresholds] = useState<Record<string, number>>({});
   const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
-  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set(THRESHOLD_KEYS));
+  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() => new Set<string>(THRESHOLD_KEYS));
 
   // ─── Anomaly Config Profiles State ─────────────────────────────────────────
   const [configProfiles, setConfigProfiles] = useState<AnomalyConfigProfile[]>([]);
@@ -106,6 +121,17 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   // ─── Derived: checked + dirty field count ──────────────────────────────────
   const activeFieldCount = [...checkedKeys].filter((k) => dirtyKeys.has(k)).length;
 
+  // ─── Derived: zones grouped by site ────────────────────────────────────────
+  const zonesBySite = useMemo(() => {
+    const grouped: Record<string, HvacZone[]> = {};
+    for (const z of zones) {
+      const site = z.site_name || "Unknown Site";
+      if (!grouped[site]) grouped[site] = [];
+      grouped[site].push(z);
+    }
+    return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
+  }, [zones]);
+
   // ─── Fetch zones + anomaly config ──────────────────────────────────────────
   const fetchZones = useCallback(async () => {
     setZonesLoading(true);
@@ -130,6 +156,10 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
     setConfigProfilesLoading(true);
     try {
       const res = await fetch(`/api/anomaly-config/profiles?org_id=${orgId}`);
+      if (!res.ok) {
+        console.warn("[GlobalOps] Config profiles fetch returned", res.status);
+        return;
+      }
       const data = await res.json();
       if (data.profiles) setConfigProfiles(data.profiles);
     } catch (err) {
@@ -157,11 +187,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
 
   useEffect(() => {
     fetchZones();
-  }, [fetchZones]);
-
-  useEffect(() => {
-    if (activeTab === "anomaly") fetchConfigProfiles();
-  }, [activeTab, fetchConfigProfiles]);
+    fetchConfigProfiles();
+  }, [fetchZones, fetchConfigProfiles]);
 
   useEffect(() => {
     if (activeTab === "thermostat") fetchProfiles();
@@ -204,7 +231,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const resetThresholds = () => {
     setEditingThresholds({ ...defaults });
     setDirtyKeys(new Set());
-    setCheckedKeys(new Set(THRESHOLD_KEYS));
+    setCheckedKeys(new Set<string>(THRESHOLD_KEYS));
   };
 
   // ─── Profile Handlers ─────────────────────────────────────────────────────
@@ -215,8 +242,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
       newThresholds[key] = typeof val === "number" ? val : defaults[key] ?? 0;
     }
     setEditingThresholds(newThresholds);
-    setCheckedKeys(new Set(THRESHOLD_KEYS));
-    // Mark all as dirty if different from defaults
+    setCheckedKeys(new Set<string>(THRESHOLD_KEYS));
     const newDirty = new Set<string>();
     for (const key of THRESHOLD_KEYS) {
       if (newThresholds[key] !== defaults[key]) newDirty.add(key);
@@ -288,7 +314,6 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
     setPushing(true);
     setPushResult(null);
 
-    // Only include checked + dirty keys
     const changedThresholds: Record<string, number> = {};
     dirtyKeys.forEach((key) => {
       if (checkedKeys.has(key)) {
@@ -352,14 +377,12 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
 
   // ─── Push: Store Hours ─────────────────────────────────────────────────────
   const pushStoreHours = async () => {
-    // Derive unique site_ids from selected zones
     const siteIds = [...new Set(zones.filter((z) => selectedZoneIds.includes(z.hvac_zone_id)).map((z) => z.site_id))];
     if (!siteIds.length) return;
     setPushing(true);
     setPushResult(null);
 
     try {
-      // Push store hours to each site by triggering the enforce endpoint
       let successCount = 0;
       for (const siteId of siteIds) {
         const res = await fetch(`/api/store-hours/manifest?site_id=${siteId}`);
@@ -383,6 +406,52 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
     { key: "thermostat", label: "Thermostat Push" },
     { key: "storehours", label: "Store Hours" },
   ];
+
+  // ─── Zone Selector (shared across all tabs) ───────────────────────────────
+  const renderZoneSelector = () => (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-sm font-medium text-gray-700">Target Zones</label>
+        <div className="flex gap-2">
+          <button onClick={selectAllZones} className="text-xs text-indigo-600 hover:text-indigo-800">
+            Select All
+          </button>
+          <span className="text-gray-300">|</span>
+          <button onClick={clearZoneSelection} className="text-xs text-gray-500 hover:text-gray-700">
+            Clear
+          </button>
+        </div>
+      </div>
+      {zonesLoading ? (
+        <div className="text-sm text-gray-400 py-2">Loading zones...</div>
+      ) : (
+        <div className="space-y-3">
+          {zonesBySite.map(([siteName, siteZones]) => (
+            <div key={siteName}>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                {siteName}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {siteZones.map((zone) => (
+                  <button
+                    key={zone.hvac_zone_id}
+                    onClick={() => toggleZone(zone.hvac_zone_id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      selectedZoneIds.includes(zone.hvac_zone_id)
+                        ? "bg-indigo-100 text-indigo-700 border border-indigo-300"
+                        : "bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200"
+                    }`}
+                  >
+                    {siteName} &middot; {zone.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   // ─── Collapsed State ──────────────────────────────────────────────────────
   if (collapsed) {
@@ -441,40 +510,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
 
       <div className="p-4">
         {/* Zone Selector (shared across tabs) */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-700">Target Zones</label>
-            <div className="flex gap-2">
-              <button onClick={selectAllZones} className="text-xs text-indigo-600 hover:text-indigo-800">
-                Select All
-              </button>
-              <span className="text-gray-300">|</span>
-              <button onClick={clearZoneSelection} className="text-xs text-gray-500 hover:text-gray-700">
-                Clear
-              </button>
-            </div>
-          </div>
-          {zonesLoading ? (
-            <div className="text-sm text-gray-400 py-2">Loading zones...</div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {zones.map((zone) => (
-                <button
-                  key={zone.hvac_zone_id}
-                  onClick={() => toggleZone(zone.hvac_zone_id)}
-                  title={zone.site_name}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    selectedZoneIds.includes(zone.hvac_zone_id)
-                      ? "bg-indigo-100 text-indigo-700 border border-indigo-300"
-                      : "bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200"
-                  }`}
-                >
-                  {zone.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {renderZoneSelector()}
 
         {/* Push Result Toast */}
         {pushResult && (
@@ -509,8 +545,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                   {configProfiles.map((p) => (
                     <option key={p.profile_id} value={p.profile_id}>
                       {p.is_global
-                        ? `\uD83D\uDCCB SSB: ${p.profile_name}`
-                        : `${p.profile_name} \u00B7 ${new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                        ? `[SSB] ${p.profile_name}`
+                        : `[ORG] ${p.profile_name} \u00B7 ${new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
                     </option>
                   ))}
                 </select>
@@ -571,7 +607,12 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                           className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm"
                         >
                           <div className="flex items-center gap-2">
-                            <span>{p.is_global ? "\uD83D\uDD12" : "\uD83D\uDCCB"}</span>
+                            <TierBadge tier={p.is_global ? "SSB" : "ORG"} />
+                            {p.is_global ? (
+                              <span className="text-gray-400" title="Global template">{"\uD83D\uDD12"}</span>
+                            ) : (
+                              <span className="text-gray-400">{"\uD83D\uDCCB"}</span>
+                            )}
                             <span className="font-medium text-gray-800">{p.profile_name}</span>
                             <span className="text-xs text-gray-400">
                               {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -616,6 +657,9 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                     </div>
                   )}
                 </div>
+              )}
+              {configProfilesLoading && (
+                <div className="mt-2 text-xs text-gray-400">Loading profiles...</div>
               )}
             </div>
 
@@ -718,7 +762,10 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <div className="font-medium text-sm text-gray-900">{profile.profile_name}</div>
+                        <div className="flex items-center gap-2">
+                          <TierBadge tier="ORG" />
+                          <span className="font-medium text-sm text-gray-900">{profile.profile_name}</span>
+                        </div>
                         <span className="text-[10px] text-gray-400">
                           {profile.zone_count} zone(s)
                         </span>
