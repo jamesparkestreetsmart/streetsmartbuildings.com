@@ -105,7 +105,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
               <ProfileManager orgId={orgId || ""} />
             </div>
             <div className="w-[380px] flex-shrink-0">
-              <AnomalyThresholdsPanel siteId={siteId} />
+              <AnomalyThresholdsPanel siteId={siteId} orgId={orgId || ""} />
             </div>
           </div>
           <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import TierBadge from "@/components/ui/TierBadge";
 
 interface Profile {
   profile_id: string;
@@ -593,7 +594,10 @@ export default function ProfileManager({ orgId }: Props) {
               <div key={profile.profile_id} className="border rounded-xl p-4 hover:shadow-md transition-shadow">
                 <div className="flex items-start gap-4">
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-base">{profile.profile_name}</h3>
+                    <div className="flex items-center gap-2">
+                      <TierBadge tier="ORG" />
+                      <h3 className="font-semibold text-base">{profile.profile_name}</h3>
+                    </div>
                     <div className="text-sm text-gray-600 mt-1 space-y-0.5">
                       <p>
                         <span className="text-green-700 font-medium">Occupied:</span>{" "}

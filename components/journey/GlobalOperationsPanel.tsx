@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import TierBadge from "@/components/ui/TierBadge";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -60,21 +61,6 @@ const THRESHOLD_KEYS = [
   "compressor_current_threshold_a",
 ] as const;
 
-// ─── Tier Badge Component ────────────────────────────────────────────────────
-
-function TierBadge({ tier }: { tier: "SSB" | "ORG" | "SITE" }) {
-  const styles = {
-    SSB: "bg-indigo-100 text-indigo-700 border-indigo-200",
-    ORG: "bg-green-100 text-green-700 border-green-200",
-    SITE: "bg-gray-100 text-gray-600 border-gray-200",
-  };
-  return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded border ${styles[tier]}`}>
-      {tier}
-    </span>
-  );
-}
-
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface GlobalOperationsPanelProps {
@@ -107,6 +93,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const [saveProfileName, setSaveProfileName] = useState("");
   const [saveProfileResult, setSaveProfileResult] = useState<string | null>(null);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
+  const [copyingProfileId, setCopyingProfileId] = useState<string | null>(null);
+  const [copiedProfileId, setCopiedProfileId] = useState<string | null>(null);
 
   // ─── Thermostat State ──────────────────────────────────────────────────────
   const [profiles, setProfiles] = useState<ThermostatProfile[]>([]);
@@ -305,6 +293,40 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
       console.error("Failed to delete profile");
     } finally {
       setDeletingProfileId(null);
+    }
+  };
+
+  // ─── Derived: org profile names (for duplicate detection) ───────────────────
+  const orgProfileNames = useMemo(
+    () => new Set(configProfiles.filter((p) => !p.is_global).map((p) => p.profile_name)),
+    [configProfiles]
+  );
+
+  const copySSBProfileToOrg = async (ssbProfile: AnomalyConfigProfile) => {
+    setCopyingProfileId(ssbProfile.profile_id);
+    try {
+      const body: Record<string, any> = {
+        org_id: orgId,
+        profile_name: ssbProfile.profile_name,
+      };
+      for (const key of THRESHOLD_KEYS) {
+        body[key] = ssbProfile[key as keyof AnomalyConfigProfile] ?? null;
+      }
+      const res = await fetch("/api/anomaly-config/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.profile) {
+        setCopiedProfileId(ssbProfile.profile_id);
+        fetchConfigProfiles();
+        setTimeout(() => setCopiedProfileId(null), 3000);
+      }
+    } catch {
+      console.error("Failed to copy SSB profile");
+    } finally {
+      setCopyingProfileId(null);
     }
   };
 
@@ -608,9 +630,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                         >
                           <div className="flex items-center gap-2">
                             <TierBadge tier={p.is_global ? "SSB" : "ORG"} />
-                            {p.is_global ? (
-                              <span className="text-gray-400" title="Global template">{"\uD83D\uDD12"}</span>
-                            ) : (
+                            {!p.is_global && (
                               <span className="text-gray-400">{"\uD83D\uDCCB"}</span>
                             )}
                             <span className="font-medium text-gray-800">{p.profile_name}</span>
@@ -625,7 +645,21 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                             >
                               Apply
                             </button>
-                            {!p.is_global && (
+                            {p.is_global ? (
+                              orgProfileNames.has(p.profile_name) ? (
+                                <span className="text-[10px] text-gray-400 italic px-1">Already in your profiles</span>
+                              ) : copiedProfileId === p.profile_id ? (
+                                <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Added</span>
+                              ) : (
+                                <button
+                                  onClick={() => copySSBProfileToOrg(p)}
+                                  disabled={copyingProfileId === p.profile_id}
+                                  className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+                                >
+                                  {copyingProfileId === p.profile_id ? "..." : "+ Add to My Profiles"}
+                                </button>
+                              )
+                            ) : (
                               deletingProfileId === p.profile_id ? (
                                 <span className="flex items-center gap-1 text-xs">
                                   <span className="text-red-600">Delete?</span>

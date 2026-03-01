@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import TierBadge from "@/components/ui/TierBadge";
 
 interface Zone {
   hvac_zone_id: string;
@@ -9,15 +10,24 @@ interface Zone {
   anomaly_thresholds: Record<string, any> | null;
 }
 
+interface AnomalyConfigProfile {
+  profile_id: string;
+  profile_name: string;
+  is_global: boolean;
+  created_at: string;
+  [key: string]: any;
+}
+
 interface Props {
   siteId: string;
+  orgId: string;
   onUpdate?: () => void;
 }
 
 const DEFAULTS: Record<string, { label: string; unit: string; default: number; description: string }> = {
   coil_freeze_temp_f: {
     label: "Coil Freeze",
-    unit: "°F",
+    unit: "\u00B0F",
     default: 35,
     description: "Supply air temp below this triggers coil freeze alert",
   },
@@ -29,7 +39,7 @@ const DEFAULTS: Record<string, { label: string; unit: string; default: number; d
   },
   idle_heat_gain_f: {
     label: "Idle Heat Gain",
-    unit: "°F",
+    unit: "\u00B0F",
     default: 2,
     description: "Zone temp rise while idle that triggers alert",
   },
@@ -46,14 +56,14 @@ const DEFAULTS: Record<string, { label: string; unit: string; default: number; d
     description: "On/off cycles per hour before flagging",
   },
   filter_restriction_delta_t_max: {
-    label: "Filter Restriction ΔT",
-    unit: "°F",
+    label: "Filter Restriction \u0394T",
+    unit: "\u00B0F",
     default: 25,
     description: "Delta T above this while running = restricted filter",
   },
   refrigerant_low_delta_t_min: {
-    label: "Low Refrigerant ΔT",
-    unit: "°F",
+    label: "Low Refrigerant \u0394T",
+    unit: "\u00B0F",
     default: 5,
     description: "Delta T below this while running = low refrigerant",
   },
@@ -71,7 +81,9 @@ const DEFAULTS: Record<string, { label: string; unit: string; default: number; d
   },
 };
 
-export default function AnomalyThresholdsPanel({ siteId, onUpdate }: Props) {
+const THRESHOLD_KEYS = Object.keys(DEFAULTS);
+
+export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Props) {
   const [zones, setZones] = useState<Zone[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string>("");
   const [editing, setEditing] = useState(false);
@@ -79,6 +91,12 @@ export default function AnomalyThresholdsPanel({ siteId, onUpdate }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Profile selector state
+  const [orgProfiles, setOrgProfiles] = useState<AnomalyConfigProfile[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [appliedProfile, setAppliedProfile] = useState<{ name: string; date: string } | null>(null);
 
   // Fetch zones for this site
   useEffect(() => {
@@ -103,6 +121,27 @@ export default function AnomalyThresholdsPanel({ siteId, onUpdate }: Props) {
     fetchZones();
   }, [siteId]);
 
+  // Fetch org profiles (non-global only)
+  useEffect(() => {
+    if (!orgId) return;
+    const fetchProfiles = async () => {
+      setProfilesLoading(true);
+      try {
+        const res = await fetch(`/api/anomaly-config/profiles?org_id=${orgId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.profiles) {
+          setOrgProfiles(data.profiles.filter((p: AnomalyConfigProfile) => !p.is_global));
+        }
+      } catch (err) {
+        console.error("Failed to fetch config profiles:", err);
+      } finally {
+        setProfilesLoading(false);
+      }
+    };
+    fetchProfiles();
+  }, [orgId]);
+
   const selectedZone = zones.find((z) => z.hvac_zone_id === selectedZoneId);
   const thresholds = selectedZone?.anomaly_thresholds || {};
 
@@ -114,7 +153,28 @@ export default function AnomalyThresholdsPanel({ siteId, onUpdate }: Props) {
     }
     setValues(vals);
     setEditing(false);
+    setAppliedProfile(null);
+    setSelectedProfileId("");
   }, [selectedZoneId, JSON.stringify(thresholds)]);
+
+  // Apply profile to form
+  const handleApplyProfile = (profileId: string) => {
+    const profile = orgProfiles.find((p) => p.profile_id === profileId);
+    if (!profile) return;
+
+    setSelectedProfileId(profileId);
+    const vals: Record<string, string> = {};
+    for (const key of THRESHOLD_KEYS) {
+      const val = profile[key];
+      vals[key] = val != null ? String(val) : "";
+    }
+    setValues(vals);
+    setEditing(true);
+    setAppliedProfile({
+      name: profile.profile_name,
+      date: new Date(profile.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    });
+  };
 
   const handleSave = async () => {
     if (!selectedZoneId) return;
@@ -149,6 +209,8 @@ export default function AnomalyThresholdsPanel({ siteId, onUpdate }: Props) {
       );
       setSaved(true);
       setEditing(false);
+      setAppliedProfile(null);
+      setSelectedProfileId("");
       setTimeout(() => setSaved(false), 2000);
       onUpdate?.();
     }
@@ -179,6 +241,8 @@ export default function AnomalyThresholdsPanel({ siteId, onUpdate }: Props) {
       for (const key of Object.keys(DEFAULTS)) vals[key] = "";
       setValues(vals);
       setEditing(false);
+      setAppliedProfile(null);
+      setSelectedProfileId("");
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       onUpdate?.();
@@ -237,6 +301,39 @@ export default function AnomalyThresholdsPanel({ siteId, onUpdate }: Props) {
         )}
       </div>
 
+      {/* Profile selector */}
+      <div className="px-4 py-2.5 border-b bg-gray-50/50">
+        {profilesLoading ? (
+          <div className="text-[11px] text-gray-400">Loading profiles...</div>
+        ) : orgProfiles.length === 0 ? (
+          <p className="text-[11px] text-gray-400 leading-snug">
+            No org profiles yet. Create one in My Journey &rarr; Global Operations.
+          </p>
+        ) : (
+          <>
+            <select
+              value={selectedProfileId}
+              onChange={(e) => handleApplyProfile(e.target.value)}
+              className="w-full text-xs border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500 bg-white"
+            >
+              <option value="">Apply Org Profile...</option>
+              {orgProfiles.map((p) => (
+                <option key={p.profile_id} value={p.profile_id}>
+                  {p.profile_name}
+                </option>
+              ))}
+            </select>
+            {appliedProfile && (
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <TierBadge tier="ORG" />
+                <span className="text-[11px] text-gray-600 font-medium">{appliedProfile.name}</span>
+                <span className="text-[10px] text-gray-400">{appliedProfile.date}</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Thresholds list */}
       <div className="divide-y max-h-[400px] overflow-y-auto">
         {Object.entries(DEFAULTS).map(([key, config]) => {
@@ -282,7 +379,7 @@ export default function AnomalyThresholdsPanel({ siteId, onUpdate }: Props) {
         {editing ? (
           <>
             <button
-              onClick={() => setEditing(false)}
+              onClick={() => { setEditing(false); setAppliedProfile(null); setSelectedProfileId(""); }}
               className="text-xs text-gray-500 hover:text-gray-700"
             >
               Cancel
