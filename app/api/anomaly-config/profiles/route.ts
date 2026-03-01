@@ -37,12 +37,45 @@ const THRESHOLD_KEYS = [
   "compressor_current_threshold_a",
 ];
 
-// GET: Fetch all anomaly config profiles for an org (+ globals)
+// GET: Fetch anomaly config profiles for an org (+ globals), or scope=all for SSB
 export async function GET(req: NextRequest) {
   try {
     const orgId = req.nextUrl.searchParams.get("org_id");
+    const scope = req.nextUrl.searchParams.get("scope");
     if (!orgId) return NextResponse.json({ error: "org_id required" }, { status: 400 });
 
+    // scope=all: SSB org can browse ALL profiles across all orgs
+    if (scope === "all") {
+      // Verify caller is SSB (parent_org_id IS NULL)
+      const { data: callerOrg } = await supabase
+        .from("a_organizations")
+        .select("parent_org_id")
+        .eq("org_id", orgId)
+        .single();
+
+      if (!callerOrg || callerOrg.parent_org_id !== null) {
+        return NextResponse.json({ error: "scope=all is only available for SSB org" }, { status: 403 });
+      }
+
+      const { data, error } = await supabase
+        .from("b_anomaly_config_profiles")
+        .select("*, a_organizations!inner(org_name)")
+        .order("is_global", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      // Flatten org_name into each record
+      const profiles = (data || []).map((p: any) => ({
+        ...p,
+        org_name: p.a_organizations?.org_name || null,
+        a_organizations: undefined,
+      }));
+
+      return NextResponse.json({ profiles });
+    }
+
+    // Default: org's own profiles + globals
     const { data, error } = await supabase
       .from("b_anomaly_config_profiles")
       .select("*")
@@ -69,10 +102,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "org_id and profile_name required" }, { status: 400 });
     }
 
+    // Check if caller is SSB org (parent_org_id IS NULL) to allow is_global
+    let isGlobal = false;
+    if (body.is_global === true) {
+      const { data: callerOrg } = await supabase
+        .from("a_organizations")
+        .select("parent_org_id")
+        .eq("org_id", org_id)
+        .single();
+      if (callerOrg && callerOrg.parent_org_id === null) {
+        isGlobal = true;
+      }
+    }
+
     const row: Record<string, any> = {
       org_id,
       profile_name: profile_name.trim(),
-      is_global: false,
+      is_global: isGlobal,
       scope: body.scope === "site" ? "site" : "org",
       created_by: userId,
     };

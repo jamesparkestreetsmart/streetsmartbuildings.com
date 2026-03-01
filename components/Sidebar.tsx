@@ -65,7 +65,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
           // When no org selected, all grayed out
           const isSSBOrg = selectedOrg?.org_identifier === "SSB1";
           const alwaysEnabled = href === "/sites" && (isServiceProvider || hasOrgSelected);
-          const disabled = !hasOrgSelected || (isSSBOrg && href !== "/sites");
+          const disabled = !hasOrgSelected || (isSSBOrg && href !== "/sites" && href !== "/journey");
 
           if (disabled) {
             return (

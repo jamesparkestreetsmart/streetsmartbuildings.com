@@ -23,6 +23,7 @@ interface ThermostatProfile {
   profile_id: string;
   profile_name: string;
   scope?: string;
+  is_global?: boolean;
   occupied_heat_f: number;
   occupied_cool_f: number;
   unoccupied_heat_f: number;
@@ -116,6 +117,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const [profiles, setProfiles] = useState<ThermostatProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
   const [profilesLoading, setProfilesLoading] = useState(false);
+  const [copyingThermostatId, setCopyingThermostatId] = useState<string | null>(null);
+  const [copiedThermostatId, setCopiedThermostatId] = useState<string | null>(null);
 
   // ─── Store Hours Template State ───────────────────────────────────────────
   const [hoursTemplates, setHoursTemplates] = useState<StoreHoursTemplate[]>([]);
@@ -508,6 +511,40 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
     }
   };
 
+  // ─── Thermostat: Adopt SSB profile to org ──────────────────────────────────
+  const orgThermostatProfileNames = useMemo(
+    () => new Set(profiles.filter((p) => !p.is_global).map((p) => p.profile_name)),
+    [profiles]
+  );
+
+  const copySSBThermostatToOrg = async (ssbProfile: ThermostatProfile) => {
+    setCopyingThermostatId(ssbProfile.profile_id);
+    try {
+      const res = await fetch("/api/thermostat/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          org_id: orgId,
+          profile_name: ssbProfile.profile_name,
+          occupied_heat_f: ssbProfile.occupied_heat_f,
+          occupied_cool_f: ssbProfile.occupied_cool_f,
+          unoccupied_heat_f: ssbProfile.unoccupied_heat_f,
+          unoccupied_cool_f: ssbProfile.unoccupied_cool_f,
+        }),
+      });
+      const data = await res.json();
+      if (data.profile_id || data.profile_name) {
+        setCopiedThermostatId(ssbProfile.profile_id);
+        fetchProfiles();
+        setTimeout(() => setCopiedThermostatId(null), 3000);
+      }
+    } catch {
+      console.error("Failed to copy SSB thermostat profile");
+    } finally {
+      setCopyingThermostatId(null);
+    }
+  };
+
   // ─── Push: Anomaly Config ─────────────────────────────────────────────────
   const pushAnomalyConfig = async () => {
     if (!selectedZoneIds.length || !activeFieldCount) return;
@@ -732,85 +769,136 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
               Edit anomaly detection thresholds and push to selected zones. Check fields to include in push.
             </p>
 
-            {/* ── Profiles Section ────────────────────────────────────── */}
+            {/* ── SSB Catalog (global profiles) ───────────────────────── */}
+            {dedupedConfigProfiles.some((p) => p.is_global) && (
+              <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <TierBadge tier="SSB" />
+                  <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
+                </div>
+                <div className="space-y-1">
+                  {dedupedConfigProfiles.filter((p) => p.is_global).map((p) => (
+                    <div
+                      key={p.profile_id}
+                      className="flex items-center justify-between px-3 py-2 bg-white border border-indigo-100 rounded text-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <TierBadge tier="SSB" />
+                        <span className="font-medium text-gray-800">{p.profile_name}</span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => applyConfigProfile(p)}
+                          className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                        >
+                          Apply
+                        </button>
+                        {orgProfileNames.has(p.profile_name) ? (
+                          <span className="text-[10px] text-gray-400 italic px-1">Adopted</span>
+                        ) : copiedProfileId === p.profile_id ? (
+                          <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Adopted</span>
+                        ) : (
+                          <button
+                            onClick={() => copySSBProfileToOrg(p)}
+                            disabled={copyingProfileId === p.profile_id}
+                            className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+                          >
+                            {copyingProfileId === p.profile_id ? "..." : "Adopt"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Your Profiles (org-owned) ──────────────────────────── */}
             <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-              <div className="flex items-center gap-3 flex-wrap">
-                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Profiles</label>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <TierBadge tier="ORG" />
+                  <label className="text-sm font-semibold text-gray-700">Your Profiles</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!showSaveInput ? (
+                    <button
+                      onClick={() => { setShowSaveInput(true); setSaveProfileResult(null); }}
+                      className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-300 rounded hover:bg-indigo-50 transition-colors whitespace-nowrap"
+                    >
+                      Save Current as Profile
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={saveProfileName}
+                        onChange={(e) => setSaveProfileName(e.target.value)}
+                        placeholder="Profile name..."
+                        className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 w-40"
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === "Enter") saveCurrentAsProfile(); if (e.key === "Escape") { setShowSaveInput(false); setSaveProfileName(""); } }}
+                      />
+                      <button
+                        onClick={saveCurrentAsProfile}
+                        disabled={!saveProfileName.trim() || savingProfile}
+                        className="px-2.5 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                      >
+                        {savingProfile ? "..." : "Confirm"}
+                      </button>
+                      <button
+                        onClick={() => { setShowSaveInput(false); setSaveProfileName(""); }}
+                        className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  {saveProfileResult && (
+                    <span className={`text-xs ${saveProfileResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
+                      {saveProfileResult}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick-load dropdown (org profiles only) */}
+              <div className="flex items-center gap-2 mb-2">
                 <select
                   value={selectedConfigProfileId}
                   onChange={(e) => handleSelectConfigProfile(e.target.value)}
                   className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                 >
                   <option value="">Load a profile...</option>
-                  {dedupedConfigProfiles.map((p) => (
+                  {dedupedConfigProfiles.filter((p) => !p.is_global).map((p) => (
                     <option key={p.profile_id} value={p.profile_id}>
-                      {p.is_global
-                        ? `[SSB] ${p.profile_name}`
-                        : `[ORG] ${p.profile_name} \u00B7 ${new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                      {p.profile_name} {"\u00B7"} {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </option>
                   ))}
                 </select>
-                {!showSaveInput ? (
-                  <button
-                    onClick={() => { setShowSaveInput(true); setSaveProfileResult(null); }}
-                    className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-300 rounded hover:bg-indigo-50 transition-colors whitespace-nowrap"
-                  >
-                    Save Current as Profile
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={saveProfileName}
-                      onChange={(e) => setSaveProfileName(e.target.value)}
-                      placeholder="Profile name..."
-                      className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 w-40"
-                      autoFocus
-                      onKeyDown={(e) => { if (e.key === "Enter") saveCurrentAsProfile(); if (e.key === "Escape") { setShowSaveInput(false); setSaveProfileName(""); } }}
-                    />
-                    <button
-                      onClick={saveCurrentAsProfile}
-                      disabled={!saveProfileName.trim() || savingProfile}
-                      className="px-2.5 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                    >
-                      {savingProfile ? "..." : "Confirm"}
-                    </button>
-                    <button
-                      onClick={() => { setShowSaveInput(false); setSaveProfileName(""); }}
-                      className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-                {saveProfileResult && (
-                  <span className={`text-xs ${saveProfileResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
-                    {saveProfileResult}
-                  </span>
-                )}
               </div>
 
-              {/* Collapsible profile list */}
-              {dedupedConfigProfiles.length > 0 && (
+              {/* Collapsible org profile list */}
+              {dedupedConfigProfiles.filter((p) => !p.is_global).length > 0 && (
                 <div className="mt-2">
                   <button
                     onClick={() => setShowProfileList(!showProfileList)}
                     className="text-xs text-gray-500 hover:text-gray-700"
                   >
-                    {showProfileList ? "\u25BC" : "\u25B6"} {dedupedConfigProfiles.length} saved profile(s)
+                    {showProfileList ? "\u25BC" : "\u25B6"} {dedupedConfigProfiles.filter((p) => !p.is_global).length} saved profile(s)
                   </button>
                   {showProfileList && (
                     <div className="mt-2 space-y-1">
-                      {dedupedConfigProfiles.map((p) => (
+                      {dedupedConfigProfiles.filter((p) => !p.is_global).map((p) => (
                         <div
                           key={p.profile_id}
                           className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm"
                         >
                           <div className="flex items-center gap-2">
-                            <TierBadge tier={p.is_global ? "SSB" : "ORG"} />
-                            {!p.is_global && (
-                              <span className="text-gray-400">{"\uD83D\uDCCB"}</span>
-                            )}
+                            <TierBadge tier="ORG" />
                             <span className="font-medium text-gray-800">{p.profile_name}</span>
                             <span className="text-xs text-gray-400">
                               {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -823,45 +911,29 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                             >
                               Apply
                             </button>
-                            {p.is_global ? (
-                              orgProfileNames.has(p.profile_name) ? (
-                                <span className="text-[10px] text-gray-400 italic px-1">Already in your profiles</span>
-                              ) : copiedProfileId === p.profile_id ? (
-                                <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Added</span>
-                              ) : (
+                            {deletingProfileId === p.profile_id ? (
+                              <span className="flex items-center gap-1 text-xs">
+                                <span className="text-red-600">Delete?</span>
                                 <button
-                                  onClick={() => copySSBProfileToOrg(p)}
-                                  disabled={copyingProfileId === p.profile_id}
-                                  className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+                                  onClick={() => deleteConfigProfile(p.profile_id)}
+                                  className="px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 rounded font-medium"
                                 >
-                                  {copyingProfileId === p.profile_id ? "..." : "+ Add to My Profiles"}
+                                  Yes
                                 </button>
-                              )
+                                <button
+                                  onClick={() => setDeletingProfileId(null)}
+                                  className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 rounded"
+                                >
+                                  No
+                                </button>
+                              </span>
                             ) : (
-                              deletingProfileId === p.profile_id ? (
-                                <span className="flex items-center gap-1 text-xs">
-                                  <span className="text-red-600">Delete?</span>
-                                  <button
-                                    onClick={() => deleteConfigProfile(p.profile_id)}
-                                    className="px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 rounded font-medium"
-                                  >
-                                    Yes
-                                  </button>
-                                  <button
-                                    onClick={() => setDeletingProfileId(null)}
-                                    className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 rounded"
-                                  >
-                                    No
-                                  </button>
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => setDeletingProfileId(p.profile_id)}
-                                  className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition-colors"
-                                >
-                                  Delete
-                                </button>
-                              )
+                              <button
+                                onClick={() => setDeletingProfileId(p.profile_id)}
+                                className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition-colors"
+                              >
+                                Delete
+                              </button>
                             )}
                           </div>
                         </div>
@@ -953,14 +1025,69 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
             <p className="text-sm text-gray-500 mb-3">
               Select a thermostat profile and push to all linked zones. This updates setpoints for every non-override zone assigned to the profile.
             </p>
+
+            {/* ── SSB Catalog (global thermostat profiles) ───────────── */}
+            {profiles.some((p) => p.is_global) && (
+              <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <TierBadge tier="SSB" />
+                  <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {profiles.filter((p) => p.is_global).map((profile) => (
+                    <div
+                      key={profile.profile_id}
+                      className="p-3 rounded-lg border border-indigo-200 bg-white text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <TierBadge tier="SSB" />
+                          <span className="font-medium text-sm text-gray-900">{profile.profile_name}</span>
+                        </div>
+                      </div>
+                      <div className="mt-1 grid grid-cols-2 gap-x-3 text-xs text-gray-500">
+                        <div>Occ Heat: {profile.occupied_heat_f}{"\u00B0"}F</div>
+                        <div>Occ Cool: {profile.occupied_cool_f}{"\u00B0"}F</div>
+                        <div>Unocc Heat: {profile.unoccupied_heat_f}{"\u00B0"}F</div>
+                        <div>Unocc Cool: {profile.unoccupied_cool_f}{"\u00B0"}F</div>
+                      </div>
+                      <div className="mt-2 flex justify-end">
+                        {orgThermostatProfileNames.has(profile.profile_name) ? (
+                          <span className="text-[10px] text-gray-400 italic">Adopted</span>
+                        ) : copiedThermostatId === profile.profile_id ? (
+                          <span className="text-[10px] text-green-600 font-medium">{"\u2713"} Adopted</span>
+                        ) : (
+                          <button
+                            onClick={() => copySSBThermostatToOrg(profile)}
+                            disabled={copyingThermostatId === profile.profile_id}
+                            className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+                          >
+                            {copyingThermostatId === profile.profile_id ? "..." : "Adopt"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Your Profiles (org-owned) ──────────────────────────── */}
+            <div className="mb-3">
+              <div className="flex items-center gap-2 mb-2">
+                <TierBadge tier="ORG" />
+                <label className="text-sm font-semibold text-gray-700">Your Profiles</label>
+              </div>
+            </div>
+
             {profilesLoading ? (
               <div className="text-sm text-gray-400 py-4">Loading profiles...</div>
-            ) : profiles.length === 0 ? (
-              <div className="text-sm text-gray-400 py-4">No profiles found for this organization.</div>
+            ) : profiles.filter((p) => !p.is_global).length === 0 ? (
+              <div className="text-sm text-gray-400 py-4">No org profiles found for this organization.</div>
             ) : (
               <div className="space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {profiles.map((profile) => (
+                  {profiles.filter((p) => !p.is_global).map((profile) => (
                     <button
                       key={profile.profile_id}
                       onClick={() => setSelectedProfileId(profile.profile_id)}
@@ -1009,82 +1136,136 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
               Manage store hours templates and refresh manifests for sites derived from selected zones.
             </p>
 
-            {/* ── Templates Section ──────────────────────────────────── */}
+            {/* ── SSB Catalog (global templates) ──────────────────────── */}
+            {hoursTemplates.some((t) => t.is_global) && (
+              <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <TierBadge tier="SSB" />
+                  <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
+                </div>
+                <div className="space-y-1">
+                  {hoursTemplates.filter((t) => t.is_global).map((t) => (
+                    <div
+                      key={t.template_id}
+                      className="flex items-center justify-between px-3 py-2 bg-white border border-indigo-100 rounded text-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <TierBadge tier="SSB" />
+                        <span className="font-medium text-gray-800">{t.template_name}</span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => applyHoursTemplate(t)}
+                          className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                        >
+                          Apply
+                        </button>
+                        {orgHoursTemplateNames.has(t.template_name) ? (
+                          <span className="text-[10px] text-gray-400 italic px-1">Adopted</span>
+                        ) : copiedHoursTemplateId === t.template_id ? (
+                          <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Adopted</span>
+                        ) : (
+                          <button
+                            onClick={() => copySSBHoursTemplateToOrg(t)}
+                            disabled={copyingHoursTemplateId === t.template_id}
+                            className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+                          >
+                            {copyingHoursTemplateId === t.template_id ? "..." : "Adopt"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Your Templates (org-owned) ──────────────────────────── */}
             <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-              <div className="flex items-center gap-3 flex-wrap">
-                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Templates</label>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <TierBadge tier="ORG" />
+                  <label className="text-sm font-semibold text-gray-700">Your Templates</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!showHoursSaveInput ? (
+                    <button
+                      onClick={() => { setShowHoursSaveInput(true); setHoursTemplateSaveResult(null); }}
+                      className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-300 rounded hover:bg-indigo-50 transition-colors whitespace-nowrap"
+                    >
+                      Save Current as Template
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={hoursSaveTemplateName}
+                        onChange={(e) => setHoursSaveTemplateName(e.target.value)}
+                        placeholder="Template name..."
+                        className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 w-40"
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === "Enter") saveHoursAsTemplate(); if (e.key === "Escape") { setShowHoursSaveInput(false); setHoursSaveTemplateName(""); } }}
+                      />
+                      <button
+                        onClick={saveHoursAsTemplate}
+                        disabled={!hoursSaveTemplateName.trim() || savingHoursTemplate}
+                        className="px-2.5 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                      >
+                        {savingHoursTemplate ? "..." : "Confirm"}
+                      </button>
+                      <button
+                        onClick={() => { setShowHoursSaveInput(false); setHoursSaveTemplateName(""); }}
+                        className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  {hoursTemplateSaveResult && (
+                    <span className={`text-xs ${hoursTemplateSaveResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
+                      {hoursTemplateSaveResult}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick-load dropdown (org templates only) */}
+              <div className="flex items-center gap-2 mb-2">
                 <select
                   value={selectedHoursTemplateId}
                   onChange={(e) => handleSelectHoursTemplate(e.target.value)}
                   className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                 >
                   <option value="">Load a template...</option>
-                  {hoursTemplates.map((t) => (
+                  {hoursTemplates.filter((t) => !t.is_global).map((t) => (
                     <option key={t.template_id} value={t.template_id}>
-                      {t.is_global
-                        ? `[SSB] ${t.template_name}`
-                        : `[ORG] ${t.template_name} \u00B7 ${new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                      {t.template_name} {"\u00B7"} {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </option>
                   ))}
                 </select>
-                {!showHoursSaveInput ? (
-                  <button
-                    onClick={() => { setShowHoursSaveInput(true); setHoursTemplateSaveResult(null); }}
-                    className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-300 rounded hover:bg-indigo-50 transition-colors whitespace-nowrap"
-                  >
-                    Save Current as Template
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={hoursSaveTemplateName}
-                      onChange={(e) => setHoursSaveTemplateName(e.target.value)}
-                      placeholder="Template name..."
-                      className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 w-40"
-                      autoFocus
-                      onKeyDown={(e) => { if (e.key === "Enter") saveHoursAsTemplate(); if (e.key === "Escape") { setShowHoursSaveInput(false); setHoursSaveTemplateName(""); } }}
-                    />
-                    <button
-                      onClick={saveHoursAsTemplate}
-                      disabled={!hoursSaveTemplateName.trim() || savingHoursTemplate}
-                      className="px-2.5 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                    >
-                      {savingHoursTemplate ? "..." : "Confirm"}
-                    </button>
-                    <button
-                      onClick={() => { setShowHoursSaveInput(false); setHoursSaveTemplateName(""); }}
-                      className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-                {hoursTemplateSaveResult && (
-                  <span className={`text-xs ${hoursTemplateSaveResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
-                    {hoursTemplateSaveResult}
-                  </span>
-                )}
               </div>
 
-              {/* Collapsible template list */}
-              {hoursTemplates.length > 0 && (
+              {/* Collapsible org template list */}
+              {hoursTemplates.filter((t) => !t.is_global).length > 0 && (
                 <div className="mt-2">
                   <button
                     onClick={() => setShowHoursTemplateList(!showHoursTemplateList)}
                     className="text-xs text-gray-500 hover:text-gray-700"
                   >
-                    {showHoursTemplateList ? "\u25BC" : "\u25B6"} {hoursTemplates.length} saved template(s)
+                    {showHoursTemplateList ? "\u25BC" : "\u25B6"} {hoursTemplates.filter((t) => !t.is_global).length} saved template(s)
                   </button>
                   {showHoursTemplateList && (
                     <div className="mt-2 space-y-1">
-                      {hoursTemplates.map((t) => (
+                      {hoursTemplates.filter((t) => !t.is_global).map((t) => (
                         <div
                           key={t.template_id}
                           className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm"
                         >
                           <div className="flex items-center gap-2">
-                            <TierBadge tier={t.is_global ? "SSB" : "ORG"} />
+                            <TierBadge tier="ORG" />
                             <span className="font-medium text-gray-800">{t.template_name}</span>
                             <span className="text-xs text-gray-400">
                               {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -1097,45 +1278,29 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                             >
                               Apply
                             </button>
-                            {t.is_global ? (
-                              orgHoursTemplateNames.has(t.template_name) ? (
-                                <span className="text-[10px] text-gray-400 italic px-1">Already in your templates</span>
-                              ) : copiedHoursTemplateId === t.template_id ? (
-                                <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Added</span>
-                              ) : (
+                            {deletingHoursTemplateId === t.template_id ? (
+                              <span className="flex items-center gap-1 text-xs">
+                                <span className="text-red-600">Delete?</span>
                                 <button
-                                  onClick={() => copySSBHoursTemplateToOrg(t)}
-                                  disabled={copyingHoursTemplateId === t.template_id}
-                                  className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+                                  onClick={() => deleteHoursTemplate(t.template_id)}
+                                  className="px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 rounded font-medium"
                                 >
-                                  {copyingHoursTemplateId === t.template_id ? "..." : "+ Add to My Templates"}
+                                  Yes
                                 </button>
-                              )
+                                <button
+                                  onClick={() => setDeletingHoursTemplateId(null)}
+                                  className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 rounded"
+                                >
+                                  No
+                                </button>
+                              </span>
                             ) : (
-                              deletingHoursTemplateId === t.template_id ? (
-                                <span className="flex items-center gap-1 text-xs">
-                                  <span className="text-red-600">Delete?</span>
-                                  <button
-                                    onClick={() => deleteHoursTemplate(t.template_id)}
-                                    className="px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 rounded font-medium"
-                                  >
-                                    Yes
-                                  </button>
-                                  <button
-                                    onClick={() => setDeletingHoursTemplateId(null)}
-                                    className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 rounded"
-                                  >
-                                    No
-                                  </button>
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => setDeletingHoursTemplateId(t.template_id)}
-                                  className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition-colors"
-                                >
-                                  Delete
-                                </button>
-                              )
+                              <button
+                                onClick={() => setDeletingHoursTemplateId(t.template_id)}
+                                className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition-colors"
+                              >
+                                Delete
+                              </button>
                             )}
                           </div>
                         </div>

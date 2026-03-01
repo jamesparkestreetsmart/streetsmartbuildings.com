@@ -28,11 +28,43 @@ async function getCallerUserId(): Promise<string | null> {
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 // GET ?org_id=X — returns org templates + global templates (globals first)
+// GET ?org_id=X&scope=all — SSB only: returns ALL templates across all orgs
 export async function GET(req: NextRequest) {
   try {
     const orgId = req.nextUrl.searchParams.get("org_id");
+    const scope = req.nextUrl.searchParams.get("scope");
     if (!orgId) return NextResponse.json({ error: "org_id required" }, { status: 400 });
 
+    // scope=all: SSB org can browse ALL templates across all orgs
+    if (scope === "all") {
+      const { data: callerOrg } = await supabase
+        .from("a_organizations")
+        .select("parent_org_id")
+        .eq("org_id", orgId)
+        .single();
+
+      if (!callerOrg || callerOrg.parent_org_id !== null) {
+        return NextResponse.json({ error: "scope=all is only available for SSB org" }, { status: 403 });
+      }
+
+      const { data, error } = await supabase
+        .from("b_store_hours_templates")
+        .select("*, a_organizations!inner(org_name)")
+        .order("is_global", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      const templates = (data || []).map((t: any) => ({
+        ...t,
+        org_name: t.a_organizations?.org_name || null,
+        a_organizations: undefined,
+      }));
+
+      return NextResponse.json({ templates });
+    }
+
+    // Default: org's own templates + globals
     const { data, error } = await supabase
       .from("b_store_hours_templates")
       .select("*")
@@ -59,10 +91,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "org_id and template_name required" }, { status: 400 });
     }
 
+    // Check if caller is SSB org (parent_org_id IS NULL) to allow is_global
+    let isGlobal = false;
+    if (body.is_global === true) {
+      const { data: callerOrg } = await supabase
+        .from("a_organizations")
+        .select("parent_org_id")
+        .eq("org_id", org_id)
+        .single();
+      if (callerOrg && callerOrg.parent_org_id === null) {
+        isGlobal = true;
+      }
+    }
+
     const row: Record<string, any> = {
       org_id,
       template_name: template_name.trim(),
-      is_global: false,
+      is_global: isGlobal,
       created_by: userId,
     };
 

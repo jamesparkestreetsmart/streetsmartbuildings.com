@@ -7,6 +7,7 @@ import { useOrg } from "@/context/OrgContext";
 import IntegrationRoadmap from "@/components/IntegrationRoadmap";
 import IntegrationSpec from "@/components/IntegrationSpec";
 import GlobalOperationsPanel from "@/components/journey/GlobalOperationsPanel";
+import SSBGlobalProfilesPanel from "@/components/journey/SSBGlobalProfilesPanel";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,7 +38,7 @@ interface SiteOption {
 type Scope = "org" | "sites" | "equipment" | "devices";
 
 export default function JourneyPage() {
-  const { selectedOrgId, userEmail } = useOrg();
+  const { selectedOrgId, selectedOrg, userEmail } = useOrg();
   const [records, setRecords] = useState<RecordLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [sites, setSites] = useState<SiteOption[]>([]);
@@ -467,10 +468,14 @@ export default function JourneyPage() {
         </div>
       </div>
 
-      {/* Global Operations Panel */}
+      {/* Global Operations Panel — SSB sees SSBGlobalProfilesPanel, orgs see GlobalOperationsPanel */}
       {selectedOrgId && (
         <div className="mt-10 max-w-5xl mx-auto">
-          <GlobalOperationsPanel orgId={selectedOrgId} />
+          {selectedOrg?.org_identifier === "SSB1" ? (
+            <SSBGlobalProfilesPanel orgId={selectedOrgId} />
+          ) : (
+            <GlobalOperationsPanel orgId={selectedOrgId} />
+          )}
         </div>
       )}
 

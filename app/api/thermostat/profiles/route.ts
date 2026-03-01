@@ -31,15 +31,49 @@ function mapProfileOut(p: any) {
 export async function GET(req: NextRequest) {
   try {
     const orgId = req.nextUrl.searchParams.get("org_id");
+    const scope = req.nextUrl.searchParams.get("scope");
     if (!orgId) {
       return NextResponse.json({ error: "org_id required" }, { status: 400 });
     }
 
-    // Fetch profiles (DB column is "name")
+    // scope=all: SSB org can browse ALL profiles across all orgs
+    if (scope === "all") {
+      const { data: callerOrg } = await supabase
+        .from("a_organizations")
+        .select("parent_org_id")
+        .eq("org_id", orgId)
+        .single();
+
+      if (!callerOrg || callerOrg.parent_org_id !== null) {
+        return NextResponse.json({ error: "scope=all is only available for SSB org" }, { status: 403 });
+      }
+
+      const { data: allProfiles, error: allErr } = await supabase
+        .from("b_thermostat_profiles")
+        .select("*, a_organizations!inner(org_name)")
+        .order("name");
+
+      if (allErr) {
+        console.error("[thermostat/profiles] GET scope=all error:", allErr);
+        return NextResponse.json({ error: allErr.message }, { status: 500 });
+      }
+
+      const result = (allProfiles || []).map((p: any) => ({
+        ...mapProfileOut(p),
+        org_name: p.a_organizations?.org_name || null,
+        a_organizations: undefined,
+        zone_count: 0,
+        site_count: 0,
+      }));
+
+      return NextResponse.json(result);
+    }
+
+    // Default: org's own profiles + globals (is_global = true)
     const { data: profiles, error } = await supabase
       .from("b_thermostat_profiles")
       .select("*")
-      .eq("org_id", orgId)
+      .or(`org_id.eq.${orgId},is_global.eq.true`)
       .order("name");
 
     if (error) {
@@ -107,11 +141,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check if caller is SSB org (parent_org_id IS NULL) to allow is_global
+    let isGlobal = false;
+    if (fields.is_global === true) {
+      const { data: callerOrg } = await supabase
+        .from("a_organizations")
+        .select("parent_org_id")
+        .eq("org_id", org_id)
+        .single();
+      if (callerOrg && callerOrg.parent_org_id === null) {
+        isGlobal = true;
+      }
+    }
+
     const { data, error } = await supabase
       .from("b_thermostat_profiles")
       .insert({
         org_id,
         name: profile_name,
+        is_global: isGlobal,
         scope: fields.scope ?? "org",
         occupied_heat_f: fields.occupied_heat_f ?? 68,
         occupied_cool_f: fields.occupied_cool_f ?? 76,
@@ -239,6 +287,17 @@ export async function DELETE(req: NextRequest) {
         { error: "profile_id required" },
         { status: 400 }
       );
+    }
+
+    // Block deletion of global profiles
+    const { data: profileCheck } = await supabase
+      .from("b_thermostat_profiles")
+      .select("is_global")
+      .eq("profile_id", profileId)
+      .single();
+
+    if (profileCheck?.is_global) {
+      return NextResponse.json({ error: "Cannot delete a global profile" }, { status: 403 });
     }
 
     // Check if any zones reference this profile
