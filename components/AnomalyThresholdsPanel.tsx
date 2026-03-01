@@ -123,18 +123,29 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
 
   // Fetch org profiles (non-global only)
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) {
+      console.warn("[AnomalyThresholds] orgId is empty, skipping profile fetch");
+      return;
+    }
     const fetchProfiles = async () => {
       setProfilesLoading(true);
       try {
-        const res = await fetch(`/api/anomaly-config/profiles?org_id=${orgId}`);
-        if (!res.ok) return;
+        const url = `/api/anomaly-config/profiles?org_id=${orgId}`;
+        console.log("[AnomalyThresholds] Fetching profiles:", url);
+        const res = await fetch(url);
+        if (!res.ok) {
+          console.error("[AnomalyThresholds] Profile fetch failed:", res.status, res.statusText);
+          return;
+        }
         const data = await res.json();
+        console.log("[AnomalyThresholds] Profiles response:", data.profiles?.length, "total");
         if (data.profiles) {
-          setOrgProfiles(data.profiles.filter((p: AnomalyConfigProfile) => !p.is_global));
+          const orgOnly = data.profiles.filter((p: AnomalyConfigProfile) => !p.is_global);
+          console.log("[AnomalyThresholds] Org-only profiles:", orgOnly.length);
+          setOrgProfiles(orgOnly);
         }
       } catch (err) {
-        console.error("Failed to fetch config profiles:", err);
+        console.error("[AnomalyThresholds] Failed to fetch config profiles:", err);
       } finally {
         setProfilesLoading(false);
       }

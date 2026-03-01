@@ -27,7 +27,7 @@ function EventsDisclaimer() {
   );
 }
 
-export default function StoreHoursManager({ siteId, timezone }: { siteId: string; timezone: string }) {
+export default function StoreHoursManager({ siteId, timezone, orgId }: { siteId: string; timezone: string; orgId?: string }) {
   const { userEmail } = useOrg();
   const upcoming = useFutureExceptions(siteId);
   const past = usePastStoreHours(siteId);
@@ -98,7 +98,7 @@ export default function StoreHoursManager({ siteId, timezone }: { siteId: string
   return (
     <>
       {/* Weekly base hours stays separate */}
-      <WeeklyStoreHours siteId={siteId} />
+      <WeeklyStoreHours siteId={siteId} orgId={orgId} />
 
       <div className="mt-10 space-y-6">
         <div className="grid grid-cols-3 gap-6">

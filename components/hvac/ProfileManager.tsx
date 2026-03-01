@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import TierBadge from "@/components/ui/TierBadge";
+import TierBadge, { Tier } from "@/components/ui/TierBadge";
 
 interface Profile {
   profile_id: string;
   org_id: string;
   profile_name: string;
+  scope?: string;
   occupied_heat_f: number;
   occupied_cool_f: number;
   unoccupied_heat_f: number;
@@ -416,7 +417,7 @@ export default function ProfileManager({ orgId }: Props) {
     const res = await fetch("/api/thermostat/profiles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ org_id: orgId, ...form }),
+      body: JSON.stringify({ org_id: orgId, scope: "site", ...form }),
     });
     if (res.ok) {
       setShowNewModal(false);
@@ -595,7 +596,7 @@ export default function ProfileManager({ orgId }: Props) {
                 <div className="flex items-start gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <TierBadge tier="ORG" />
+                      <TierBadge tier={profile.scope === "site" ? "SITE" : "ORG"} />
                       <h3 className="font-semibold text-base">{profile.profile_name}</h3>
                     </div>
                     <div className="text-sm text-gray-600 mt-1 space-y-0.5">

@@ -124,7 +124,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
         <PlumbingTable siteId={siteId} />
       )}
       {tab === "hours" && !isInventorySite && (
-        <StoreHoursManager siteId={siteId} timezone={timezone} />
+        <StoreHoursManager siteId={siteId} timezone={timezone} orgId={orgId || ""} />
       )}
       {tab === "activity" && !isInventorySite && (
         <SiteActivityLog siteId={siteId} />

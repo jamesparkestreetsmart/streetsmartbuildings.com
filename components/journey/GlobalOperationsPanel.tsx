@@ -22,6 +22,7 @@ interface ThresholdMeta {
 interface ThermostatProfile {
   profile_id: string;
   profile_name: string;
+  scope?: string;
   occupied_heat_f: number;
   occupied_cool_f: number;
   unoccupied_heat_f: number;
@@ -47,7 +48,22 @@ interface AnomalyConfigProfile {
   compressor_current_threshold_a: number | null;
 }
 
+interface StoreHoursTemplate {
+  template_id: string;
+  org_id: string;
+  template_name: string;
+  is_global: boolean;
+  created_at: string;
+  [key: string]: any;
+}
+
 type ActiveTab = "anomaly" | "thermostat" | "storehours";
+
+const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+const DAY_LABELS: Record<string, string> = {
+  mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday",
+  fri: "Friday", sat: "Saturday", sun: "Sunday",
+};
 
 const THRESHOLD_KEYS = [
   "coil_freeze_temp_f",
@@ -100,6 +116,25 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const [profiles, setProfiles] = useState<ThermostatProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
   const [profilesLoading, setProfilesLoading] = useState(false);
+
+  // ─── Store Hours Template State ───────────────────────────────────────────
+  const [hoursTemplates, setHoursTemplates] = useState<StoreHoursTemplate[]>([]);
+  const [hoursTemplatesLoading, setHoursTemplatesLoading] = useState(false);
+  const [selectedHoursTemplateId, setSelectedHoursTemplateId] = useState("");
+  const [showHoursTemplateList, setShowHoursTemplateList] = useState(false);
+  const [showHoursSaveInput, setShowHoursSaveInput] = useState(false);
+  const [hoursSaveTemplateName, setHoursSaveTemplateName] = useState("");
+  const [savingHoursTemplate, setSavingHoursTemplate] = useState(false);
+  const [hoursTemplateSaveResult, setHoursTemplateSaveResult] = useState<string | null>(null);
+  const [deletingHoursTemplateId, setDeletingHoursTemplateId] = useState<string | null>(null);
+  const [copyingHoursTemplateId, setCopyingHoursTemplateId] = useState<string | null>(null);
+  const [copiedHoursTemplateId, setCopiedHoursTemplateId] = useState<string | null>(null);
+  // 7-day form for editing/creating templates
+  const [hoursForm, setHoursForm] = useState<Record<string, { open: string; close: string; closed: boolean }>>(() => {
+    const init: Record<string, { open: string; close: string; closed: boolean }> = {};
+    for (const d of DAYS) init[d] = { open: "", close: "", closed: false };
+    return init;
+  });
 
   // ─── Push State ────────────────────────────────────────────────────────────
   const [pushing, setPushing] = useState(false);
@@ -173,10 +208,29 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
     }
   }, [orgId]);
 
+  // ─── Fetch store hours templates ──────────────────────────────────────────
+  const fetchHoursTemplates = useCallback(async () => {
+    setHoursTemplatesLoading(true);
+    try {
+      const res = await fetch(`/api/store-hours/templates?org_id=${orgId}`);
+      if (!res.ok) {
+        console.warn("[GlobalOps] Hours templates fetch returned", res.status);
+        return;
+      }
+      const data = await res.json();
+      if (data.templates) setHoursTemplates(data.templates);
+    } catch (err) {
+      console.error("Failed to fetch hours templates:", err);
+    } finally {
+      setHoursTemplatesLoading(false);
+    }
+  }, [orgId]);
+
   useEffect(() => {
     fetchZones();
     fetchConfigProfiles();
-  }, [fetchZones, fetchConfigProfiles]);
+    fetchHoursTemplates();
+  }, [fetchZones, fetchConfigProfiles, fetchHoursTemplates]);
 
   useEffect(() => {
     if (activeTab === "thermostat") fetchProfiles();
@@ -327,6 +381,114 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
       console.error("Failed to copy SSB profile");
     } finally {
       setCopyingProfileId(null);
+    }
+  };
+
+  // ─── Store Hours Template Handlers ────────────────────────────────────────
+  const orgHoursTemplateNames = useMemo(
+    () => new Set(hoursTemplates.filter((t) => !t.is_global).map((t) => t.template_name)),
+    [hoursTemplates]
+  );
+
+  const applyHoursTemplate = (template: StoreHoursTemplate) => {
+    const newForm: Record<string, { open: string; close: string; closed: boolean }> = {};
+    for (const d of DAYS) {
+      newForm[d] = {
+        open: template[`${d}_open`] ?? "",
+        close: template[`${d}_close`] ?? "",
+        closed: template[`${d}_closed`] ?? false,
+      };
+    }
+    setHoursForm(newForm);
+    setSelectedHoursTemplateId("");
+  };
+
+  const handleSelectHoursTemplate = (templateId: string) => {
+    setSelectedHoursTemplateId(templateId);
+    const template = hoursTemplates.find((t) => t.template_id === templateId);
+    if (template) applyHoursTemplate(template);
+  };
+
+  const saveHoursAsTemplate = async () => {
+    if (!hoursSaveTemplateName.trim()) return;
+    setSavingHoursTemplate(true);
+    setHoursTemplateSaveResult(null);
+    try {
+      const body: Record<string, any> = {
+        org_id: orgId,
+        template_name: hoursSaveTemplateName.trim(),
+      };
+      for (const d of DAYS) {
+        body[`${d}_open`] = hoursForm[d].closed ? null : (hoursForm[d].open || null);
+        body[`${d}_close`] = hoursForm[d].closed ? null : (hoursForm[d].close || null);
+        body[`${d}_closed`] = hoursForm[d].closed;
+      }
+      const res = await fetch("/api/store-hours/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.template) {
+        setHoursTemplateSaveResult("Saved!");
+        setHoursSaveTemplateName("");
+        setShowHoursSaveInput(false);
+        fetchHoursTemplates();
+        setTimeout(() => setHoursTemplateSaveResult(null), 3000);
+      } else {
+        setHoursTemplateSaveResult(data.error || "Save failed");
+      }
+    } catch {
+      setHoursTemplateSaveResult("Network error");
+    } finally {
+      setSavingHoursTemplate(false);
+    }
+  };
+
+  const deleteHoursTemplate = async (templateId: string) => {
+    try {
+      const res = await fetch(
+        `/api/store-hours/templates?template_id=${templateId}&org_id=${orgId}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json();
+      if (data.success) {
+        fetchHoursTemplates();
+      }
+    } catch {
+      console.error("Failed to delete hours template");
+    } finally {
+      setDeletingHoursTemplateId(null);
+    }
+  };
+
+  const copySSBHoursTemplateToOrg = async (ssbTemplate: StoreHoursTemplate) => {
+    setCopyingHoursTemplateId(ssbTemplate.template_id);
+    try {
+      const body: Record<string, any> = {
+        org_id: orgId,
+        template_name: ssbTemplate.template_name,
+      };
+      for (const d of DAYS) {
+        body[`${d}_open`] = ssbTemplate[`${d}_open`] ?? null;
+        body[`${d}_close`] = ssbTemplate[`${d}_close`] ?? null;
+        body[`${d}_closed`] = ssbTemplate[`${d}_closed`] ?? false;
+      }
+      const res = await fetch("/api/store-hours/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.template) {
+        setCopiedHoursTemplateId(ssbTemplate.template_id);
+        fetchHoursTemplates();
+        setTimeout(() => setCopiedHoursTemplateId(null), 3000);
+      }
+    } catch {
+      console.error("Failed to copy SSB hours template");
+    } finally {
+      setCopyingHoursTemplateId(null);
     }
   };
 
@@ -797,7 +959,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <TierBadge tier="ORG" />
+                          <TierBadge tier={profile.scope === "site" ? "SITE" : "ORG"} />
                           <span className="font-medium text-sm text-gray-900">{profile.profile_name}</span>
                         </div>
                         <span className="text-[10px] text-gray-400">
@@ -831,8 +993,200 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
         {activeTab === "storehours" && (
           <div>
             <p className="text-sm text-gray-500 mb-3">
-              Refresh store hours manifests for sites derived from selected zones.
+              Manage store hours templates and refresh manifests for sites derived from selected zones.
             </p>
+
+            {/* ── Templates Section ──────────────────────────────────── */}
+            <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Templates</label>
+                <select
+                  value={selectedHoursTemplateId}
+                  onChange={(e) => handleSelectHoursTemplate(e.target.value)}
+                  className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                >
+                  <option value="">Load a template...</option>
+                  {hoursTemplates.map((t) => (
+                    <option key={t.template_id} value={t.template_id}>
+                      {t.is_global
+                        ? `[SSB] ${t.template_name}`
+                        : `[ORG] ${t.template_name} \u00B7 ${new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                    </option>
+                  ))}
+                </select>
+                {!showHoursSaveInput ? (
+                  <button
+                    onClick={() => { setShowHoursSaveInput(true); setHoursTemplateSaveResult(null); }}
+                    className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-300 rounded hover:bg-indigo-50 transition-colors whitespace-nowrap"
+                  >
+                    Save Current as Template
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={hoursSaveTemplateName}
+                      onChange={(e) => setHoursSaveTemplateName(e.target.value)}
+                      placeholder="Template name..."
+                      className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 w-40"
+                      autoFocus
+                      onKeyDown={(e) => { if (e.key === "Enter") saveHoursAsTemplate(); if (e.key === "Escape") { setShowHoursSaveInput(false); setHoursSaveTemplateName(""); } }}
+                    />
+                    <button
+                      onClick={saveHoursAsTemplate}
+                      disabled={!hoursSaveTemplateName.trim() || savingHoursTemplate}
+                      className="px-2.5 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                    >
+                      {savingHoursTemplate ? "..." : "Confirm"}
+                    </button>
+                    <button
+                      onClick={() => { setShowHoursSaveInput(false); setHoursSaveTemplateName(""); }}
+                      className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {hoursTemplateSaveResult && (
+                  <span className={`text-xs ${hoursTemplateSaveResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
+                    {hoursTemplateSaveResult}
+                  </span>
+                )}
+              </div>
+
+              {/* Collapsible template list */}
+              {hoursTemplates.length > 0 && (
+                <div className="mt-2">
+                  <button
+                    onClick={() => setShowHoursTemplateList(!showHoursTemplateList)}
+                    className="text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    {showHoursTemplateList ? "\u25BC" : "\u25B6"} {hoursTemplates.length} saved template(s)
+                  </button>
+                  {showHoursTemplateList && (
+                    <div className="mt-2 space-y-1">
+                      {hoursTemplates.map((t) => (
+                        <div
+                          key={t.template_id}
+                          className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <TierBadge tier={t.is_global ? "SSB" : "ORG"} />
+                            <span className="font-medium text-gray-800">{t.template_name}</span>
+                            <span className="text-xs text-gray-400">
+                              {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => applyHoursTemplate(t)}
+                              className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                            >
+                              Apply
+                            </button>
+                            {t.is_global ? (
+                              orgHoursTemplateNames.has(t.template_name) ? (
+                                <span className="text-[10px] text-gray-400 italic px-1">Already in your templates</span>
+                              ) : copiedHoursTemplateId === t.template_id ? (
+                                <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Added</span>
+                              ) : (
+                                <button
+                                  onClick={() => copySSBHoursTemplateToOrg(t)}
+                                  disabled={copyingHoursTemplateId === t.template_id}
+                                  className="px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+                                >
+                                  {copyingHoursTemplateId === t.template_id ? "..." : "+ Add to My Templates"}
+                                </button>
+                              )
+                            ) : (
+                              deletingHoursTemplateId === t.template_id ? (
+                                <span className="flex items-center gap-1 text-xs">
+                                  <span className="text-red-600">Delete?</span>
+                                  <button
+                                    onClick={() => deleteHoursTemplate(t.template_id)}
+                                    className="px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 rounded font-medium"
+                                  >
+                                    Yes
+                                  </button>
+                                  <button
+                                    onClick={() => setDeletingHoursTemplateId(null)}
+                                    className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 rounded"
+                                  >
+                                    No
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => setDeletingHoursTemplateId(t.template_id)}
+                                  className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {hoursTemplatesLoading && (
+                <div className="mt-2 text-xs text-gray-400">Loading templates...</div>
+              )}
+            </div>
+
+            {/* ── 7-Day Form ──────────────────────────────────────── */}
+            <div className="mb-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs font-semibold text-gray-600">
+                    <th className="py-2 px-2 text-left">Day</th>
+                    <th className="py-2 px-2 text-left">Open</th>
+                    <th className="py-2 px-2 text-left">Close</th>
+                    <th className="py-2 px-2 text-left">Closed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {DAYS.map((d) => (
+                    <tr key={d} className="border-t">
+                      <td className="py-1.5 px-2 text-gray-700">{DAY_LABELS[d]}</td>
+                      <td className="py-1.5 px-2">
+                        <input
+                          type="time"
+                          value={hoursForm[d]?.open || ""}
+                          onChange={(e) => setHoursForm((prev) => ({ ...prev, [d]: { ...prev[d], open: e.target.value } }))}
+                          disabled={hoursForm[d]?.closed}
+                          className="border rounded px-2 py-1 text-sm disabled:bg-gray-100 disabled:text-gray-400"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <input
+                          type="time"
+                          value={hoursForm[d]?.close || ""}
+                          onChange={(e) => setHoursForm((prev) => ({ ...prev, [d]: { ...prev[d], close: e.target.value } }))}
+                          disabled={hoursForm[d]?.closed}
+                          className="border rounded px-2 py-1 text-sm disabled:bg-gray-100 disabled:text-gray-400"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <input
+                          type="checkbox"
+                          checked={hoursForm[d]?.closed || false}
+                          onChange={(e) => setHoursForm((prev) => ({
+                            ...prev,
+                            [d]: { open: e.target.checked ? "" : prev[d].open, close: e.target.checked ? "" : prev[d].close, closed: e.target.checked },
+                          }))}
+                          className="w-4 h-4 text-indigo-600 border-gray-300 rounded"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ── Refresh Manifests ────────────────────────────────── */}
             {(() => {
               const siteIds = [...new Set(zones.filter((z) => selectedZoneIds.includes(z.hvac_zone_id)).map((z) => z.site_id))];
               return (

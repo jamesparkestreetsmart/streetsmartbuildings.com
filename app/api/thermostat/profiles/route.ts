@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
       .insert({
         org_id,
         name: profile_name,
+        scope: fields.scope ?? "org",
         occupied_heat_f: fields.occupied_heat_f ?? 68,
         occupied_cool_f: fields.occupied_cool_f ?? 76,
         unoccupied_heat_f: fields.unoccupied_heat_f ?? 55,
