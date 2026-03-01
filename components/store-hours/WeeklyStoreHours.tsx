@@ -91,21 +91,10 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
   const [templates, setTemplates] = useState<StoreHoursTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
-  const [copyingTemplateId, setCopyingTemplateId] = useState<string | null>(null);
-  const [copiedTemplateId, setCopiedTemplateId] = useState<string | null>(null);
 
-  const orgTemplateNames = useMemo(
-    () => new Set(templates.filter((t) => !t.is_global).map((t) => t.template_name)),
-    [templates]
-  );
-
+  // Site view only shows org-approved templates (not SSB globals)
   const orgTemplates = useMemo(
     () => templates.filter((t) => !t.is_global),
-    [templates]
-  );
-
-  const ssbTemplates = useMemo(
-    () => templates.filter((t) => t.is_global),
     [templates]
   );
 
@@ -357,38 +346,6 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
     }
   }
 
-  // Copy SSB global template to org
-  async function handleCopyTemplate(template: StoreHoursTemplate) {
-    if (!orgId) return;
-    setCopyingTemplateId(template.template_id);
-    try {
-      const body: Record<string, any> = {
-        org_id: orgId,
-        template_name: template.template_name,
-      };
-      for (const day of ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]) {
-        body[`${day}_open`] = template[`${day}_open`] ?? null;
-        body[`${day}_close`] = template[`${day}_close`] ?? null;
-        body[`${day}_closed`] = template[`${day}_closed`] ?? false;
-      }
-      const res = await fetch("/api/store-hours/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (data.template) {
-        setCopiedTemplateId(template.template_id);
-        fetchTemplates();
-        setTimeout(() => setCopiedTemplateId(null), 3000);
-      }
-    } catch {
-      console.error("Failed to copy SSB template");
-    } finally {
-      setCopyingTemplateId(null);
-    }
-  }
-
   function updateEditRow(idx: number, patch: Partial<StoreHoursRow>) {
     setEditRows((prev) => {
       const copy = [...prev];
@@ -458,7 +415,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
 
           {templatesLoading ? (
             <div className="text-xs text-gray-400 py-1">Loading templates...</div>
-          ) : orgTemplates.length === 0 && ssbTemplates.length === 0 ? (
+          ) : orgTemplates.length === 0 ? (
             <p className="text-xs text-gray-400 py-1">
               No templates yet. Click &ldquo;+ New Template&rdquo; to create one from current site hours.
             </p>
@@ -491,58 +448,11 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
                     >
                       Use as Base
                     </button>
-                    <button
-                      onClick={() => handleDeleteTemplate(t.template_id)}
-                      disabled={deletingTemplateId === t.template_id}
-                      className="px-1.5 py-0.5 text-[11px] text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
-                    >
-                      {deletingTemplateId === t.template_id ? "..." : "Delete"}
-                    </button>
+{/* Delete org templates from My Journey > Global Operations only */}
                   </div>
                 </div>
               ))}
 
-              {/* SSB templates with copy button */}
-              {ssbTemplates.map((t) => (
-                <div
-                  key={t.template_id}
-                  className="flex items-center justify-between px-2.5 py-2 rounded border border-gray-200 bg-white text-xs"
-                >
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <TierBadge tier="SSB" />
-                    <span className="font-medium text-gray-700 truncate">{t.template_name}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                    <button
-                      onClick={() => handleApplyExistingTemplate(t.template_id)}
-                      disabled={saving}
-                      className="px-2 py-0.5 text-[11px] font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
-                    >
-                      Apply
-                    </button>
-                    <button
-                      onClick={() => startFromExistingTemplate(t.template_id)}
-                      disabled={mode === "create"}
-                      className="px-2 py-0.5 text-[11px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
-                    >
-                      Use as Base
-                    </button>
-                    {orgTemplateNames.has(t.template_name) ? (
-                      <span className="text-[10px] text-gray-400 italic px-1">Copied</span>
-                    ) : copiedTemplateId === t.template_id ? (
-                      <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Added</span>
-                    ) : (
-                      <button
-                        onClick={() => handleCopyTemplate(t)}
-                        disabled={copyingTemplateId === t.template_id}
-                        className="px-1.5 py-0.5 text-[11px] text-purple-600 hover:text-purple-700 disabled:opacity-50 transition-colors"
-                      >
-                        {copyingTemplateId === t.template_id ? "..." : "+ Copy"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
             </div>
           )}
         </div>

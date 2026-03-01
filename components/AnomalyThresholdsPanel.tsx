@@ -458,7 +458,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                   >
                     Use as Base
                   </button>
-                  {!p.is_global && (
+                  {!p.is_global && (p.scope || "org") === "site" && (
                     <button
                       onClick={() => handleDeleteProfile(p.profile_id)}
                       disabled={deletingProfileId === p.profile_id}
