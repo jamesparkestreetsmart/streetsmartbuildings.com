@@ -82,11 +82,21 @@ export async function POST(req: NextRequest) {
       row[key] = typeof val === "number" ? val : null;
     }
 
-    const { data, error } = await supabase
+    // Try with scope column first; if it doesn't exist yet, retry without it
+    let { data, error } = await supabase
       .from("b_anomaly_config_profiles")
       .insert(row)
       .select()
       .single();
+
+    if (error && error.message.includes("scope")) {
+      const { scope, ...rowWithoutScope } = row;
+      ({ data, error } = await supabase
+        .from("b_anomaly_config_profiles")
+        .insert(rowWithoutScope)
+        .select()
+        .single());
+    }
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

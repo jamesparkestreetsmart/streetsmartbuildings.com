@@ -4,7 +4,6 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import TierBadge from "@/components/ui/TierBadge";
 
@@ -60,11 +59,11 @@ function fromTimeInputValue(value: string): string | null {
 }
 
 function formatDisplayTime(time: string | null): string {
-  if (!time) return "—";
+  if (!time) return "\u2014";
   const [hStr, mStr] = time.split(":");
   let h = parseInt(hStr, 10);
   const m = parseInt(mStr, 10);
-  if (Number.isNaN(h) || Number.isNaN(m)) return "—";
+  if (Number.isNaN(h) || Number.isNaN(m)) return "\u2014";
 
   const suffix = h >= 12 ? "PM" : "AM";
   const displayH = ((h + 11) % 12) + 1;
@@ -78,21 +77,20 @@ const DAY_MAP: Record<string, string> = {
 
 export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerProps) {
   const [rows, setRows] = useState<StoreHoursRow[]>([]);
-  const [editRows, setEditRows] = useState<StoreHoursRow[] | null>(null);
+  const [editRows, setEditRows] = useState<StoreHoursRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Template state
+  // Profile-first state
+  const [mode, setMode] = useState<"view" | "create">("view");
+  const [templateName, setTemplateName] = useState("");
+
+  // Template list state
   const [templates, setTemplates] = useState<StoreHoursTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null);
-  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
-  const [saveTemplateName, setSaveTemplateName] = useState("");
-  const [savingTemplate, setSavingTemplate] = useState(false);
-  const [saveTemplateResult, setSaveTemplateResult] = useState<string | null>(null);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [copyingTemplateId, setCopyingTemplateId] = useState<string | null>(null);
   const [copiedTemplateId, setCopiedTemplateId] = useState<string | null>(null);
 
@@ -101,7 +99,15 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
     [templates]
   );
 
-  const isEditing = editRows !== null;
+  const orgTemplates = useMemo(
+    () => templates.filter((t) => !t.is_global),
+    [templates]
+  );
+
+  const ssbTemplates = useMemo(
+    () => templates.filter((t) => t.is_global),
+    [templates]
+  );
 
   useEffect(() => {
     if (!siteId) return;
@@ -110,25 +116,27 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
   }, [siteId]);
 
   // Fetch templates
-  useEffect(() => {
+  const fetchTemplates = async () => {
     if (!orgId) return;
-    const fetchTemplates = async () => {
-      setTemplatesLoading(true);
-      try {
-        const res = await fetch(`/api/store-hours/templates?org_id=${orgId}`);
-        if (!res.ok) {
-          console.error("[WeeklyStoreHours] Templates fetch failed:", res.status);
-          return;
-        }
-        const data = await res.json();
-        if (data.templates) setTemplates(data.templates);
-      } catch (err) {
-        console.error("[WeeklyStoreHours] Failed to fetch templates:", err);
-      } finally {
-        setTemplatesLoading(false);
+    setTemplatesLoading(true);
+    try {
+      const res = await fetch(`/api/store-hours/templates?org_id=${orgId}`);
+      if (!res.ok) {
+        console.error("[WeeklyStoreHours] Templates fetch failed:", res.status);
+        return;
       }
-    };
+      const data = await res.json();
+      if (data.templates) setTemplates(data.templates);
+    } catch (err) {
+      console.error("[WeeklyStoreHours] Failed to fetch templates:", err);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchTemplates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   async function fetchHours() {
@@ -178,14 +186,9 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
     setLoading(false);
   }
 
-  // Apply template to the day grid (enters edit mode)
-  function handleApplyTemplate(templateId: string) {
-    const template = templates.find((t) => t.template_id === templateId);
-    if (!template) return;
-    setSelectedTemplateId(templateId);
-    setAppliedTemplate(template.template_name);
-
-    const newRows = rows.map((row) => {
+  // Helper: map template values onto existing rows
+  function mapTemplateToRows(template: StoreHoursTemplate): StoreHoursRow[] {
+    return rows.map((row) => {
       const prefix = DAY_MAP[row.day_of_week];
       if (!prefix) return row;
       return {
@@ -195,23 +198,89 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
         is_closed: template[`${prefix}_closed`] ?? false,
       };
     });
-    setEditRows(newRows);
+  }
+
+  // Helper: apply rows to site via API (shared by Save&Apply and Apply)
+  async function applyRowsToSite(rowsToApply: StoreHoursRow[]): Promise<boolean> {
+    // Validate
+    for (const row of rowsToApply) {
+      const closed = !!row.is_closed;
+      const hasOpen = !!row.open_time;
+      const hasClose = !!row.close_time;
+      if (!closed && hasOpen !== hasClose) {
+        setError(`Both open and close times are required when store is open (problem on ${row.day_of_week}).`);
+        return false;
+      }
+    }
+
+    // Get auth user
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    if (authError || !authUser) {
+      setError("You must be logged in to save store hours.");
+      return false;
+    }
+
+    const res = await fetch("/api/store-hours", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        site_id: siteId,
+        changed_by: authUser.id,
+        rows: rowsToApply.map((row) => ({
+          store_hours_id: row.store_hours_id,
+          day_of_week: row.day_of_week,
+          is_closed: row.is_closed ?? false,
+          open_time: row.is_closed ? null : row.open_time,
+          close_time: row.is_closed ? null : row.close_time,
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      setError(data.error || "Failed to save store hours.");
+      return false;
+    }
+
+    setRows(sortByDayOrder(rowsToApply));
+    return true;
+  }
+
+  // Enter create mode pre-filled with current site hours
+  function startNewTemplate() {
+    setEditRows([...rows]);
+    setTemplateName("");
+    setMode("create");
     setError(null);
     setSuccess(null);
   }
 
-  // Save current hours as a template
-  async function handleSaveAsTemplate() {
-    if (!saveTemplateName.trim() || !orgId) return;
-    setSavingTemplate(true);
-    setSaveTemplateResult(null);
+  // Enter create mode pre-filled from an existing template (name blank)
+  function startFromExistingTemplate(templateId: string) {
+    const template = templates.find((t) => t.template_id === templateId);
+    if (!template) return;
+    setEditRows(mapTemplateToRows(template));
+    setTemplateName("");
+    setMode("create");
+    setError(null);
+    setSuccess(null);
+  }
+
+  // Save template to API then apply hours to site
+  async function handleSaveTemplate() {
+    if (!templateName.trim() || !orgId) return;
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+
     try {
-      const sourceRows = editRows || rows;
+      // 1. Save template
       const body: Record<string, any> = {
         org_id: orgId,
-        template_name: saveTemplateName.trim(),
+        template_name: templateName.trim(),
       };
-      for (const row of sourceRows) {
+      for (const row of editRows) {
         const prefix = DAY_MAP[row.day_of_week];
         if (!prefix) continue;
         body[`${prefix}_open`] = row.is_closed ? null : row.open_time;
@@ -224,29 +293,72 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.template) {
-        setSaveTemplateResult("Saved!");
-        setSaveTemplateName("");
-        setShowSaveTemplate(false);
-        // Refresh templates
-        const refreshRes = await fetch(`/api/store-hours/templates?org_id=${orgId}`);
-        if (refreshRes.ok) {
-          const refreshData = await refreshRes.json();
-          if (refreshData.templates) setTemplates(refreshData.templates);
-        }
-        setTimeout(() => setSaveTemplateResult(null), 3000);
-      } else {
-        setSaveTemplateResult(data.error || "Save failed");
+      if (!data.template) {
+        setError(data.error || "Failed to save template");
+        setSaving(false);
+        return;
+      }
+
+      // 2. Apply to site
+      const applied = await applyRowsToSite(editRows);
+      if (!applied) {
+        // Template saved but apply failed — still refresh templates
+        fetchTemplates();
+        setSaving(false);
+        return;
+      }
+
+      fetchTemplates();
+      setMode("view");
+      setTemplateName("");
+      setSuccess("Template saved and hours applied.");
+    } catch {
+      setError("Network error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Apply an existing template directly to site (immediate, no edit mode)
+  async function handleApplyExistingTemplate(templateId: string) {
+    const template = templates.find((t) => t.template_id === templateId);
+    if (!template) return;
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const mappedRows = mapTemplateToRows(template);
+      const applied = await applyRowsToSite(mappedRows);
+      if (applied) {
+        setSuccess(`Applied "${template.template_name}" to site hours.`);
       }
     } catch {
-      setSaveTemplateResult("Network error");
+      setError("Network error");
     } finally {
-      setSavingTemplate(false);
+      setSaving(false);
+    }
+  }
+
+  // Delete a template
+  async function handleDeleteTemplate(templateId: string) {
+    if (!orgId) return;
+    setDeletingTemplateId(templateId);
+    try {
+      const res = await fetch(`/api/store-hours/templates?template_id=${templateId}&org_id=${orgId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.success) {
+        fetchTemplates();
+      }
+    } catch {
+      console.error("Failed to delete template");
+    } finally {
+      setDeletingTemplateId(null);
     }
   }
 
   // Copy SSB global template to org
-  async function handleCopySSBTemplate(template: StoreHoursTemplate) {
+  async function handleCopyTemplate(template: StoreHoursTemplate) {
     if (!orgId) return;
     setCopyingTemplateId(template.template_id);
     try {
@@ -267,11 +379,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
       const data = await res.json();
       if (data.template) {
         setCopiedTemplateId(template.template_id);
-        const refreshRes = await fetch(`/api/store-hours/templates?org_id=${orgId}`);
-        if (refreshRes.ok) {
-          const refreshData = await refreshRes.json();
-          if (refreshData.templates) setTemplates(refreshData.templates);
-        }
+        fetchTemplates();
         setTimeout(() => setCopiedTemplateId(null), 3000);
       }
     } catch {
@@ -281,23 +389,8 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
     }
   }
 
-  function handleStartEditing() {
-    setError(null);
-    setSuccess(null);
-    setEditRows(rows);
-  }
-
-  function handleCancelEditing() {
-    setEditRows(null);
-    setError(null);
-    setSuccess(null);
-    setAppliedTemplate(null);
-    setSelectedTemplateId("");
-  }
-
   function updateEditRow(idx: number, patch: Partial<StoreHoursRow>) {
     setEditRows((prev) => {
-      if (!prev) return prev;
       const copy = [...prev];
       copy[idx] = { ...copy[idx], ...patch };
       return copy;
@@ -326,206 +419,14 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
     }
   }
 
-  // -----------------------------
-  // SAVE HANDLER (UPDATED)
-  // -----------------------------
-  async function handleSave() {
-    if (!editRows) return;
-
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-
-    // Validate rows
-    for (const row of editRows) {
-      const closed = !!row.is_closed;
-      const hasOpen = !!row.open_time;
-      const hasClose = !!row.close_time;
-
-      if (!closed && hasOpen !== hasClose) {
-        setError(
-          `Both open and close times are required when store is open (problem on ${row.day_of_week}).`
-        );
-        setSaving(false);
-        return;
-      }
-    }
-
-    try {
-      // 1️⃣ Get Supabase auth user
-      const {
-        data: { user: authUser },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError || !authUser) {
-        setError("You must be logged in to save store hours.");
-        setSaving(false);
-        return;
-      }
-
-      // 2️⃣ Attribution (cannonical user id)
-
-      const changed_by = authUser.id;
-
-      // 3️⃣ Send request
-      const res = await fetch("/api/store-hours", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          site_id: siteId,
-          changed_by,
-          rows: editRows.map((row) => ({
-            store_hours_id: row.store_hours_id,
-            day_of_week: row.day_of_week,
-            is_closed: row.is_closed ?? false,
-            open_time: row.is_closed ? null : row.open_time,
-            close_time: row.is_closed ? null : row.close_time,
-          })),
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || "Failed to save store hours.");
-        return;
-      }
-
-      setRows(sortByDayOrder(editRows));
-      setEditRows(null);
-      setAppliedTemplate(null);
-      setSelectedTemplateId("");
-      setSuccess("Store hours saved.");
-    } catch (err) {
-      console.error("Store hours save failed:", err);
-      setError("Unexpected error saving store hours.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const displayedRows = isEditing ? editRows ?? [] : rows;
+  const displayedRows = mode === "create" ? editRows : rows;
 
   return (
     <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Store Hours</h2>
-
-        {isEditing ? (
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={handleCancelEditing}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? "Saving…" : "Save Hours"}
-            </Button>
-          </div>
-        ) : (
-          <Button onClick={handleStartEditing} disabled={loading}>
-            Edit Hours
-          </Button>
-        )}
       </div>
-
-      {/* Template Selector */}
-      {orgId && (
-        <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-          {templatesLoading ? (
-            <div className="text-xs text-gray-400">Loading templates...</div>
-          ) : templates.length === 0 ? (
-            <p className="text-xs text-gray-400">
-              No templates yet. Create one in My Journey &rarr; Global Operations, or save current hours as a template.
-            </p>
-          ) : (
-            <div className="flex items-center gap-3 flex-wrap">
-              <select
-                value={selectedTemplateId}
-                onChange={(e) => handleApplyTemplate(e.target.value)}
-                className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500 bg-white"
-              >
-                <option value="">Apply Template...</option>
-                {templates.map((t) => (
-                  <option key={t.template_id} value={t.template_id}>
-                    {t.is_global ? `[SSB] ${t.template_name}` : `[ORG] ${t.template_name}`}
-                  </option>
-                ))}
-              </select>
-              {appliedTemplate && (
-                <span className="text-xs text-green-600 font-medium">Applied: {appliedTemplate}</span>
-              )}
-            </div>
-          )}
-          <div className="mt-2 flex items-center gap-2 flex-wrap">
-            {!showSaveTemplate ? (
-              <button
-                onClick={() => { setShowSaveTemplate(true); setSaveTemplateResult(null); }}
-                className="px-3 py-1.5 text-xs font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 transition-colors"
-              >
-                Save Current as Template
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={saveTemplateName}
-                  onChange={(e) => setSaveTemplateName(e.target.value)}
-                  placeholder="Template name..."
-                  className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500 w-40"
-                  autoFocus
-                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveAsTemplate(); if (e.key === "Escape") { setShowSaveTemplate(false); setSaveTemplateName(""); } }}
-                />
-                <button
-                  onClick={handleSaveAsTemplate}
-                  disabled={!saveTemplateName.trim() || savingTemplate}
-                  className="px-2.5 py-1.5 text-xs font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
-                >
-                  {savingTemplate ? "..." : "Confirm"}
-                </button>
-                <button
-                  onClick={() => { setShowSaveTemplate(false); setSaveTemplateName(""); }}
-                  className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-            {saveTemplateResult && (
-              <span className={`text-xs ${saveTemplateResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
-                {saveTemplateResult}
-              </span>
-            )}
-          </div>
-          {/* SSB template copy buttons */}
-          {templates.some((t) => t.is_global) && (
-            <div className="mt-2 space-y-1">
-              {templates.filter((t) => t.is_global).map((t) => (
-                <div key={t.template_id} className="flex items-center gap-2 text-xs">
-                  <TierBadge tier="SSB" />
-                  <span className="text-gray-700">{t.template_name}</span>
-                  {orgTemplateNames.has(t.template_name) ? (
-                    <span className="text-[10px] text-gray-400 italic">Already in your templates</span>
-                  ) : copiedTemplateId === t.template_id ? (
-                    <span className="text-[10px] text-green-600 font-medium">{"\u2713"} Added</span>
-                  ) : (
-                    <button
-                      onClick={() => handleCopySSBTemplate(t)}
-                      disabled={copyingTemplateId === t.template_id}
-                      className="text-xs text-green-600 hover:text-green-700 disabled:opacity-50"
-                    >
-                      {copyingTemplateId === t.template_id ? "..." : "+ Add to My Templates"}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {error && (
         <div className="mb-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
@@ -539,6 +440,130 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
         </div>
       )}
 
+      {/* Templates list (always visible) */}
+      {orgId && (
+        <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">
+              Templates {orgTemplates.length > 0 && `(${orgTemplates.length})`}
+            </span>
+            <button
+              onClick={startNewTemplate}
+              disabled={mode === "create" || loading}
+              className="px-3 py-1.5 text-xs font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
+            >
+              + New Template
+            </button>
+          </div>
+
+          {templatesLoading ? (
+            <div className="text-xs text-gray-400 py-1">Loading templates...</div>
+          ) : orgTemplates.length === 0 && ssbTemplates.length === 0 ? (
+            <p className="text-xs text-gray-400 py-1">
+              No templates yet. Click &ldquo;+ New Template&rdquo; to create one from current site hours.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {orgTemplates.map((t) => (
+                <div
+                  key={t.template_id}
+                  className="flex items-center justify-between px-2.5 py-2 rounded border border-gray-200 bg-white text-xs"
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <TierBadge tier="ORG" />
+                    <span className="font-medium text-gray-700 truncate">{t.template_name}</span>
+                    <span className="text-[10px] text-gray-400 flex-shrink-0">
+                      {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                    <button
+                      onClick={() => handleApplyExistingTemplate(t.template_id)}
+                      disabled={saving}
+                      className="px-2 py-0.5 text-[11px] font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      onClick={() => startFromExistingTemplate(t.template_id)}
+                      disabled={mode === "create"}
+                      className="px-2 py-0.5 text-[11px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
+                    >
+                      Use as Base
+                    </button>
+                    <button
+                      onClick={() => handleDeleteTemplate(t.template_id)}
+                      disabled={deletingTemplateId === t.template_id}
+                      className="px-1.5 py-0.5 text-[11px] text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
+                    >
+                      {deletingTemplateId === t.template_id ? "..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {/* SSB templates with copy button */}
+              {ssbTemplates.map((t) => (
+                <div
+                  key={t.template_id}
+                  className="flex items-center justify-between px-2.5 py-2 rounded border border-gray-200 bg-white text-xs"
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <TierBadge tier="SSB" />
+                    <span className="font-medium text-gray-700 truncate">{t.template_name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                    <button
+                      onClick={() => handleApplyExistingTemplate(t.template_id)}
+                      disabled={saving}
+                      className="px-2 py-0.5 text-[11px] font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      onClick={() => startFromExistingTemplate(t.template_id)}
+                      disabled={mode === "create"}
+                      className="px-2 py-0.5 text-[11px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
+                    >
+                      Use as Base
+                    </button>
+                    {orgTemplateNames.has(t.template_name) ? (
+                      <span className="text-[10px] text-gray-400 italic px-1">Copied</span>
+                    ) : copiedTemplateId === t.template_id ? (
+                      <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Added</span>
+                    ) : (
+                      <button
+                        onClick={() => handleCopyTemplate(t)}
+                        disabled={copyingTemplateId === t.template_id}
+                        className="px-1.5 py-0.5 text-[11px] text-purple-600 hover:text-purple-700 disabled:opacity-50 transition-colors"
+                      >
+                        {copyingTemplateId === t.template_id ? "..." : "+ Copy"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Template name input (create mode only) */}
+      {mode === "create" && (
+        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <label className="block text-xs font-medium text-gray-600 mb-1">New Template Name</label>
+          <input
+            type="text"
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            placeholder="e.g., Summer Hours, Holiday Schedule..."
+            className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-green-500 focus:border-green-500"
+            autoFocus
+          />
+        </div>
+      )}
+
+      {/* Schedule table */}
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
@@ -556,7 +581,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
                   colSpan={4}
                   className="py-4 px-3 text-center text-gray-500"
                 >
-                  Loading store hours…
+                  Loading store hours...
                 </td>
               </tr>
             )}
@@ -571,7 +596,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
                       {row.day_of_week}
                     </td>
                     <td className="py-2 px-3">
-                      {isEditing ? (
+                      {mode === "create" ? (
                         <input
                           type="time"
                           value={toTimeInputValue(row.open_time)}
@@ -590,7 +615,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
                       )}
                     </td>
                     <td className="py-2 px-3">
-                      {isEditing ? (
+                      {mode === "create" ? (
                         <input
                           type="time"
                           value={toTimeInputValue(row.close_time)}
@@ -609,7 +634,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
                       )}
                     </td>
                     <td className="py-2 px-3">
-                      {isEditing ? (
+                      {mode === "create" ? (
                         <Checkbox
                           checked={closed}
                           onCheckedChange={(c) =>
@@ -626,6 +651,25 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
           </tbody>
         </table>
       </div>
+
+      {/* Footer (create mode only) */}
+      {mode === "create" && (
+        <div className="mt-4 flex items-center justify-between border-t pt-3">
+          <button
+            onClick={() => { setMode("view"); setTemplateName(""); setError(null); }}
+            className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSaveTemplate}
+            disabled={saving || !templateName.trim()}
+            className="px-4 py-1.5 text-sm font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            {saving ? "Saving..." : "Save & Apply"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

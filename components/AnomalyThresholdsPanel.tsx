@@ -87,23 +87,19 @@ const THRESHOLD_KEYS = Object.keys(DEFAULTS);
 export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Props) {
   const [zones, setZones] = useState<Zone[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string>("");
-  const [editing, setEditing] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Profile selector state
+  // Profile-first state
+  const [mode, setMode] = useState<"view" | "create">("view");
+  const [profileName, setProfileName] = useState("");
+
+  // Profile list state
   const [orgProfiles, setOrgProfiles] = useState<AnomalyConfigProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
-  const [selectedProfileId, setSelectedProfileId] = useState("");
-  const [appliedProfile, setAppliedProfile] = useState<{ name: string; date: string; scope?: string } | null>(null);
-
-  // Save as site profile state
-  const [showSaveSiteProfile, setShowSaveSiteProfile] = useState(false);
-  const [saveSiteProfileName, setSaveSiteProfileName] = useState("");
-  const [savingSiteProfile, setSavingSiteProfile] = useState(false);
-  const [saveSiteProfileResult, setSaveSiteProfileResult] = useState<string | null>(null);
+  const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
 
   // Fetch zones for this site
   useEffect(() => {
@@ -137,24 +133,20 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
     setProfilesLoading(true);
     try {
       const url = `/api/anomaly-config/profiles?org_id=${orgId}`;
-      console.log("[AnomalyThresholds] Fetching profiles:", url);
       const res = await fetch(url);
       if (!res.ok) {
         console.error("[AnomalyThresholds] Profile fetch failed:", res.status, res.statusText);
         return;
       }
       const data = await res.json();
-      console.log("[AnomalyThresholds] Profiles response:", data.profiles?.length, "total");
       if (data.profiles) {
         const nonGlobal = data.profiles.filter((p: AnomalyConfigProfile) => !p.is_global);
-        // Sort: org-scoped first, then site-scoped
         nonGlobal.sort((a: AnomalyConfigProfile, b: AnomalyConfigProfile) => {
           const aScope = a.scope || "org";
           const bScope = b.scope || "org";
           if (aScope !== bScope) return aScope === "org" ? -1 : 1;
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         });
-        console.log("[AnomalyThresholds] Non-global profiles:", nonGlobal.length);
         setOrgProfiles(nonGlobal);
       }
     } catch (err) {
@@ -179,66 +171,139 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
       vals[key] = String(thresholds[key] ?? "");
     }
     setValues(vals);
-    setEditing(false);
-    setAppliedProfile(null);
-    setSelectedProfileId("");
+    setMode("view");
+    setProfileName("");
   }, [selectedZoneId, JSON.stringify(thresholds)]);
 
-  // Apply profile to form
-  const handleApplyProfile = (profileId: string) => {
+  // Enter create mode pre-filled with current zone values
+  const startNewProfile = () => {
+    const vals: Record<string, string> = {};
+    for (const key of THRESHOLD_KEYS) {
+      vals[key] = String(thresholds[key] ?? "");
+    }
+    setValues(vals);
+    setProfileName("");
+    setMode("create");
+  };
+
+  // Enter create mode pre-filled from an existing profile (name blank)
+  const startFromProfile = (profileId: string) => {
     const profile = orgProfiles.find((p) => p.profile_id === profileId);
     if (!profile) return;
-
-    setSelectedProfileId(profileId);
     const vals: Record<string, string> = {};
     for (const key of THRESHOLD_KEYS) {
       const val = profile[key];
       vals[key] = val != null ? String(val) : "";
     }
     setValues(vals);
-    setEditing(true);
-    setAppliedProfile({
-      name: profile.profile_name,
-      date: new Date(profile.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      scope: profile.scope || "org",
-    });
+    setProfileName("");
+    setMode("create");
   };
 
-  const handleSave = async () => {
-    if (!selectedZoneId) return;
+  // Save profile to API then apply values to zone
+  const handleSaveProfile = async () => {
+    if (!profileName.trim() || !orgId || !selectedZoneId) return;
     setSaving(true);
 
-    const newThresholds: Record<string, number> = {};
-    for (const [key, config] of Object.entries(DEFAULTS)) {
-      const val = values[key]?.trim();
-      if (val !== "" && val !== undefined) {
-        const num = parseFloat(val);
-        if (!isNaN(num) && num !== config.default) {
-          newThresholds[key] = num;
+    try {
+      const thresholdValues: Record<string, number> = {};
+      const body: Record<string, any> = {
+        org_id: orgId,
+        profile_name: profileName.trim(),
+        scope: "site",
+      };
+
+      for (const key of THRESHOLD_KEYS) {
+        const val = values[key]?.trim();
+        if (val !== "" && val !== undefined) {
+          const num = parseFloat(val);
+          body[key] = !isNaN(num) ? num : DEFAULTS[key].default;
+          if (!isNaN(num) && num !== DEFAULTS[key].default) {
+            thresholdValues[key] = num;
+          }
+        } else {
+          body[key] = DEFAULTS[key].default;
+        }
+      }
+
+      // 1. Save profile
+      const res = await fetch("/api/anomaly-config/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (!data.profile) {
+        alert(data.error || "Failed to save profile");
+        setSaving(false);
+        return;
+      }
+
+      // 2. Apply to zone
+      const { error } = await supabase
+        .from("a_hvac_zones")
+        .update({ anomaly_thresholds: thresholdValues })
+        .eq("hvac_zone_id", selectedZoneId);
+
+      if (error) {
+        alert("Profile saved but failed to apply to zone: " + error.message);
+      } else {
+        setZones((prev) =>
+          prev.map((z) =>
+            z.hvac_zone_id === selectedZoneId
+              ? { ...z, anomaly_thresholds: thresholdValues }
+              : z
+          )
+        );
+        onUpdate?.();
+      }
+
+      fetchProfiles();
+      setMode("view");
+      setProfileName("");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      alert("Network error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Apply an existing profile's values directly to zone (immediate, no form)
+  const handleApplyExistingProfile = async (profileId: string) => {
+    const profile = orgProfiles.find((p) => p.profile_id === profileId);
+    if (!profile || !selectedZoneId) return;
+    setSaving(true);
+
+    const thresholdValues: Record<string, number> = {};
+    for (const key of THRESHOLD_KEYS) {
+      const val = profile[key];
+      if (val != null) {
+        const num = typeof val === "number" ? val : parseFloat(val);
+        if (!isNaN(num) && num !== DEFAULTS[key].default) {
+          thresholdValues[key] = num;
         }
       }
     }
 
     const { error } = await supabase
       .from("a_hvac_zones")
-      .update({ anomaly_thresholds: newThresholds })
+      .update({ anomaly_thresholds: thresholdValues })
       .eq("hvac_zone_id", selectedZoneId);
 
     if (error) {
-      alert("Failed to save: " + error.message);
+      alert("Failed to apply: " + error.message);
     } else {
-      // Update local state
       setZones((prev) =>
         prev.map((z) =>
           z.hvac_zone_id === selectedZoneId
-            ? { ...z, anomaly_thresholds: newThresholds }
+            ? { ...z, anomaly_thresholds: thresholdValues }
             : z
         )
       );
       setSaved(true);
-      setEditing(false);
-      setAppliedProfile(null);
-      setSelectedProfileId("");
       setTimeout(() => setSaved(false), 2000);
       onUpdate?.();
     }
@@ -268,9 +333,8 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
       const vals: Record<string, string> = {};
       for (const key of Object.keys(DEFAULTS)) vals[key] = "";
       setValues(vals);
-      setEditing(false);
-      setAppliedProfile(null);
-      setSelectedProfileId("");
+      setMode("view");
+      setProfileName("");
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       onUpdate?.();
@@ -278,45 +342,18 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
     setSaving(false);
   };
 
-  // Save current zone values as a site-scoped profile
-  const handleSaveAsSiteProfile = async () => {
-    if (!saveSiteProfileName.trim() || !orgId) return;
-    setSavingSiteProfile(true);
-    setSaveSiteProfileResult(null);
+  const handleDeleteProfile = async (profileId: string) => {
+    setDeletingProfileId(profileId);
     try {
-      const body: Record<string, any> = {
-        org_id: orgId,
-        profile_name: saveSiteProfileName.trim(),
-        scope: "site",
-      };
-      for (const key of THRESHOLD_KEYS) {
-        const val = values[key]?.trim();
-        if (val !== "" && val !== undefined) {
-          const num = parseFloat(val);
-          body[key] = !isNaN(num) ? num : DEFAULTS[key].default;
-        } else {
-          body[key] = DEFAULTS[key].default;
-        }
-      }
-      const res = await fetch("/api/anomaly-config/profiles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(`/api/anomaly-config/profiles?profile_id=${profileId}&org_id=${orgId}`, { method: "DELETE" });
       const data = await res.json();
-      if (data.profile) {
-        setSaveSiteProfileResult("Saved!");
-        setSaveSiteProfileName("");
-        setShowSaveSiteProfile(false);
+      if (data.success) {
         fetchProfiles();
-        setTimeout(() => setSaveSiteProfileResult(null), 3000);
-      } else {
-        setSaveSiteProfileResult(data.error || "Save failed");
       }
     } catch {
-      setSaveSiteProfileResult("Network error");
+      // silent
     } finally {
-      setSavingSiteProfile(false);
+      setDeletingProfileId(null);
     }
   };
 
@@ -371,80 +408,86 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
         )}
       </div>
 
-      {/* Profile selector */}
-      <div className="px-4 py-2.5 border-b bg-gray-50/50">
+      {/* Profiles list (always visible) */}
+      <div className="px-3 py-2.5 border-b">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-gray-600">
+            Profiles {orgProfiles.length > 0 && `(${orgProfiles.length})`}
+          </span>
+          <button
+            onClick={startNewProfile}
+            disabled={mode === "create"}
+            className="text-[11px] font-medium text-green-600 hover:text-green-700 disabled:opacity-40 transition-colors"
+          >
+            + New Profile
+          </button>
+        </div>
+
         {profilesLoading ? (
-          <div className="text-[11px] text-gray-400">Loading profiles...</div>
+          <div className="text-[11px] text-gray-400 py-1">Loading profiles...</div>
         ) : orgProfiles.length === 0 ? (
-          <p className="text-[11px] text-gray-400 leading-snug">
-            No profiles yet. Create one in My Journey &rarr; Global Operations, or save current zone values below.
+          <p className="text-[11px] text-gray-400 leading-snug py-1">
+            No profiles yet. Click &ldquo;+ New Profile&rdquo; to create one from current zone values.
           </p>
         ) : (
-          <>
-            <select
-              value={selectedProfileId}
-              onChange={(e) => handleApplyProfile(e.target.value)}
-              className="w-full text-xs border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500 bg-white"
-            >
-              <option value="">Apply Profile...</option>
-              {orgProfiles.map((p) => (
-                <option key={p.profile_id} value={p.profile_id}>
-                  {(p.scope || "org") === "site" ? `[SITE] ${p.profile_name}` : `[ORG] ${p.profile_name}`}
-                </option>
-              ))}
-            </select>
-            {appliedProfile && (
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <TierBadge tier={appliedProfile.scope === "site" ? "SITE" : "ORG"} />
-                <span className="text-[11px] text-gray-600 font-medium">{appliedProfile.name}</span>
-                <span className="text-[10px] text-gray-400">{appliedProfile.date}</span>
+          <div className="space-y-1.5">
+            {orgProfiles.map((p) => (
+              <div
+                key={p.profile_id}
+                className="flex items-center justify-between px-2.5 py-2 rounded border border-gray-200 bg-white text-xs"
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <TierBadge tier={(p.scope || "org") === "site" ? "SITE" : "ORG"} />
+                  <span className="font-medium text-gray-700 truncate">{p.profile_name}</span>
+                  <span className="text-[10px] text-gray-400 flex-shrink-0">
+                    {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                  <button
+                    onClick={() => handleApplyExistingProfile(p.profile_id)}
+                    disabled={saving}
+                    className="px-2 py-0.5 text-[11px] font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    onClick={() => startFromProfile(p.profile_id)}
+                    disabled={mode === "create"}
+                    className="px-2 py-0.5 text-[11px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
+                  >
+                    Use as Base
+                  </button>
+                  {!p.is_global && (
+                    <button
+                      onClick={() => handleDeleteProfile(p.profile_id)}
+                      disabled={deletingProfileId === p.profile_id}
+                      className="px-1.5 py-0.5 text-[11px] text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
+                    >
+                      {deletingProfileId === p.profile_id ? "..." : "Delete"}
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
-          </>
+            ))}
+          </div>
         )}
-
-        {/* Save as Site Profile */}
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
-          {!showSaveSiteProfile ? (
-            <button
-              onClick={() => { setShowSaveSiteProfile(true); setSaveSiteProfileResult(null); }}
-              className="text-[11px] font-medium text-green-600 hover:text-green-700 transition-colors"
-            >
-              Save Current as Site Profile
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={saveSiteProfileName}
-                onChange={(e) => setSaveSiteProfileName(e.target.value)}
-                placeholder="Profile name..."
-                className="px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-green-500 w-28"
-                autoFocus
-                onKeyDown={(e) => { if (e.key === "Enter") handleSaveAsSiteProfile(); if (e.key === "Escape") { setShowSaveSiteProfile(false); setSaveSiteProfileName(""); } }}
-              />
-              <button
-                onClick={handleSaveAsSiteProfile}
-                disabled={!saveSiteProfileName.trim() || savingSiteProfile}
-                className="px-2 py-1 text-[11px] font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
-              >
-                {savingSiteProfile ? "..." : "Confirm"}
-              </button>
-              <button
-                onClick={() => { setShowSaveSiteProfile(false); setSaveSiteProfileName(""); }}
-                className="text-[11px] text-gray-500 hover:text-gray-700"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-          {saveSiteProfileResult && (
-            <span className={`text-[11px] ${saveSiteProfileResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
-              {saveSiteProfileResult}
-            </span>
-          )}
-        </div>
       </div>
+
+      {/* Profile name input (create mode only) */}
+      {mode === "create" && (
+        <div className="px-4 py-3 border-b bg-green-50/50">
+          <label className="block text-[11px] font-medium text-gray-600 mb-1">New Profile Name</label>
+          <input
+            type="text"
+            value={profileName}
+            onChange={(e) => setProfileName(e.target.value)}
+            placeholder="e.g., Winter Settings, Conservative..."
+            className="w-full px-2.5 py-1.5 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-green-500"
+            autoFocus
+          />
+        </div>
+      )}
 
       {/* Thresholds list */}
       <div className="divide-y max-h-[400px] overflow-y-auto">
@@ -458,14 +501,14 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-medium text-gray-700">{config.label}</span>
-                  {isOverridden && (
+                  {mode === "view" && isOverridden && (
                     <span className="text-[9px] font-bold text-purple-600 bg-purple-50 px-1 rounded">CUSTOM</span>
                   )}
                 </div>
                 <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{config.description}</p>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
-                {editing ? (
+                {mode === "create" ? (
                   <input
                     type="number"
                     step="any"
@@ -486,32 +529,23 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
         })}
       </div>
 
-      {/* Actions */}
+      {/* Footer */}
       <div className="px-4 py-3 border-t bg-gray-50 rounded-b-lg flex items-center justify-between gap-2">
-        {editing ? (
+        {mode === "create" ? (
           <>
             <button
-              onClick={() => { setEditing(false); setAppliedProfile(null); setSelectedProfileId(""); }}
+              onClick={() => { setMode("view"); setProfileName(""); }}
               className="text-xs text-gray-500 hover:text-gray-700"
             >
               Cancel
             </button>
-            <div className="flex gap-2">
-              <button
-                onClick={handleReset}
-                disabled={saving || !hasOverrides}
-                className="text-xs text-red-600 hover:text-red-700 disabled:opacity-40"
-              >
-                Reset to Defaults
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="px-3 py-1 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-              >
-                {saving ? "Saving..." : "Save"}
-              </button>
-            </div>
+            <button
+              onClick={handleSaveProfile}
+              disabled={saving || !profileName.trim()}
+              className="px-3 py-1 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save & Apply"}
+            </button>
           </>
         ) : (
           <>
@@ -521,10 +555,11 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                 : "All system defaults"}
             </span>
             <button
-              onClick={() => setEditing(true)}
-              className="px-3 py-1 rounded text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-100"
+              onClick={handleReset}
+              disabled={saving || !hasOverrides}
+              className="text-xs text-red-600 hover:text-red-700 disabled:opacity-40"
             >
-              Edit Thresholds
+              Reset to Defaults
             </button>
           </>
         )}

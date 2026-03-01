@@ -405,7 +405,16 @@ export default function ProfileManager({ orgId }: Props) {
     if (!orgId) return;
     const res = await fetch(`/api/thermostat/profiles?org_id=${orgId}`);
     const data = await res.json();
-    if (Array.isArray(data)) setProfiles(data);
+    if (Array.isArray(data)) {
+      // Sort: ORG scope first, SITE scope second, alphabetical within each
+      data.sort((a: Profile, b: Profile) => {
+        const aScope = a.scope || "org";
+        const bScope = b.scope || "org";
+        if (aScope !== bScope) return aScope === "org" ? -1 : 1;
+        return a.profile_name.localeCompare(b.profile_name);
+      });
+      setProfiles(data);
+    }
     setLoading(false);
   }, [orgId]);
 
