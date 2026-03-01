@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
       org_id,
       profile_name: profile_name.trim(),
       is_global: false,
+      scope: body.scope === "site" ? "site" : "org",
       created_by: userId,
     };
 

@@ -356,6 +356,22 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
     [configProfiles]
   );
 
+  // Deduplicated profiles: if two share name+is_global, keep most recent
+  const dedupedConfigProfiles = useMemo(() => {
+    const seen = new Map<string, AnomalyConfigProfile>();
+    for (const p of configProfiles) {
+      const key = `${p.profile_name}::${p.is_global}`;
+      const existing = seen.get(key);
+      if (!existing || new Date(p.created_at) > new Date(existing.created_at)) {
+        seen.set(key, p);
+      }
+    }
+    return [...seen.values()].sort((a, b) => {
+      if (a.is_global !== b.is_global) return a.is_global ? -1 : 1;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [configProfiles]);
+
   const copySSBProfileToOrg = async (ssbProfile: AnomalyConfigProfile) => {
     setCopyingProfileId(ssbProfile.profile_id);
     try {
@@ -726,7 +742,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                   className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                 >
                   <option value="">Load a profile...</option>
-                  {configProfiles.map((p) => (
+                  {dedupedConfigProfiles.map((p) => (
                     <option key={p.profile_id} value={p.profile_id}>
                       {p.is_global
                         ? `[SSB] ${p.profile_name}`
@@ -775,17 +791,17 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
               </div>
 
               {/* Collapsible profile list */}
-              {configProfiles.length > 0 && (
+              {dedupedConfigProfiles.length > 0 && (
                 <div className="mt-2">
                   <button
                     onClick={() => setShowProfileList(!showProfileList)}
                     className="text-xs text-gray-500 hover:text-gray-700"
                   >
-                    {showProfileList ? "\u25BC" : "\u25B6"} {configProfiles.length} saved profile(s)
+                    {showProfileList ? "\u25BC" : "\u25B6"} {dedupedConfigProfiles.length} saved profile(s)
                   </button>
                   {showProfileList && (
                     <div className="mt-2 space-y-1">
-                      {configProfiles.map((p) => (
+                      {dedupedConfigProfiles.map((p) => (
                         <div
                           key={p.profile_id}
                           className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm"
@@ -917,10 +933,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                 );
               })}
             </div>
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
-              <button onClick={resetThresholds} className="text-sm text-gray-500 hover:text-gray-700">
-                Reset to Defaults
-              </button>
+            <div className="flex items-center justify-end mt-4 pt-3 border-t border-gray-200">
               <button
                 onClick={() => setShowConfirm(true)}
                 disabled={!selectedZoneIds.length || !activeFieldCount || pushing}

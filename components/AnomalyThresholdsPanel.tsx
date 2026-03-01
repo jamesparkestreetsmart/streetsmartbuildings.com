@@ -14,6 +14,7 @@ interface AnomalyConfigProfile {
   profile_id: string;
   profile_name: string;
   is_global: boolean;
+  scope?: string;
   created_at: string;
   [key: string]: any;
 }
@@ -96,7 +97,13 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
   const [orgProfiles, setOrgProfiles] = useState<AnomalyConfigProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [selectedProfileId, setSelectedProfileId] = useState("");
-  const [appliedProfile, setAppliedProfile] = useState<{ name: string; date: string } | null>(null);
+  const [appliedProfile, setAppliedProfile] = useState<{ name: string; date: string; scope?: string } | null>(null);
+
+  // Save as site profile state
+  const [showSaveSiteProfile, setShowSaveSiteProfile] = useState(false);
+  const [saveSiteProfileName, setSaveSiteProfileName] = useState("");
+  const [savingSiteProfile, setSavingSiteProfile] = useState(false);
+  const [saveSiteProfileResult, setSaveSiteProfileResult] = useState<string | null>(null);
 
   // Fetch zones for this site
   useEffect(() => {
@@ -121,36 +128,45 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
     fetchZones();
   }, [siteId]);
 
-  // Fetch org profiles (non-global only)
-  useEffect(() => {
+  // Fetch profiles (non-global: org + site scoped)
+  const fetchProfiles = async () => {
     if (!orgId) {
       console.warn("[AnomalyThresholds] orgId is empty, skipping profile fetch");
       return;
     }
-    const fetchProfiles = async () => {
-      setProfilesLoading(true);
-      try {
-        const url = `/api/anomaly-config/profiles?org_id=${orgId}`;
-        console.log("[AnomalyThresholds] Fetching profiles:", url);
-        const res = await fetch(url);
-        if (!res.ok) {
-          console.error("[AnomalyThresholds] Profile fetch failed:", res.status, res.statusText);
-          return;
-        }
-        const data = await res.json();
-        console.log("[AnomalyThresholds] Profiles response:", data.profiles?.length, "total");
-        if (data.profiles) {
-          const orgOnly = data.profiles.filter((p: AnomalyConfigProfile) => !p.is_global);
-          console.log("[AnomalyThresholds] Org-only profiles:", orgOnly.length);
-          setOrgProfiles(orgOnly);
-        }
-      } catch (err) {
-        console.error("[AnomalyThresholds] Failed to fetch config profiles:", err);
-      } finally {
-        setProfilesLoading(false);
+    setProfilesLoading(true);
+    try {
+      const url = `/api/anomaly-config/profiles?org_id=${orgId}`;
+      console.log("[AnomalyThresholds] Fetching profiles:", url);
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.error("[AnomalyThresholds] Profile fetch failed:", res.status, res.statusText);
+        return;
       }
-    };
+      const data = await res.json();
+      console.log("[AnomalyThresholds] Profiles response:", data.profiles?.length, "total");
+      if (data.profiles) {
+        const nonGlobal = data.profiles.filter((p: AnomalyConfigProfile) => !p.is_global);
+        // Sort: org-scoped first, then site-scoped
+        nonGlobal.sort((a: AnomalyConfigProfile, b: AnomalyConfigProfile) => {
+          const aScope = a.scope || "org";
+          const bScope = b.scope || "org";
+          if (aScope !== bScope) return aScope === "org" ? -1 : 1;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+        console.log("[AnomalyThresholds] Non-global profiles:", nonGlobal.length);
+        setOrgProfiles(nonGlobal);
+      }
+    } catch (err) {
+      console.error("[AnomalyThresholds] Failed to fetch config profiles:", err);
+    } finally {
+      setProfilesLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchProfiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   const selectedZone = zones.find((z) => z.hvac_zone_id === selectedZoneId);
@@ -184,6 +200,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
     setAppliedProfile({
       name: profile.profile_name,
       date: new Date(profile.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      scope: profile.scope || "org",
     });
   };
 
@@ -261,6 +278,48 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
     setSaving(false);
   };
 
+  // Save current zone values as a site-scoped profile
+  const handleSaveAsSiteProfile = async () => {
+    if (!saveSiteProfileName.trim() || !orgId) return;
+    setSavingSiteProfile(true);
+    setSaveSiteProfileResult(null);
+    try {
+      const body: Record<string, any> = {
+        org_id: orgId,
+        profile_name: saveSiteProfileName.trim(),
+        scope: "site",
+      };
+      for (const key of THRESHOLD_KEYS) {
+        const val = values[key]?.trim();
+        if (val !== "" && val !== undefined) {
+          const num = parseFloat(val);
+          body[key] = !isNaN(num) ? num : DEFAULTS[key].default;
+        } else {
+          body[key] = DEFAULTS[key].default;
+        }
+      }
+      const res = await fetch("/api/anomaly-config/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.profile) {
+        setSaveSiteProfileResult("Saved!");
+        setSaveSiteProfileName("");
+        setShowSaveSiteProfile(false);
+        fetchProfiles();
+        setTimeout(() => setSaveSiteProfileResult(null), 3000);
+      } else {
+        setSaveSiteProfileResult(data.error || "Save failed");
+      }
+    } catch {
+      setSaveSiteProfileResult("Network error");
+    } finally {
+      setSavingSiteProfile(false);
+    }
+  };
+
   const hasOverrides = Object.keys(thresholds).length > 0;
 
   if (loading) {
@@ -318,7 +377,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
           <div className="text-[11px] text-gray-400">Loading profiles...</div>
         ) : orgProfiles.length === 0 ? (
           <p className="text-[11px] text-gray-400 leading-snug">
-            No org profiles yet. Create one in My Journey &rarr; Global Operations.
+            No profiles yet. Create one in My Journey &rarr; Global Operations, or save current zone values below.
           </p>
         ) : (
           <>
@@ -327,22 +386,64 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
               onChange={(e) => handleApplyProfile(e.target.value)}
               className="w-full text-xs border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500 bg-white"
             >
-              <option value="">Apply Org Profile...</option>
+              <option value="">Apply Profile...</option>
               {orgProfiles.map((p) => (
                 <option key={p.profile_id} value={p.profile_id}>
-                  {p.profile_name}
+                  {(p.scope || "org") === "site" ? `[SITE] ${p.profile_name}` : `[ORG] ${p.profile_name}`}
                 </option>
               ))}
             </select>
             {appliedProfile && (
               <div className="mt-1.5 flex items-center gap-1.5">
-                <TierBadge tier="ORG" />
+                <TierBadge tier={appliedProfile.scope === "site" ? "SITE" : "ORG"} />
                 <span className="text-[11px] text-gray-600 font-medium">{appliedProfile.name}</span>
                 <span className="text-[10px] text-gray-400">{appliedProfile.date}</span>
               </div>
             )}
           </>
         )}
+
+        {/* Save as Site Profile */}
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          {!showSaveSiteProfile ? (
+            <button
+              onClick={() => { setShowSaveSiteProfile(true); setSaveSiteProfileResult(null); }}
+              className="text-[11px] font-medium text-green-600 hover:text-green-700 transition-colors"
+            >
+              Save Current as Site Profile
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={saveSiteProfileName}
+                onChange={(e) => setSaveSiteProfileName(e.target.value)}
+                placeholder="Profile name..."
+                className="px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-green-500 w-28"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") handleSaveAsSiteProfile(); if (e.key === "Escape") { setShowSaveSiteProfile(false); setSaveSiteProfileName(""); } }}
+              />
+              <button
+                onClick={handleSaveAsSiteProfile}
+                disabled={!saveSiteProfileName.trim() || savingSiteProfile}
+                className="px-2 py-1 text-[11px] font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
+              >
+                {savingSiteProfile ? "..." : "Confirm"}
+              </button>
+              <button
+                onClick={() => { setShowSaveSiteProfile(false); setSaveSiteProfileName(""); }}
+                className="text-[11px] text-gray-500 hover:text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {saveSiteProfileResult && (
+            <span className={`text-[11px] ${saveSiteProfileResult === "Saved!" ? "text-green-600" : "text-red-600"}`}>
+              {saveSiteProfileResult}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Thresholds list */}
