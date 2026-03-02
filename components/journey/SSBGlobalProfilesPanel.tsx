@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import TierBadge from "@/components/ui/TierBadge";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -80,6 +80,8 @@ const DAY_LABELS: Record<string, string> = {
   fri: "Fri", sat: "Sat", sun: "Sun",
 };
 
+const PAGE_SIZE = 20;
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface SSBGlobalProfilesPanelProps {
@@ -105,7 +107,7 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
   const [childThermostatProfiles, setChildThermostatProfiles] = useState<ThermostatProfile[]>([]);
   const [thermostatLoading, setThermostatLoading] = useState(false);
 
-  // ─── Create / Edit State ───────────────────────────────────────────────────
+  // ─── Create State ──────────────────────────────────────────────────────────
   const [showCreateAnomaly, setShowCreateAnomaly] = useState(false);
   const [newAnomalyName, setNewAnomalyName] = useState("");
   const [newAnomalyValues, setNewAnomalyValues] = useState<Record<string, number | null>>({});
@@ -128,22 +130,37 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
   });
   const [savingThermostat, setSavingThermostat] = useState(false);
 
-  // ─── Delete / Promote State ────────────────────────────────────────────────
+  // ─── Delete State ──────────────────────────────────────────────────────────
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // ─── Promote State (with rename) ───────────────────────────────────────────
+  const [promoteFormId, setPromoteFormId] = useState<string | null>(null);
+  const [promoteFormName, setPromoteFormName] = useState("");
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [promotedId, setPromotedId] = useState<string | null>(null);
+
+  // ─── Search/Browse State (per tab) ─────────────────────────────────────────
+  const [anomalySearch, setAnomalySearch] = useState("");
+  const [anomalyOrgFilter, setAnomalyOrgFilter] = useState("");
+  const [anomalyShowCount, setAnomalyShowCount] = useState(PAGE_SIZE);
+
+  const [hoursSearch, setHoursSearch] = useState("");
+  const [hoursOrgFilter, setHoursOrgFilter] = useState("");
+  const [hoursShowCount, setHoursShowCount] = useState(PAGE_SIZE);
+
+  const [thermostatSearch, setThermostatSearch] = useState("");
+  const [thermostatOrgFilter, setThermostatOrgFilter] = useState("");
+  const [thermostatShowCount, setThermostatShowCount] = useState(PAGE_SIZE);
 
   // ─── Fetch Anomaly Profiles ────────────────────────────────────────────────
   const fetchAnomalyProfiles = useCallback(async () => {
     setAnomalyLoading(true);
     try {
-      // Fetch globals (own org profiles includes globals)
       const resOwn = await fetch(`/api/anomaly-config/profiles?org_id=${orgId}`);
       const dataOwn = await resOwn.json();
       const globals = (dataOwn.profiles || []).filter((p: AnomalyConfigProfile) => p.is_global);
       setGlobalAnomalyProfiles(globals);
 
-      // Fetch all child org profiles
       const resAll = await fetch(`/api/anomaly-config/profiles?org_id=${orgId}&scope=all`);
       const dataAll = await resAll.json();
       const children = (dataAll.profiles || []).filter((p: AnomalyConfigProfile) => !p.is_global);
@@ -297,7 +314,7 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
     }
   };
 
-  // ─── Delete Handler ────────────────────────────────────────────────────────
+  // ─── Delete Handlers ──────────────────────────────────────────────────────
 
   const deleteAnomalyProfile = async (profileId: string) => {
     try {
@@ -326,14 +343,24 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
     }
   };
 
-  // ─── Promote Handler (copy child profile as new global) ────────────────────
+  // ─── Promote Handlers (with custom name) ───────────────────────────────────
 
-  const promoteAnomalyProfile = async (p: AnomalyConfigProfile) => {
+  const openPromoteForm = (id: string, defaultName: string) => {
+    setPromoteFormId(id);
+    setPromoteFormName(defaultName);
+  };
+
+  const cancelPromoteForm = () => {
+    setPromoteFormId(null);
+    setPromoteFormName("");
+  };
+
+  const promoteAnomalyProfile = async (p: AnomalyConfigProfile, customName: string) => {
     setPromotingId(p.profile_id);
     try {
       const body: Record<string, any> = {
         org_id: orgId,
-        profile_name: p.profile_name,
+        profile_name: customName.trim(),
         is_global: true,
       };
       for (const key of THRESHOLD_KEYS) {
@@ -347,6 +374,7 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
       const data = await res.json();
       if (data.profile) {
         setPromotedId(p.profile_id);
+        cancelPromoteForm();
         fetchAnomalyProfiles();
         setTimeout(() => setPromotedId(null), 3000);
       }
@@ -357,12 +385,12 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
     }
   };
 
-  const promoteHoursTemplate = async (t: StoreHoursTemplate) => {
+  const promoteHoursTemplate = async (t: StoreHoursTemplate, customName: string) => {
     setPromotingId(t.template_id);
     try {
       const body: Record<string, any> = {
         org_id: orgId,
-        template_name: t.template_name,
+        template_name: customName.trim(),
         is_global: true,
       };
       for (const d of DAYS) {
@@ -378,6 +406,7 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
       const data = await res.json();
       if (data.template) {
         setPromotedId(t.template_id);
+        cancelPromoteForm();
         fetchHoursTemplates();
         setTimeout(() => setPromotedId(null), 3000);
       }
@@ -388,7 +417,7 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
     }
   };
 
-  const promoteThermostatProfile = async (p: ThermostatProfile) => {
+  const promoteThermostatProfile = async (p: ThermostatProfile, customName: string) => {
     setPromotingId(p.profile_id);
     try {
       const res = await fetch("/api/thermostat/profiles", {
@@ -396,7 +425,7 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           org_id: orgId,
-          profile_name: p.profile_name,
+          profile_name: customName.trim(),
           is_global: true,
           occupied_heat_f: p.occupied_heat_f,
           occupied_cool_f: p.occupied_cool_f,
@@ -407,6 +436,7 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
       const data = await res.json();
       if (data.profile_id || data.profile_name) {
         setPromotedId(p.profile_id);
+        cancelPromoteForm();
         fetchThermostatProfiles();
         setTimeout(() => setPromotedId(null), 3000);
       }
@@ -445,16 +475,49 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
   const thermostatValuesSummary = (p: ThermostatProfile) =>
     `Occ: ${p.occupied_heat_f}\u00B0-${p.occupied_cool_f}\u00B0F, Unocc: ${p.unoccupied_heat_f}\u00B0-${p.unoccupied_cool_f}\u00B0F`;
 
-  // Group child profiles by org_name
-  const groupByOrg = <T extends { org_name?: string }>(items: T[]): [string, T[]][] => {
-    const grouped: Record<string, T[]> = {};
-    for (const item of items) {
-      const name = item.org_name || "Unknown Org";
-      if (!grouped[name]) grouped[name] = [];
-      grouped[name].push(item);
+  // ─── Filtered/Paginated Child Data ─────────────────────────────────────────
+
+  const anomalyOrgNames = useMemo(
+    () => [...new Set(childAnomalyProfiles.map((p) => p.org_name || "Unknown Org"))].sort(),
+    [childAnomalyProfiles]
+  );
+  const filteredAnomalyChildren = useMemo(() => {
+    let items = childAnomalyProfiles;
+    if (anomalyOrgFilter) items = items.filter((p) => (p.org_name || "Unknown Org") === anomalyOrgFilter);
+    if (anomalySearch) {
+      const q = anomalySearch.toLowerCase();
+      items = items.filter((p) => p.profile_name.toLowerCase().includes(q));
     }
-    return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b));
-  };
+    return items;
+  }, [childAnomalyProfiles, anomalyOrgFilter, anomalySearch]);
+
+  const hoursOrgNames = useMemo(
+    () => [...new Set(childHoursTemplates.map((t) => t.org_name || "Unknown Org"))].sort(),
+    [childHoursTemplates]
+  );
+  const filteredHoursChildren = useMemo(() => {
+    let items = childHoursTemplates;
+    if (hoursOrgFilter) items = items.filter((t) => (t.org_name || "Unknown Org") === hoursOrgFilter);
+    if (hoursSearch) {
+      const q = hoursSearch.toLowerCase();
+      items = items.filter((t) => t.template_name.toLowerCase().includes(q));
+    }
+    return items;
+  }, [childHoursTemplates, hoursOrgFilter, hoursSearch]);
+
+  const thermostatOrgNames = useMemo(
+    () => [...new Set(childThermostatProfiles.map((p) => p.org_name || "Unknown Org"))].sort(),
+    [childThermostatProfiles]
+  );
+  const filteredThermostatChildren = useMemo(() => {
+    let items = childThermostatProfiles;
+    if (thermostatOrgFilter) items = items.filter((p) => (p.org_name || "Unknown Org") === thermostatOrgFilter);
+    if (thermostatSearch) {
+      const q = thermostatSearch.toLowerCase();
+      items = items.filter((p) => p.profile_name.toLowerCase().includes(q));
+    }
+    return items;
+  }, [childThermostatProfiles, thermostatOrgFilter, thermostatSearch]);
 
   // ─── Tab Definitions ──────────────────────────────────────────────────────
 
@@ -614,46 +677,124 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
               )}
             </div>
 
-            {/* Section B: Child Org Profiles */}
+            {/* Section B: Child Org Profiles — Search/Browse */}
             <div>
               <h4 className="text-sm font-semibold text-gray-900 mb-3">Child Org Profiles</h4>
               {anomalyLoading ? (
                 <div className="text-sm text-gray-400 py-2">Loading...</div>
               ) : childAnomalyProfiles.length === 0 ? (
                 <div className="text-sm text-gray-400 py-2 text-center border border-dashed border-gray-200 rounded">
-                  No child org profiles found.
+                  No child org profiles yet.
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {groupByOrg(childAnomalyProfiles).map(([orgName, profiles]) => (
-                    <div key={orgName}>
-                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{orgName}</div>
-                      <div className="space-y-1">
-                        {profiles.map((p) => (
-                          <div key={p.profile_id} className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <TierBadge tier="ORG" />
-                              <span className="font-medium text-gray-800">{p.profile_name}</span>
-                              <span className="text-xs text-gray-400 truncate hidden md:inline">{anomalyValuesSummary(p)}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              {promotedId === p.profile_id ? (
-                                <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Promoted</span>
-                              ) : (
-                                <button
-                                  onClick={() => promoteAnomalyProfile(p)}
-                                  disabled={promotingId === p.profile_id}
-                                  className="px-2 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded transition-colors disabled:opacity-50"
-                                >
-                                  {promotingId === p.profile_id ? "..." : "Promote to Global"}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  {/* Search bar + org filter */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
+                    <div className="flex-1 relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">&#128269;</span>
+                      <input
+                        type="text"
+                        value={anomalySearch}
+                        onChange={(e) => { setAnomalySearch(e.target.value); setAnomalyShowCount(PAGE_SIZE); }}
+                        placeholder="Search profiles..."
+                        className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
+                      />
                     </div>
-                  ))}
+                    <select
+                      value={anomalyOrgFilter}
+                      onChange={(e) => { setAnomalyOrgFilter(e.target.value); setAnomalyShowCount(PAGE_SIZE); }}
+                      className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 bg-white min-w-[140px]"
+                    >
+                      <option value="">All Orgs</option>
+                      {anomalyOrgNames.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* Result count */}
+                  <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
+                    Showing {Math.min(anomalyShowCount, filteredAnomalyChildren.length)} of {filteredAnomalyChildren.length} profiles
+                  </div>
+                  {/* Results */}
+                  {filteredAnomalyChildren.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-gray-400 text-center">No profiles match your search.</div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {filteredAnomalyChildren.slice(0, anomalyShowCount).map((p) => (
+                        <div key={p.profile_id} className="px-3 py-2.5">
+                          {promoteFormId === p.profile_id ? (
+                            /* Inline promote-with-rename form */
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-gray-500">Profile Name:</span>
+                              <input
+                                type="text"
+                                value={promoteFormName}
+                                onChange={(e) => setPromoteFormName(e.target.value)}
+                                className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-purple-300 rounded focus:ring-1 focus:ring-purple-500"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && promoteFormName.trim()) promoteAnomalyProfile(p, promoteFormName);
+                                  if (e.key === "Escape") cancelPromoteForm();
+                                }}
+                              />
+                              <button
+                                onClick={() => promoteAnomalyProfile(p, promoteFormName)}
+                                disabled={!promoteFormName.trim() || promotingId === p.profile_id}
+                                className="px-3 py-1.5 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+                              >
+                                {promotingId === p.profile_id ? "..." : "Promote"}
+                              </button>
+                              <button
+                                onClick={cancelPromoteForm}
+                                className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            /* Normal result card */
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <TierBadge tier="ORG" />
+                                  <span className="font-medium text-sm text-gray-800">{p.profile_name}</span>
+                                </div>
+                                <div className="text-xs text-gray-400 mt-0.5 ml-[38px]">
+                                  {p.org_name || "Unknown Org"} {"\u00B7"} {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-0.5 ml-[38px] truncate max-w-[400px]">
+                                  {anomalyValuesSummary(p)}
+                                </div>
+                              </div>
+                              <div className="flex-shrink-0 pt-1">
+                                {promotedId === p.profile_id ? (
+                                  <span className="text-xs text-green-600 font-medium">{"\u2713"} Promoted</span>
+                                ) : (
+                                  <button
+                                    onClick={() => openPromoteForm(p.profile_id, p.profile_name)}
+                                    className="px-2.5 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded transition-colors whitespace-nowrap"
+                                  >
+                                    Promote {"\u2192"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Load more */}
+                  {filteredAnomalyChildren.length > anomalyShowCount && (
+                    <div className="px-3 py-2 border-t border-gray-100 text-center">
+                      <button
+                        onClick={() => setAnomalyShowCount((c) => c + PAGE_SIZE)}
+                        className="text-xs text-purple-600 hover:text-purple-800 font-medium"
+                      >
+                        Load more ({filteredAnomalyChildren.length - anomalyShowCount} remaining)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -785,46 +926,119 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
               )}
             </div>
 
-            {/* Section B: Child Org Templates */}
+            {/* Section B: Child Org Templates — Search/Browse */}
             <div>
               <h4 className="text-sm font-semibold text-gray-900 mb-3">Child Org Templates</h4>
               {hoursLoading ? (
                 <div className="text-sm text-gray-400 py-2">Loading...</div>
               ) : childHoursTemplates.length === 0 ? (
                 <div className="text-sm text-gray-400 py-2 text-center border border-dashed border-gray-200 rounded">
-                  No child org templates found.
+                  No child org templates yet.
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {groupByOrg(childHoursTemplates).map(([orgName, templates]) => (
-                    <div key={orgName}>
-                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{orgName}</div>
-                      <div className="space-y-1">
-                        {templates.map((t) => (
-                          <div key={t.template_id} className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <TierBadge tier="ORG" />
-                              <span className="font-medium text-gray-800">{t.template_name}</span>
-                              <span className="text-xs text-gray-400 truncate hidden md:inline">{hoursValuesSummary(t)}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              {promotedId === t.template_id ? (
-                                <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Promoted</span>
-                              ) : (
-                                <button
-                                  onClick={() => promoteHoursTemplate(t)}
-                                  disabled={promotingId === t.template_id}
-                                  className="px-2 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded transition-colors disabled:opacity-50"
-                                >
-                                  {promotingId === t.template_id ? "..." : "Promote to Global"}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  {/* Search bar + org filter */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
+                    <div className="flex-1 relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">&#128269;</span>
+                      <input
+                        type="text"
+                        value={hoursSearch}
+                        onChange={(e) => { setHoursSearch(e.target.value); setHoursShowCount(PAGE_SIZE); }}
+                        placeholder="Search templates..."
+                        className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
+                      />
                     </div>
-                  ))}
+                    <select
+                      value={hoursOrgFilter}
+                      onChange={(e) => { setHoursOrgFilter(e.target.value); setHoursShowCount(PAGE_SIZE); }}
+                      className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 bg-white min-w-[140px]"
+                    >
+                      <option value="">All Orgs</option>
+                      {hoursOrgNames.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
+                    Showing {Math.min(hoursShowCount, filteredHoursChildren.length)} of {filteredHoursChildren.length} templates
+                  </div>
+                  {filteredHoursChildren.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-gray-400 text-center">No templates match your search.</div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {filteredHoursChildren.slice(0, hoursShowCount).map((t) => (
+                        <div key={t.template_id} className="px-3 py-2.5">
+                          {promoteFormId === t.template_id ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-gray-500">Template Name:</span>
+                              <input
+                                type="text"
+                                value={promoteFormName}
+                                onChange={(e) => setPromoteFormName(e.target.value)}
+                                className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-purple-300 rounded focus:ring-1 focus:ring-purple-500"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && promoteFormName.trim()) promoteHoursTemplate(t, promoteFormName);
+                                  if (e.key === "Escape") cancelPromoteForm();
+                                }}
+                              />
+                              <button
+                                onClick={() => promoteHoursTemplate(t, promoteFormName)}
+                                disabled={!promoteFormName.trim() || promotingId === t.template_id}
+                                className="px-3 py-1.5 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+                              >
+                                {promotingId === t.template_id ? "..." : "Promote"}
+                              </button>
+                              <button
+                                onClick={cancelPromoteForm}
+                                className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <TierBadge tier="ORG" />
+                                  <span className="font-medium text-sm text-gray-800">{t.template_name}</span>
+                                </div>
+                                <div className="text-xs text-gray-400 mt-0.5 ml-[38px]">
+                                  {t.org_name || "Unknown Org"} {"\u00B7"} {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-0.5 ml-[38px] truncate max-w-[400px]">
+                                  {hoursValuesSummary(t)}
+                                </div>
+                              </div>
+                              <div className="flex-shrink-0 pt-1">
+                                {promotedId === t.template_id ? (
+                                  <span className="text-xs text-green-600 font-medium">{"\u2713"} Promoted</span>
+                                ) : (
+                                  <button
+                                    onClick={() => openPromoteForm(t.template_id, t.template_name)}
+                                    className="px-2.5 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded transition-colors whitespace-nowrap"
+                                  >
+                                    Promote {"\u2192"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {filteredHoursChildren.length > hoursShowCount && (
+                    <div className="px-3 py-2 border-t border-gray-100 text-center">
+                      <button
+                        onClick={() => setHoursShowCount((c) => c + PAGE_SIZE)}
+                        className="text-xs text-purple-600 hover:text-purple-800 font-medium"
+                      >
+                        Load more ({filteredHoursChildren.length - hoursShowCount} remaining)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -920,46 +1134,119 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
               )}
             </div>
 
-            {/* Section B: Child Org Profiles */}
+            {/* Section B: Child Org Profiles — Search/Browse */}
             <div>
               <h4 className="text-sm font-semibold text-gray-900 mb-3">Child Org Profiles</h4>
               {thermostatLoading ? (
                 <div className="text-sm text-gray-400 py-2">Loading...</div>
               ) : childThermostatProfiles.length === 0 ? (
                 <div className="text-sm text-gray-400 py-2 text-center border border-dashed border-gray-200 rounded">
-                  No child org thermostat profiles found.
+                  No child org thermostat profiles yet.
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {groupByOrg(childThermostatProfiles).map(([orgName, profiles]) => (
-                    <div key={orgName}>
-                      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{orgName}</div>
-                      <div className="space-y-1">
-                        {profiles.map((p) => (
-                          <div key={p.profile_id} className="flex items-center justify-between px-3 py-2 bg-white border border-gray-100 rounded text-sm">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <TierBadge tier="ORG" />
-                              <span className="font-medium text-gray-800">{p.profile_name}</span>
-                              <span className="text-xs text-gray-400">{thermostatValuesSummary(p)}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              {promotedId === p.profile_id ? (
-                                <span className="text-[10px] text-green-600 font-medium px-1">{"\u2713"} Promoted</span>
-                              ) : (
-                                <button
-                                  onClick={() => promoteThermostatProfile(p)}
-                                  disabled={promotingId === p.profile_id}
-                                  className="px-2 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded transition-colors disabled:opacity-50"
-                                >
-                                  {promotingId === p.profile_id ? "..." : "Promote to Global"}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  {/* Search bar + org filter */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
+                    <div className="flex-1 relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">&#128269;</span>
+                      <input
+                        type="text"
+                        value={thermostatSearch}
+                        onChange={(e) => { setThermostatSearch(e.target.value); setThermostatShowCount(PAGE_SIZE); }}
+                        placeholder="Search profiles..."
+                        className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
+                      />
                     </div>
-                  ))}
+                    <select
+                      value={thermostatOrgFilter}
+                      onChange={(e) => { setThermostatOrgFilter(e.target.value); setThermostatShowCount(PAGE_SIZE); }}
+                      className="px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 bg-white min-w-[140px]"
+                    >
+                      <option value="">All Orgs</option>
+                      {thermostatOrgNames.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-100">
+                    Showing {Math.min(thermostatShowCount, filteredThermostatChildren.length)} of {filteredThermostatChildren.length} profiles
+                  </div>
+                  {filteredThermostatChildren.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-gray-400 text-center">No profiles match your search.</div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {filteredThermostatChildren.slice(0, thermostatShowCount).map((p) => (
+                        <div key={p.profile_id} className="px-3 py-2.5">
+                          {promoteFormId === p.profile_id ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-gray-500">Profile Name:</span>
+                              <input
+                                type="text"
+                                value={promoteFormName}
+                                onChange={(e) => setPromoteFormName(e.target.value)}
+                                className="flex-1 min-w-[200px] px-2 py-1.5 text-sm border border-purple-300 rounded focus:ring-1 focus:ring-purple-500"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && promoteFormName.trim()) promoteThermostatProfile(p, promoteFormName);
+                                  if (e.key === "Escape") cancelPromoteForm();
+                                }}
+                              />
+                              <button
+                                onClick={() => promoteThermostatProfile(p, promoteFormName)}
+                                disabled={!promoteFormName.trim() || promotingId === p.profile_id}
+                                className="px-3 py-1.5 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+                              >
+                                {promotingId === p.profile_id ? "..." : "Promote"}
+                              </button>
+                              <button
+                                onClick={cancelPromoteForm}
+                                className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <TierBadge tier="ORG" />
+                                  <span className="font-medium text-sm text-gray-800">{p.profile_name}</span>
+                                </div>
+                                <div className="text-xs text-gray-400 mt-0.5 ml-[38px]">
+                                  {p.org_name || "Unknown Org"} {"\u00B7"} Occ: {p.occupied_heat_f}{"\u00B0"}-{p.occupied_cool_f}{"\u00B0"}F
+                                </div>
+                                <div className="text-xs text-gray-400 mt-0.5 ml-[38px]">
+                                  {thermostatValuesSummary(p)}
+                                </div>
+                              </div>
+                              <div className="flex-shrink-0 pt-1">
+                                {promotedId === p.profile_id ? (
+                                  <span className="text-xs text-green-600 font-medium">{"\u2713"} Promoted</span>
+                                ) : (
+                                  <button
+                                    onClick={() => openPromoteForm(p.profile_id, p.profile_name)}
+                                    className="px-2.5 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded transition-colors whitespace-nowrap"
+                                  >
+                                    Promote {"\u2192"}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {filteredThermostatChildren.length > thermostatShowCount && (
+                    <div className="px-3 py-2 border-t border-gray-100 text-center">
+                      <button
+                        onClick={() => setThermostatShowCount((c) => c + PAGE_SIZE)}
+                        className="text-xs text-purple-600 hover:text-purple-800 font-medium"
+                      >
+                        Load more ({filteredThermostatChildren.length - thermostatShowCount} remaining)
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

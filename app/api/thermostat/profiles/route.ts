@@ -48,14 +48,44 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: "scope=all is only available for SSB org" }, { status: 403 });
       }
 
-      const { data: allProfiles, error: allErr } = await supabase
+      // Try with org join; fall back to plain select if relationship doesn't exist
+      let allProfiles: any[] | null = null;
+      let allErr: any = null;
+
+      ({ data: allProfiles, error: allErr } = await supabase
         .from("b_thermostat_profiles")
         .select("*, a_organizations!inner(org_name)")
-        .order("name");
+        .order("name"));
 
       if (allErr) {
-        console.error("[thermostat/profiles] GET scope=all error:", allErr);
-        return NextResponse.json({ error: allErr.message }, { status: 500 });
+        // Fallback: fetch without join, then look up org names separately
+        console.warn("[thermostat/profiles] scope=all join failed, using fallback:", allErr.message);
+        const { data: plainProfiles, error: plainErr } = await supabase
+          .from("b_thermostat_profiles")
+          .select("*")
+          .order("name");
+
+        if (plainErr) {
+          console.error("[thermostat/profiles] GET scope=all fallback error:", plainErr);
+          return NextResponse.json({ error: plainErr.message }, { status: 500 });
+        }
+
+        // Look up org names
+        const orgIds = [...new Set((plainProfiles || []).map((p: any) => p.org_id))];
+        const { data: orgsData } = await supabase
+          .from("a_organizations")
+          .select("org_id, org_name")
+          .in("org_id", orgIds);
+        const orgMap = new Map((orgsData || []).map((o: any) => [o.org_id, o.org_name]));
+
+        const result = (plainProfiles || []).map((p: any) => ({
+          ...mapProfileOut(p),
+          org_name: orgMap.get(p.org_id) || null,
+          zone_count: 0,
+          site_count: 0,
+        }));
+
+        return NextResponse.json(result);
       }
 
       const result = (allProfiles || []).map((p: any) => ({
@@ -69,12 +99,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // Default: org's own profiles + globals (is_global = true)
-    const { data: profiles, error } = await supabase
+    // Default: org's own profiles (+ globals if is_global column exists)
+    // Try with is_global filter; fall back to org-only if column doesn't exist
+    let profiles: any[] | null = null;
+    let error: any = null;
+
+    ({ data: profiles, error } = await supabase
       .from("b_thermostat_profiles")
       .select("*")
       .or(`org_id.eq.${orgId},is_global.eq.true`)
-      .order("name");
+      .order("name"));
+
+    if (error && error.message?.includes("is_global")) {
+      // is_global column doesn't exist yet — fall back to org-only query
+      console.warn("[thermostat/profiles] is_global column not found, falling back to org-only");
+      ({ data: profiles, error } = await supabase
+        .from("b_thermostat_profiles")
+        .select("*")
+        .eq("org_id", orgId)
+        .order("name"));
+    }
 
     if (error) {
       console.error("[thermostat/profiles] GET profiles error:", error);
@@ -154,29 +198,41 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { data, error } = await supabase
+    const row: Record<string, any> = {
+      org_id,
+      name: profile_name,
+      is_global: isGlobal,
+      scope: fields.scope ?? "org",
+      occupied_heat_f: fields.occupied_heat_f ?? 68,
+      occupied_cool_f: fields.occupied_cool_f ?? 76,
+      unoccupied_heat_f: fields.unoccupied_heat_f ?? 55,
+      unoccupied_cool_f: fields.unoccupied_cool_f ?? 85,
+      occupied_fan_mode: fields.occupied_fan_mode ?? "auto",
+      occupied_hvac_mode: fields.occupied_hvac_mode ?? "auto",
+      unoccupied_fan_mode: fields.unoccupied_fan_mode ?? "auto",
+      unoccupied_hvac_mode: fields.unoccupied_hvac_mode ?? "auto",
+      guardrail_min_f: fields.guardrail_min_f ?? 45,
+      guardrail_max_f: fields.guardrail_max_f ?? 95,
+      manager_offset_up_f: fields.manager_offset_up_f ?? 4,
+      manager_offset_down_f: fields.manager_offset_down_f ?? 4,
+      manager_override_reset_minutes: fields.manager_override_reset_minutes ?? 120,
+    };
+
+    let { data, error } = await supabase
       .from("b_thermostat_profiles")
-      .insert({
-        org_id,
-        name: profile_name,
-        is_global: isGlobal,
-        scope: fields.scope ?? "org",
-        occupied_heat_f: fields.occupied_heat_f ?? 68,
-        occupied_cool_f: fields.occupied_cool_f ?? 76,
-        unoccupied_heat_f: fields.unoccupied_heat_f ?? 55,
-        unoccupied_cool_f: fields.unoccupied_cool_f ?? 85,
-        occupied_fan_mode: fields.occupied_fan_mode ?? "auto",
-        occupied_hvac_mode: fields.occupied_hvac_mode ?? "auto",
-        unoccupied_fan_mode: fields.unoccupied_fan_mode ?? "auto",
-        unoccupied_hvac_mode: fields.unoccupied_hvac_mode ?? "auto",
-        guardrail_min_f: fields.guardrail_min_f ?? 45,
-        guardrail_max_f: fields.guardrail_max_f ?? 95,
-        manager_offset_up_f: fields.manager_offset_up_f ?? 4,
-        manager_offset_down_f: fields.manager_offset_down_f ?? 4,
-        manager_override_reset_minutes: fields.manager_override_reset_minutes ?? 120,
-      })
+      .insert(row)
       .select()
       .single();
+
+    // If is_global column doesn't exist yet, retry without it
+    if (error && error.message?.includes("is_global")) {
+      const { is_global, ...rowWithoutGlobal } = row;
+      ({ data, error } = await supabase
+        .from("b_thermostat_profiles")
+        .insert(rowWithoutGlobal)
+        .select()
+        .single());
+    }
 
     if (error) {
       console.error("[thermostat/profiles] POST error:", error);
@@ -289,15 +345,19 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Block deletion of global profiles
-    const { data: profileCheck } = await supabase
-      .from("b_thermostat_profiles")
-      .select("is_global")
-      .eq("profile_id", profileId)
-      .single();
+    // Block deletion of global profiles (gracefully skip if column doesn't exist)
+    try {
+      const { data: profileCheck } = await supabase
+        .from("b_thermostat_profiles")
+        .select("is_global")
+        .eq("profile_id", profileId)
+        .single();
 
-    if (profileCheck?.is_global) {
-      return NextResponse.json({ error: "Cannot delete a global profile" }, { status: 403 });
+      if (profileCheck?.is_global) {
+        return NextResponse.json({ error: "Cannot delete a global profile" }, { status: 403 });
+      }
+    } catch {
+      // is_global column may not exist yet — skip the check
     }
 
     // Check if any zones reference this profile

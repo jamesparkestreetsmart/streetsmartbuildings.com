@@ -324,6 +324,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
         setSaveProfileResult("Saved!");
         setSaveProfileName("");
         setShowSaveInput(false);
+        setSelectedConfigProfileId("");
         fetchConfigProfiles();
         setTimeout(() => setSaveProfileResult(null), 3000);
       } else {
@@ -452,6 +453,7 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
         setHoursTemplateSaveResult("Saved!");
         setHoursSaveTemplateName("");
         setShowHoursSaveInput(false);
+        setSelectedHoursTemplateId("");
         fetchHoursTemplates();
         setTimeout(() => setHoursTemplateSaveResult(null), 3000);
       } else {
@@ -770,12 +772,14 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
             </p>
 
             {/* ── SSB Catalog (global profiles) ───────────────────────── */}
-            {dedupedConfigProfiles.some((p) => p.is_global) && (
-              <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <TierBadge tier="SSB" />
-                  <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
-                </div>
+            <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <TierBadge tier="SSB" />
+                <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
+              </div>
+              {dedupedConfigProfiles.filter((p) => p.is_global).length === 0 ? (
+                <p className="text-xs text-indigo-400 italic">No SSB global profiles available.</p>
+              ) : (
                 <div className="space-y-1">
                   {dedupedConfigProfiles.filter((p) => p.is_global).map((p) => (
                     <div
@@ -813,8 +817,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* ── Your Profiles (org-owned) ──────────────────────────── */}
             <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
@@ -1027,12 +1031,14 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
             </p>
 
             {/* ── SSB Catalog (global thermostat profiles) ───────────── */}
-            {profiles.some((p) => p.is_global) && (
-              <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <TierBadge tier="SSB" />
-                  <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
-                </div>
+            <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <TierBadge tier="SSB" />
+                <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
+              </div>
+              {profiles.filter((p) => p.is_global).length === 0 ? (
+                <p className="text-xs text-indigo-400 italic">No SSB global thermostat profiles available.</p>
+              ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {profiles.filter((p) => p.is_global).map((profile) => (
                     <div
@@ -1069,8 +1075,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* ── Your Profiles (org-owned) ──────────────────────────── */}
             <div className="mb-3">
@@ -1137,12 +1143,14 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
             </p>
 
             {/* ── SSB Catalog (global templates) ──────────────────────── */}
-            {hoursTemplates.some((t) => t.is_global) && (
-              <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <TierBadge tier="SSB" />
-                  <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
-                </div>
+            <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <TierBadge tier="SSB" />
+                <label className="text-sm font-semibold text-indigo-800">SSB Catalog</label>
+              </div>
+              {hoursTemplates.filter((t) => t.is_global).length === 0 ? (
+                <p className="text-xs text-indigo-400 italic">No SSB global templates available.</p>
+              ) : (
                 <div className="space-y-1">
                   {hoursTemplates.filter((t) => t.is_global).map((t) => (
                     <div
@@ -1180,8 +1188,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* ── Your Templates (org-owned) ──────────────────────────── */}
             <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">

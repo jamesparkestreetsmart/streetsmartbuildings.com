@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { useOrg } from "@/context/OrgContext";
@@ -49,8 +49,16 @@ type Tab = "live" | "history" | "configuration";
 
 export default function AlertsPage() {
   const searchParams = useSearchParams();
-  const { selectedOrgId } = useOrg();
+  const router = useRouter();
+  const { selectedOrgId, selectedOrg, loading: orgLoading } = useOrg();
   const tabParam = searchParams.get("tab");
+
+  // SSB org users don't use Live Alerts — redirect to Admin
+  useEffect(() => {
+    if (!orgLoading && selectedOrg?.org_identifier === "SSB1") {
+      router.replace("/admin");
+    }
+  }, [orgLoading, selectedOrg, router]);
   const activeTab: Tab = tabParam === "history" ? "history" : tabParam === "configuration" ? "configuration" : "live";
 
   // Live Alerts state
