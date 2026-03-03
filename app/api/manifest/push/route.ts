@@ -55,6 +55,16 @@ function timeToMinutes(timeStr: string | null): number | null {
   return parseInt(parts[0]) * 60 + parseInt(parts[1]);
 }
 
+// Normalize ha_device_id: 32-char hex → UUID with dashes
+function normalizeHaDeviceId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  if (id.includes("-")) return id;
+  if (/^[0-9a-fA-F]{32}$/.test(id)) {
+    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+  }
+  return id;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const callerEmail = await getCallerEmail();
@@ -251,13 +261,24 @@ export async function POST(req: NextRequest) {
           thermoState = s1;
         }
         if (!thermoState && haDeviceId) {
+          const normalizedId = normalizeHaDeviceId(haDeviceId);
           const { data: s2 } = await supabase
             .from("b_thermostat_state")
             .select("current_temperature_f, ha_device_id, current_setpoint_f, target_temp_f")
             .eq("site_id", site_id)
-            .eq("ha_device_id", haDeviceId)
+            .eq("ha_device_id", normalizedId || haDeviceId)
             .maybeSingle();
           thermoState = s2;
+          // Fallback: try raw (dashless) format
+          if (!thermoState && normalizedId !== haDeviceId) {
+            const { data: s3 } = await supabase
+              .from("b_thermostat_state")
+              .select("current_temperature_f, ha_device_id, current_setpoint_f, target_temp_f")
+              .eq("site_id", site_id)
+              .eq("ha_device_id", haDeviceId)
+              .maybeSingle();
+            thermoState = s3;
+          }
         }
 
         let directive: string;

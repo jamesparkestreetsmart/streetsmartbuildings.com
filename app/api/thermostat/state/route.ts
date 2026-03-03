@@ -18,6 +18,16 @@ const DAY_NAMES = [
   "saturday",
 ];
 
+// Normalize ha_device_id: 32-char hex → UUID with dashes
+function normalizeHaDeviceId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  if (id.includes("-")) return id;
+  if (/^[0-9a-fA-F]{32}$/.test(id)) {
+    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+  }
+  return id;
+}
+
 function timeToMinutes(timeStr: string | null): number | null {
   if (!timeStr) return null;
   const parts = timeStr.split(":");
@@ -66,9 +76,18 @@ export async function GET(req: NextRequest) {
 
   if (thermostatDevices) {
     for (const dev of thermostatDevices) {
-      if (dev.equipment_id) haToEquipDirect[dev.ha_device_id] = dev.equipment_id;
-      if (dev.device_name) haToDeviceName[dev.ha_device_id] = dev.device_name;
-      haToDeviceId[dev.ha_device_id] = dev.device_id;
+      // Store under both raw and normalized ha_device_id so lookups from
+      // b_thermostat_state (which may have either format) always match
+      const ids = [dev.ha_device_id];
+      const normalized = normalizeHaDeviceId(dev.ha_device_id);
+      if (normalized && normalized !== dev.ha_device_id) ids.push(normalized);
+      const raw = dev.ha_device_id?.replace(/-/g, "");
+      if (raw && raw !== dev.ha_device_id) ids.push(raw);
+      for (const id of ids) {
+        if (dev.equipment_id) haToEquipDirect[id] = dev.equipment_id;
+        if (dev.device_name) haToDeviceName[id] = dev.device_name;
+        haToDeviceId[id] = dev.device_id;
+      }
     }
     if (hvacZones) {
       const deviceIdToHa: Record<string, string> = {};
@@ -196,13 +215,14 @@ export async function GET(req: NextRequest) {
 
   // 6. Enrich state rows with equipment_id, thermostat_name, and profile setpoints
   const enriched = (states || []).map((s: any) => {
+    const normalizedHaId = normalizeHaDeviceId(s.ha_device_id) || s.ha_device_id;
     const equipmentId =
-      haToEquipDirect[s.ha_device_id] ||
-      haToEquipViaZone[s.ha_device_id] ||
+      haToEquipDirect[normalizedHaId] ||
+      haToEquipViaZone[normalizedHaId] ||
       singleFallbackEquipId ||
       null;
     const thermostatName =
-      haToDeviceName[s.ha_device_id] || singleFallbackDeviceName || null;
+      haToDeviceName[normalizedHaId] || singleFallbackDeviceName || null;
 
     // Fix stale "No zone assigned" when zone IS actually linked
     let directive = s.eagle_eye_directive;
@@ -211,7 +231,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Resolve profile setpoints for this thermostat
-    const deviceId = haToDeviceId[s.ha_device_id];
+    const deviceId = haToDeviceId[normalizedHaId];
     const zoneEntry =
       (deviceId ? zoneByDeviceId.get(deviceId) : null) ||
       (equipmentId ? zoneByEquipmentId.get(equipmentId) : null);

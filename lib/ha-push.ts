@@ -59,6 +59,18 @@ export interface PushResults {
   trigger: string;
 }
 
+// ─── ha_device_id normalizer ─────────────────────────────────────────────────
+// HA addons sometimes send ha_device_id as a 32-char hex string without dashes.
+// Normalize to standard UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+function normalizeHaDeviceId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  if (id.includes("-")) return id;
+  if (/^[0-9a-fA-F]{32}$/.test(id)) {
+    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+  }
+  return id;
+}
+
 // ─── HA API helpers ───────────────────────────────────────────────────────────
 
 async function haFetch(
@@ -571,18 +583,31 @@ export async function executePushForSite(
       continue;
     }
 
-    // Look up climate entity dynamically
+    // Look up climate entity dynamically (normalize ha_device_id for consistent matching)
     let climateEntityId: string | null = null;
     if (device.ha_device_id) {
+      const normalizedId = normalizeHaDeviceId(device.ha_device_id);
       const { data: entityRow } = await supabase
         .from("b_entity_sync")
         .select("entity_id")
-        .eq("ha_device_id", device.ha_device_id)
+        .eq("ha_device_id", normalizedId || device.ha_device_id)
         .eq("site_id", siteId)
         .ilike("entity_id", "climate.%")
         .limit(1)
         .maybeSingle();
       climateEntityId = entityRow?.entity_id || null;
+      // Fallback: try raw (dashless) format if normalized didn't match
+      if (!climateEntityId && normalizedId !== device.ha_device_id) {
+        const { data: entityRow2 } = await supabase
+          .from("b_entity_sync")
+          .select("entity_id")
+          .eq("ha_device_id", device.ha_device_id)
+          .eq("site_id", siteId)
+          .ilike("entity_id", "climate.%")
+          .limit(1)
+          .maybeSingle();
+        climateEntityId = entityRow2?.entity_id || null;
+      }
     }
 
     if (!climateEntityId) {
@@ -604,13 +629,26 @@ export async function executePushForSite(
     thermoState = s1;
 
     if (!thermoState && device.ha_device_id) {
+      // Try with the device's ha_device_id (may have dashes)
       const { data: s2 } = await supabase
         .from("b_thermostat_state")
         .select("*")
         .eq("site_id", siteId)
         .eq("ha_device_id", device.ha_device_id)
         .maybeSingle();
-      thermoState = s2;
+      if (s2) {
+        thermoState = s2;
+      } else if (device.ha_device_id.includes("-")) {
+        // Fallback: try without dashes (HA addon may store raw hex)
+        const rawId = device.ha_device_id.replace(/-/g, "");
+        const { data: s3 } = await supabase
+          .from("b_thermostat_state")
+          .select("*")
+          .eq("site_id", siteId)
+          .eq("ha_device_id", rawId)
+          .maybeSingle();
+        thermoState = s3;
+      }
     }
 
     // ── Manager Override: Check before computing/pushing ──

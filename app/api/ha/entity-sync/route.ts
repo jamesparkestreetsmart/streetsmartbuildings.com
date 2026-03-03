@@ -36,6 +36,21 @@ type LibrarySensor = {
   name: string;
 };
 
+// ─── ha_device_id normalizer ─────────────────────────────────────────────────
+// HA addons sometimes send ha_device_id as a 32-char hex string without dashes.
+// Normalize to standard UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+function normalizeHaDeviceId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  // Already has dashes — return as-is
+  if (id.includes("-")) return id;
+  // 32-char hex → insert dashes at 8-4-4-4-12
+  if (/^[0-9a-fA-F]{32}$/.test(id)) {
+    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+  }
+  // Not a raw UUID — return as-is (synthetic IDs like "device_xxx")
+  return id;
+}
+
 // ─── Orphan Entity Resolution ─────────────────────────────────────────────────
 
 async function resolveOrphanEntities(
@@ -261,7 +276,7 @@ export async function POST(req: NextRequest) {
       last_updated: e.last_updated ?? nowIso,
       last_seen_at: nowIso,
 
-      ha_device_id: e.ha_device_id ?? orphanMatch?.ha_device_id ?? null,
+      ha_device_id: normalizeHaDeviceId(e.ha_device_id) ?? orphanMatch?.ha_device_id ?? null,
       ha_device_name: e.device_name ?? orphanMatch?.device_name ?? null,
 
       manufacturer: e.manufacturer ?? null,
@@ -610,12 +625,25 @@ export async function POST(req: NextRequest) {
 
           if (!syncRow?.ha_device_id) continue;
 
-          const { data: device } = await svcSupabase
+          // Look up device, trying normalized and raw ha_device_id formats
+          let device: { device_id: string } | null = null;
+          const { data: d1 } = await svcSupabase
             .from("a_devices")
             .select("device_id")
             .eq("ha_device_id", syncRow.ha_device_id)
             .eq("site_id", site_id)
             .maybeSingle();
+          device = d1;
+          if (!device && syncRow.ha_device_id.includes("-")) {
+            const rawId = syncRow.ha_device_id.replace(/-/g, "");
+            const { data: d2 } = await svcSupabase
+              .from("a_devices")
+              .select("device_id")
+              .eq("ha_device_id", rawId)
+              .eq("site_id", site_id)
+              .maybeSingle();
+            device = d2;
+          }
 
           if (!device) continue;
 
