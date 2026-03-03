@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useManifest, ManifestData, SmartStartCalcData } from "./useManifest";
 import { useActivityLog, ActivityLogEntry } from "./useActivityLog";
 import { LUX_TIERS } from "@/lib/sun-calc";
+import { supabase } from "@/lib/supabaseClient";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1042,8 +1043,8 @@ function AddNoteHeader({ onSubmit }: { onSubmit: (msg: string, eventTime?: strin
   }
 
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-1">
         <input
           type="number"
           min={1}
@@ -1053,7 +1054,7 @@ function AddNoteHeader({ onSubmit }: { onSubmit: (msg: string, eventTime?: strin
             const v = parseInt(e.target.value);
             if (v >= 1 && v <= 12) setHour(v);
           }}
-          className="text-sm border border-gray-300 rounded px-1 py-1 w-[36px] font-mono text-center"
+          className="text-sm border border-gray-300 rounded px-2 py-1.5 w-[48px] font-mono text-center"
         />
         <span className="text-sm text-gray-400 font-bold">:</span>
         <input
@@ -1065,12 +1066,12 @@ function AddNoteHeader({ onSubmit }: { onSubmit: (msg: string, eventTime?: strin
             const v = parseInt(e.target.value);
             if (v >= 0 && v <= 59) setMinute(v);
           }}
-          className="text-sm border border-gray-300 rounded px-1 py-1 w-[36px] font-mono text-center"
+          className="text-sm border border-gray-300 rounded px-2 py-1.5 w-[48px] font-mono text-center"
         />
         <select
           value={ampm}
           onChange={(e) => setAmpm(e.target.value as "AM" | "PM")}
-          className="text-sm border border-gray-300 rounded px-1 py-1 font-mono"
+          className="text-sm border border-gray-300 rounded px-2 py-1.5 font-mono min-w-[56px]"
         >
           <option value="AM">AM</option>
           <option value="PM">PM</option>
@@ -1592,6 +1593,13 @@ export default function LogicMap({ siteId, timezone }: LogicMapProps) {
   const activityEntries = useMemo(() => rawActivityEntries.filter((e) => e.event_type !== "thermostat_push"), [rawActivityEntries]);
   const [nowMinutes, setNowMinutes] = useState(currentTimeMinutes(timezone));
   const [generating, setGenerating] = useState(false);
+  const [userEmail, setUserEmail] = useState("ui");
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) setUserEmail(user.email);
+    });
+  }, []);
 
   const isToday = selectedDate === today;
 
@@ -1877,7 +1885,7 @@ export default function LogicMap({ siteId, timezone }: LogicMapProps) {
         <div className="flex items-center gap-2">
           {/* Add Note button */}
           {data && (
-            <AddNoteHeader onSubmit={(msg, eventTime) => addComment(msg, "ui", eventTime)} />
+            <AddNoteHeader onSubmit={(msg, eventTime) => addComment(msg, userEmail, eventTime)} />
           )}
 
           {/* Regenerate button */}
