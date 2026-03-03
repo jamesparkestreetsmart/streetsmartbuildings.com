@@ -31,7 +31,7 @@ interface Profile {
   site_count: number;
 }
 
-interface FormState {
+export interface FormState {
   profile_name: string;
   occupied_heat_f: number;
   occupied_cool_f: number;
@@ -54,7 +54,7 @@ interface FormState {
   feels_like_max_adj_f: number;
 }
 
-const DEFAULT_FORM: FormState = {
+export const DEFAULT_FORM: FormState = {
   profile_name: "",
   occupied_heat_f: 68,
   occupied_cool_f: 76,
@@ -107,7 +107,7 @@ const RESET_OPTIONS = [
 ];
 
 // Extracted as a top-level component so parent re-renders don't destroy/recreate inputs
-function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, saveLabel }: {
+export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, saveLabel }: {
   form: FormState;
   setForm: (f: FormState) => void;
   onSave: () => void;

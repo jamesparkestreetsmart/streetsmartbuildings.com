@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import TierBadge from "@/components/ui/TierBadge";
+import { ProfileForm, FormState, DEFAULT_FORM } from "@/components/hvac/ProfileManager";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -123,11 +124,7 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
   const [savingHours, setSavingHours] = useState(false);
 
   const [showCreateThermostat, setShowCreateThermostat] = useState(false);
-  const [newThermostatName, setNewThermostatName] = useState("");
-  const [newThermostatValues, setNewThermostatValues] = useState({
-    occupied_heat_f: 68, occupied_cool_f: 76,
-    unoccupied_heat_f: 55, unoccupied_cool_f: 85,
-  });
+  const [thermostatForm, setThermostatForm] = useState<FormState>({ ...DEFAULT_FORM });
   const [savingThermostat, setSavingThermostat] = useState(false);
 
   // ─── Delete State ──────────────────────────────────────────────────────────
@@ -287,23 +284,23 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
   };
 
   const createThermostatProfile = async () => {
-    if (!newThermostatName.trim()) return;
+    if (!thermostatForm.profile_name.trim()) return;
     setSavingThermostat(true);
     try {
+      const { profile_name, ...formFields } = thermostatForm;
       const res = await fetch("/api/thermostat/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           org_id: orgId,
-          profile_name: newThermostatName.trim(),
+          profile_name: profile_name.trim(),
           is_global: true,
-          ...newThermostatValues,
+          ...formFields,
         }),
       });
       const data = await res.json();
       if (data.profile_id || data.profile_name) {
-        setNewThermostatName("");
-        setNewThermostatValues({ occupied_heat_f: 68, occupied_cool_f: 76, unoccupied_heat_f: 55, unoccupied_cool_f: 85 });
+        setThermostatForm({ ...DEFAULT_FORM });
         setShowCreateThermostat(false);
         fetchThermostatProfiles();
       }
@@ -1060,45 +1057,16 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
                 </button>
               </div>
 
-              {/* Create form */}
+              {/* Create form — uses full ProfileForm from ProfileManager */}
               {showCreateThermostat && (
-                <div className="mb-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                  <input
-                    type="text"
-                    value={newThermostatName}
-                    onChange={(e) => setNewThermostatName(e.target.value)}
-                    placeholder="Profile name..."
-                    className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 mb-2"
-                    autoFocus
+                <div className="mb-3 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                  <ProfileForm
+                    form={thermostatForm}
+                    setForm={setThermostatForm}
+                    onSave={createThermostatProfile}
+                    onCancel={() => { setShowCreateThermostat(false); setThermostatForm({ ...DEFAULT_FORM }); }}
+                    saveLabel={savingThermostat ? "Creating..." : "Create Global Profile"}
                   />
-                  <div className="grid grid-cols-2 gap-2 mb-2">
-                    {(["occupied_heat_f", "occupied_cool_f", "unoccupied_heat_f", "unoccupied_cool_f"] as const).map((key) => (
-                      <div key={key} className="flex items-center gap-1">
-                        <label className="text-xs text-gray-600">{key.replace(/_/g, " ").replace(/\bf\b/, "\u00B0F")}:</label>
-                        <input
-                          type="number"
-                          value={newThermostatValues[key]}
-                          onChange={(e) => setNewThermostatValues((prev) => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
-                          className="w-20 px-1.5 py-1 text-xs border border-gray-300 rounded"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={createThermostatProfile}
-                      disabled={!newThermostatName.trim() || savingThermostat}
-                      className="px-3 py-1.5 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
-                    >
-                      {savingThermostat ? "Creating..." : "Create Global Profile"}
-                    </button>
-                    <button
-                      onClick={() => { setShowCreateThermostat(false); setNewThermostatName(""); }}
-                      className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
-                    >
-                      Cancel
-                    </button>
-                  </div>
                 </div>
               )}
 

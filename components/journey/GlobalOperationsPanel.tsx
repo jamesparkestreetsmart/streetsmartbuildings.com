@@ -565,6 +565,31 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
       return;
     }
 
+    // Auto-save as a profile before pushing (so changes are always tracked)
+    const profileName = prompt(
+      "Save these thresholds as a profile before pushing.\nEnter a profile name:",
+      `Custom Config - ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+    );
+    if (profileName?.trim()) {
+      try {
+        const body: Record<string, any> = {
+          org_id: orgId,
+          profile_name: profileName.trim(),
+        };
+        for (const key of THRESHOLD_KEYS) {
+          body[key] = editingThresholds[key] ?? defaults[key] ?? 0;
+        }
+        const saveRes = await fetch("/api/anomaly-config/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (saveRes.ok) fetchConfigProfiles();
+      } catch {
+        console.error("Failed to auto-save anomaly config profile");
+      }
+    }
+
     try {
       const res = await fetch("/api/anomaly-config", {
         method: "PATCH",
@@ -620,6 +645,33 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
     if (!siteIds.length) return;
     setPushing(true);
     setPushResult(null);
+
+    // Auto-save as a template before pushing (so changes are always tracked)
+    const templateName = prompt(
+      "Save these hours as a template before pushing.\nEnter a template name:",
+      `Custom Hours - ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+    );
+    if (templateName?.trim()) {
+      try {
+        const body: Record<string, any> = {
+          org_id: orgId,
+          template_name: templateName.trim(),
+        };
+        for (const d of DAYS) {
+          body[`${d}_open`] = hoursForm[d].closed ? null : (hoursForm[d].open || null);
+          body[`${d}_close`] = hoursForm[d].closed ? null : (hoursForm[d].close || null);
+          body[`${d}_closed`] = hoursForm[d].closed;
+        }
+        const saveRes = await fetch("/api/store-hours/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (saveRes.ok) fetchHoursTemplates();
+      } catch {
+        console.error("Failed to auto-save store hours template");
+      }
+    }
 
     try {
       let successCount = 0;

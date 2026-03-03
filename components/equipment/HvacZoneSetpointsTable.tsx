@@ -654,12 +654,47 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   const handleProfileChange = async (zoneId: string, profileId: string, currentIsOverride: boolean) => {
     if (profileId === "__custom__") {
-      const res = await fetch("/api/thermostat/zone-setpoints", {
+      // Create a new custom profile cloned from the zone's current resolved setpoints
+      const zone = zones.find((z) => z.hvac_zone_id === zoneId);
+      const rs = zone?.resolved_setpoints;
+      const zoneName = zone?.zone_name || "Zone";
+
+      const name = prompt("Enter a name for the new custom profile:", `${zoneName} - Custom`);
+      if (!name?.trim()) return;
+
+      const profileRes = await fetch("/api/thermostat/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          org_id: orgId,
+          profile_name: name.trim(),
+          scope: "site",
+          occupied_heat_f: rs?.occupied_heat_f ?? 68,
+          occupied_cool_f: rs?.occupied_cool_f ?? 76,
+          unoccupied_heat_f: rs?.unoccupied_heat_f ?? 55,
+          unoccupied_cool_f: rs?.unoccupied_cool_f ?? 85,
+          occupied_fan_mode: rs?.occupied_fan_mode ?? "Auto low",
+          occupied_hvac_mode: rs?.occupied_hvac_mode ?? "heat_cool",
+          unoccupied_fan_mode: rs?.unoccupied_fan_mode ?? "Auto low",
+          unoccupied_hvac_mode: rs?.unoccupied_hvac_mode ?? "heat_cool",
+          guardrail_min_f: rs?.guardrail_min_f ?? 45,
+          guardrail_max_f: rs?.guardrail_max_f ?? 95,
+          manager_offset_up_f: rs?.manager_offset_up_f ?? 4,
+          manager_offset_down_f: rs?.manager_offset_down_f ?? 4,
+          manager_override_reset_minutes: rs?.manager_override_reset_minutes ?? 120,
+        }),
+      });
+
+      if (!profileRes.ok) return;
+      const newProfile = await profileRes.json();
+
+      // Assign the new profile to the zone
+      const assignRes = await fetch("/api/thermostat/zone-setpoints", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hvac_zone_id: zoneId, is_override: true, occupied_heat_f: 68, occupied_cool_f: 76, unoccupied_heat_f: 55, unoccupied_cool_f: 85 }),
+        body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: newProfile.profile_id, is_override: false }),
       });
-      if (res.ok) { flashSaved(zoneId); fetchZones(); }
+      if (assignRes.ok) { flashSaved(zoneId); fetchProfiles(); fetchZones(); }
     } else {
       const res = await fetch("/api/thermostat/zone-setpoints", {
         method: "PATCH",
@@ -677,12 +712,57 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
     };
     const apiField = fieldMap[field];
     if (!apiField) return;
-    const res = await fetch("/api/thermostat/zone-setpoints", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hvac_zone_id: zoneId, [apiField]: value }),
-    });
-    if (res.ok) { flashSaved(zoneId); fetchZones(); }
+
+    const zone = zones.find((z) => z.hvac_zone_id === zoneId);
+
+    // If zone has a profile, create a new custom profile with the edited value
+    if (zone?.profile_id && !zone.is_override) {
+      const rs = zone.resolved_setpoints;
+      const zoneName = zone.zone_name || "Zone";
+
+      const profileRes = await fetch("/api/thermostat/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          org_id: orgId,
+          profile_name: `${zoneName} - Custom`,
+          scope: "site",
+          occupied_heat_f: rs?.occupied_heat_f ?? 68,
+          occupied_cool_f: rs?.occupied_cool_f ?? 76,
+          unoccupied_heat_f: rs?.unoccupied_heat_f ?? 55,
+          unoccupied_cool_f: rs?.unoccupied_cool_f ?? 85,
+          occupied_fan_mode: rs?.occupied_fan_mode ?? "Auto low",
+          occupied_hvac_mode: rs?.occupied_hvac_mode ?? "heat_cool",
+          unoccupied_fan_mode: rs?.unoccupied_fan_mode ?? "Auto low",
+          unoccupied_hvac_mode: rs?.unoccupied_hvac_mode ?? "heat_cool",
+          guardrail_min_f: rs?.guardrail_min_f ?? 45,
+          guardrail_max_f: rs?.guardrail_max_f ?? 95,
+          manager_offset_up_f: rs?.manager_offset_up_f ?? 4,
+          manager_offset_down_f: rs?.manager_offset_down_f ?? 4,
+          manager_override_reset_minutes: rs?.manager_override_reset_minutes ?? 120,
+          [apiField]: value, // override the edited field
+        }),
+      });
+
+      if (profileRes.ok) {
+        const newProfile = await profileRes.json();
+        // Assign the new profile to the zone
+        const assignRes = await fetch("/api/thermostat/zone-setpoints", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: newProfile.profile_id, is_override: false }),
+        });
+        if (assignRes.ok) { flashSaved(zoneId); fetchProfiles(); fetchZones(); }
+      }
+    } else {
+      // Zone has no profile or is already overridden — edit zone columns directly
+      const res = await fetch("/api/thermostat/zone-setpoints", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hvac_zone_id: zoneId, [apiField]: value }),
+      });
+      if (res.ok) { flashSaved(zoneId); fetchZones(); }
+    }
     setInlineEdit(null);
   };
 
@@ -693,7 +773,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   const startInlineEdit = (zone: HvacZone, field: string, currentValue: number) => {
     if (!zone.is_override && zone.profile_id) {
-      if (!confirm("Override profile for this zone? This will switch to custom setpoints.")) return;
+      if (!confirm("This will create a new custom profile based on the current profile. Continue?")) return;
     }
     setInlineEdit({ zoneId: zone.hvac_zone_id, field, value: currentValue });
   };
@@ -1186,7 +1266,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                             value={!zone.is_override && zone.profile_id ? zone.profile_id : "__custom__"}
                             onChange={(e) => handleProfileChange(zone.hvac_zone_id, e.target.value, zone.is_override)}
                           >
-                            <option value="__custom__">Custom Override</option>
+                            <option value="__custom__">+ New Custom Profile</option>
                             {profiles.map((p) => <option key={p.profile_id} value={p.profile_id}>{p.profile_name}</option>)}
                           </select>
                           {getSourceBadge(zone)}

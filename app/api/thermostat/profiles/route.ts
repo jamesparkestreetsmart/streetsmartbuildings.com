@@ -216,6 +216,12 @@ export async function POST(req: NextRequest) {
       manager_offset_up_f: fields.manager_offset_up_f ?? 4,
       manager_offset_down_f: fields.manager_offset_down_f ?? 4,
       manager_override_reset_minutes: fields.manager_override_reset_minutes ?? 120,
+      smart_start_enabled: fields.smart_start_enabled ?? true,
+      smart_start_max_adj_f: fields.smart_start_max_adj_f ?? 1,
+      occupancy_enabled: fields.occupancy_enabled ?? true,
+      occupancy_max_adj_f: fields.occupancy_max_adj_f ?? 1,
+      feels_like_enabled: fields.feels_like_enabled ?? true,
+      feels_like_max_adj_f: fields.feels_like_max_adj_f ?? 2,
     };
 
     let { data, error } = await supabase
