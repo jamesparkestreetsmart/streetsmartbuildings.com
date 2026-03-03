@@ -25,7 +25,7 @@ const supabase = createClient(
 
 // Full columns including new profile/setpoint fields
 const ZONE_COLS_FULL =
-  "hvac_zone_id, name, zone_type, control_scope, equipment_id, thermostat_device_id, site_id, org_id, profile_id, is_override, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode";
+  "hvac_zone_id, name, zone_type, control_scope, equipment_id, thermostat_device_id, site_id, org_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode";
 
 // Fallback if new columns don't exist yet
 const ZONE_COLS_BASIC =
@@ -122,14 +122,12 @@ export async function PATCH(req: NextRequest) {
     // Determine update mode
     const update: Record<string, any> = {};
 
-    // Fields that trigger is_override = true (actual setpoint values)
     const SETPOINT_VALUE_FIELDS = [
       "occupied_heat_f", "occupied_cool_f", "unoccupied_heat_f", "unoccupied_cool_f",
       "guardrail_min_f", "guardrail_max_f",
       "manager_offset_up_f", "manager_offset_down_f", "manager_override_reset_minutes",
     ];
 
-    // Fields that can be updated without triggering override (mode/fan changes)
     const MODE_ONLY_FIELDS = [
       "occupied_fan_mode", "occupied_hvac_mode", "unoccupied_fan_mode", "unoccupied_hvac_mode",
       "fan_mode", "hvac_mode",
@@ -137,10 +135,9 @@ export async function PATCH(req: NextRequest) {
 
     const ALL_SETTABLE_FIELDS = [...SETPOINT_VALUE_FIELDS, ...MODE_ONLY_FIELDS];
 
-    if ("profile_id" in fields && !fields.is_override) {
-      // Switching to a profile — clear override and sync zone columns to profile values
+    if ("profile_id" in fields) {
+      // Switching to a profile — sync zone columns to profile values
       update.profile_id = fields.profile_id;
-      update.is_override = false;
 
       // Fetch profile setpoints and sync to zone columns so they never drift
       const { data: prof } = await supabase
@@ -155,20 +152,10 @@ export async function PATCH(req: NextRequest) {
         }
       }
     } else if (ALL_SETTABLE_FIELDS.some((f) => f in fields)) {
-      // Copy all provided fields to update
+      // Direct zone column edit (no profile change) — update values without setting override flag
       for (const f of ALL_SETTABLE_FIELDS) {
         if (fields[f] !== undefined) update[f] = fields[f];
       }
-      // Only set is_override = true if actual setpoint VALUES are changing
-      // Mode/fan-only changes don't trigger override (allows migrations)
-      const hasSetpointValueChange = SETPOINT_VALUE_FIELDS.some((f) => f in fields);
-      if (hasSetpointValueChange) {
-        update.is_override = true;
-      }
-    } else if (fields.is_override === false && "profile_id" in fields) {
-      // Re-link to profile, clear override
-      update.profile_id = fields.profile_id;
-      update.is_override = false;
     }
 
     if (Object.keys(update).length === 0) {
@@ -202,7 +189,7 @@ export async function PATCH(req: NextRequest) {
       let eventType: string;
       let message: string;
 
-      if (update.profile_id && !update.is_override) {
+      if (update.profile_id) {
         // Profile assignment
         const { data: prof } = await supabase
           .from("b_thermostat_profiles")
@@ -211,18 +198,15 @@ export async function PATCH(req: NextRequest) {
           .single();
         eventType = "zone_profile_changed";
         message = `${data.name}: assigned profile "${prof?.name || update.profile_id}"`;
-      } else if (update.is_override) {
-        // Manual override
-        eventType = "zone_override";
+      } else {
+        // Direct zone setpoint edit
+        eventType = "zone_setpoint_changed";
         const parts: string[] = [];
         if (update.occupied_heat_f !== undefined) parts.push(`heat: ${update.occupied_heat_f}°F`);
         if (update.occupied_cool_f !== undefined) parts.push(`cool: ${update.occupied_cool_f}°F`);
         if (update.occupied_hvac_mode !== undefined) parts.push(`mode: ${update.occupied_hvac_mode}`);
         if (update.occupied_fan_mode !== undefined) parts.push(`fan: ${update.occupied_fan_mode}`);
-        message = `${data.name}: manual override${parts.length > 0 ? `, ${parts.join(", ")}` : ""}`;
-      } else {
-        eventType = "zone_updated";
-        message = `${data.name}: zone settings updated`;
+        message = `${data.name}: setpoint changed${parts.length > 0 ? `, ${parts.join(", ")}` : ""}`;
       }
 
       await supabase.from("b_records_log").insert({

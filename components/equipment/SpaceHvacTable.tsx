@@ -584,7 +584,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
                   return (
                     <tr key={group.zone.hvac_zone_id} className="border-b border-gray-200">
                       <td className={`${TD} align-top`}>
-                        <span className="font-medium text-gray-800">{group.zone.name}</span>
+                        <Link href={`/sites/${siteId}/zones/${group.zone.hvac_zone_id}`} className="font-medium text-blue-700 hover:text-blue-900 hover:underline">{group.zone.name}</Link>
                         {group.zone.zone_type && (
                           <div className="text-[10px] text-gray-500 capitalize">{group.zone.zone_type}</div>
                         )}
@@ -612,7 +612,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
                       {/* Zone (merged) */}
                       {isFirst && (
                         <td className={`${TD} align-top`} rowSpan={rowCount}>
-                          <span className="font-medium text-gray-800">{group.zone.name}</span>
+                          <Link href={`/sites/${siteId}/zones/${group.zone.hvac_zone_id}`} className="font-medium text-blue-700 hover:text-blue-900 hover:underline">{group.zone.name}</Link>
                           {group.zone.zone_type && (
                             <div className="text-[10px] text-gray-500 capitalize">{group.zone.zone_type}</div>
                           )}

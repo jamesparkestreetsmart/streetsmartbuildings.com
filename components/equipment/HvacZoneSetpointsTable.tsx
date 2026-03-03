@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/tooltip";
 import ZoneWeightBar from "@/components/hvac/ZoneWeightBar";
 import SpaceSensorPanel from "@/components/hvac/SpaceSensorPanel";
+import Link from "next/link";
 import { useOrg } from "@/context/OrgContext";
 
 interface ResolvedSetpoints {
@@ -42,7 +43,6 @@ interface HvacZone {
   thermostat_device_id: string | null;
   thermostat_ha_device_id: string | null;
   profile_id: string | null;
-  is_override: boolean;
   resolved_setpoints: ResolvedSetpoints | null;
   policy_setpoint_min_f: number | null;
   policy_setpoint_max_f: number | null;
@@ -464,7 +464,6 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
             thermostat_device_id: z.thermostat_device_id || view?.thermostat_device_id || null,
             thermostat_ha_device_id: view?.thermostat_ha_device_id || null,
             profile_id: z.profile_id || null,
-            is_override: z.is_override ?? true,
             resolved_setpoints: rs || null,
             policy_setpoint_min_f: rs?.occupied_heat_f ?? view?.policy_setpoint_min_f ?? null,
             policy_setpoint_max_f: rs?.occupied_cool_f ?? view?.policy_setpoint_max_f ?? null,
@@ -503,7 +502,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
           .order("zone_name");
         if (!error && data) {
           // Filter out template zones (no equipment linked)
-          setZones(data.filter((d: any) => d.equipment_id).map((d: any) => ({ ...d, profile_id: null, is_override: true, resolved_setpoints: null })));
+          setZones(data.filter((d: any) => d.equipment_id).map((d: any) => ({ ...d, profile_id: null, resolved_setpoints: null })));
         }
       }
     } catch (err) {
@@ -514,7 +513,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
         .eq("site_id", siteId)
         .order("zone_name");
       if (data) {
-        setZones(data.map((d: any) => ({ ...d, profile_id: null, is_override: true, resolved_setpoints: null })));
+        setZones(data.map((d: any) => ({ ...d, profile_id: null, resolved_setpoints: null })));
       }
     }
     setLoading(false);
@@ -652,7 +651,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   // ── Profile / inline setpoint handlers (unchanged) ──────────────
 
-  const handleProfileChange = async (zoneId: string, profileId: string, currentIsOverride: boolean) => {
+  const handleProfileChange = async (zoneId: string, profileId: string) => {
     if (profileId === "__custom__") {
       // Create a new custom profile cloned from the zone's current resolved setpoints
       const zone = zones.find((z) => z.hvac_zone_id === zoneId);
@@ -692,14 +691,14 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
       const assignRes = await fetch("/api/thermostat/zone-setpoints", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: newProfile.profile_id, is_override: false }),
+        body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: newProfile.profile_id }),
       });
       if (assignRes.ok) { flashSaved(zoneId); fetchProfiles(); fetchZones(); }
     } else {
       const res = await fetch("/api/thermostat/zone-setpoints", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: profileId, is_override: false }),
+        body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: profileId }),
       });
       if (res.ok) { flashSaved(zoneId); fetchZones(); }
     }
@@ -716,7 +715,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
     const zone = zones.find((z) => z.hvac_zone_id === zoneId);
 
     // If zone has a profile, create a new custom profile with the edited value
-    if (zone?.profile_id && !zone.is_override) {
+    if (zone?.profile_id) {
       const rs = zone.resolved_setpoints;
       const zoneName = zone.zone_name || "Zone";
 
@@ -750,7 +749,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
         const assignRes = await fetch("/api/thermostat/zone-setpoints", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: newProfile.profile_id, is_override: false }),
+          body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: newProfile.profile_id }),
         });
         if (assignRes.ok) { flashSaved(zoneId); fetchProfiles(); fetchZones(); }
       }
@@ -772,7 +771,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
   };
 
   const startInlineEdit = (zone: HvacZone, field: string, currentValue: number) => {
-    if (!zone.is_override && zone.profile_id) {
+    if (zone.profile_id) {
       if (!confirm("This will create a new custom profile based on the current profile. Continue?")) return;
     }
     setInlineEdit({ zoneId: zone.hvac_zone_id, field, value: currentValue });
@@ -1135,7 +1134,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
   const SetpointCell = ({ zone, field, value, bgClass, textClass }: {
     zone: HvacZone; field: string; value: number | null; bgClass: string; textClass: string;
   }) => {
-    const isProfileLinked = !zone.is_override && !!zone.profile_id;
+    const isProfileLinked = !!zone.profile_id;
     const isEditing = inlineEdit?.zoneId === zone.hvac_zone_id && inlineEdit?.field === field;
     if (isEditing) {
       return (
@@ -1167,7 +1166,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   const downloadCSV = () => {
     const headers = ["Zone Name", "Type", "Profile", "Source", "Control Scope", "Occupied Heat (°F)", "Occupied Cool (°F)", "Occupied Mode", "Occupied Fan", "Unoccupied Heat (°F)", "Unoccupied Cool (°F)", "Unoccupied Mode", "Unoccupied Fan", "Equipment", "Serves (Spaces)"];
-    const rows = sortedZones.map((zone) => [zone.zone_name, zone.zone_type, zone.resolved_setpoints?.profile_name || (zone.is_override ? "Custom" : "Default"), zone.resolved_setpoints?.source || "unknown", zone.control_scope, zone.policy_setpoint_min_f ?? "", zone.policy_setpoint_max_f ?? "", zone.policy_hvac_mode ?? "", zone.policy_fan_mode ?? "", zone.policy_setpoint_min_unoccupied_f ?? "", zone.policy_setpoint_max_unoccupied_f ?? "", zone.policy_hvac_mode_unoccupied ?? "", zone.policy_fan_mode_unoccupied ?? "", zone.equipment_name ?? "Not linked", zone.served_spaces ?? ""]);
+    const rows = sortedZones.map((zone) => [zone.zone_name, zone.zone_type, zone.resolved_setpoints?.profile_name || (zone.profile_id ? "Profile" : "No Profile"), zone.resolved_setpoints?.source || "unknown", zone.control_scope, zone.policy_setpoint_min_f ?? "", zone.policy_setpoint_max_f ?? "", zone.policy_hvac_mode ?? "", zone.policy_fan_mode ?? "", zone.policy_setpoint_min_unoccupied_f ?? "", zone.policy_setpoint_max_unoccupied_f ?? "", zone.policy_hvac_mode_unoccupied ?? "", zone.policy_fan_mode_unoccupied ?? "", zone.equipment_name ?? "Not linked", zone.served_spaces ?? ""]);
     const csvContent = [headers.join(","), ...rows.map((row) => row.map((cell) => `"${cell}"`).join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1253,7 +1252,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                           }
                         </button>
                       </td>
-                      <td className="py-3 px-2 font-medium">{zone.zone_name}</td>
+                      <td className="py-3 px-2 font-medium"><Link href={`/sites/${siteId}/zones/${zone.hvac_zone_id}`} className="text-blue-700 hover:text-blue-900 hover:underline">{zone.zone_name}</Link></td>
                       <td className="py-3 px-2">
                         <span className={`text-xs px-2 py-1 rounded ${zone.zone_type === "customer" ? "bg-blue-100 text-blue-800" : zone.zone_type === "employee" ? "bg-amber-100 text-amber-800" : zone.zone_type === "storage" ? "bg-gray-100 text-gray-800" : "bg-orange-100 text-orange-800"}`}>
                           {zone.zone_type === "undefined" ? "Undefined" : formatZoneType(zone.zone_type)}
@@ -1263,8 +1262,8 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                         <div className="flex flex-col gap-1">
                           <select
                             className="text-xs border rounded px-1 py-0.5 max-w-[120px]"
-                            value={!zone.is_override && zone.profile_id ? zone.profile_id : "__custom__"}
-                            onChange={(e) => handleProfileChange(zone.hvac_zone_id, e.target.value, zone.is_override)}
+                            value={zone.profile_id ? zone.profile_id : "__custom__"}
+                            onChange={(e) => handleProfileChange(zone.hvac_zone_id, e.target.value)}
                           >
                             <option value="__custom__">+ New Custom Profile</option>
                             {profiles.map((p) => <option key={p.profile_id} value={p.profile_id}>{p.profile_name}</option>)}

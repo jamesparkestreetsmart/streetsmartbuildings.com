@@ -23,7 +23,6 @@ export interface ResolvedSetpoints {
 
 interface ZoneRow {
   profile_id?: string | null;
-  is_override?: boolean;
   occupied_heat_f?: number | null;
   occupied_cool_f?: number | null;
   unoccupied_heat_f?: number | null;

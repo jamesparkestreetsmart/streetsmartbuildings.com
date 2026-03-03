@@ -672,7 +672,7 @@ async function buildThermostats(
   {
     const { data: fullZones, error: zoneErr } = await supabase
       .from("a_hvac_zones")
-      .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode, is_override")
+      .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode")
       .eq("site_id", siteId);
 
     if (zoneErr) {
@@ -680,7 +680,7 @@ async function buildThermostats(
       // Fallback to basic columns
       const { data: basicZones } = await supabase
         .from("a_hvac_zones")
-        .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, fan_mode, hvac_mode, is_override")
+        .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, fan_mode, hvac_mode")
         .eq("site_id", siteId);
       hvacZones = basicZones;
     } else {

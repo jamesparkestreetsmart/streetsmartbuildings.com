@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     const { data: zone } = await supabase
       .from('a_hvac_zones')
-      .select('hvac_zone_id, name, zone_type, control_scope, is_override, thermostat_device_id')
+      .select('hvac_zone_id, name, zone_type, control_scope, thermostat_device_id')
       .eq('equipment_id', equipment.equipment_id)
       .single();
 
@@ -153,7 +153,6 @@ export async function GET(request: NextRequest) {
         name: zone.name,
         zone_type: zone.zone_type,
         control_scope: zone.control_scope,
-        is_override: zone.is_override,
         smart_start_enabled: smartStartEnabled,
       } : null,
       zone_snapshot: zoneSnapshot,

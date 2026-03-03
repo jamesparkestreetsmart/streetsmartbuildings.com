@@ -77,11 +77,10 @@ export const DEFAULT_FORM: FormState = {
   feels_like_max_adj_f: 2,
 };
 
-const HVAC_MODE_OPTIONS = [
-  { label: "Off", value: "off" },
+const THERMOSTAT_MODE_OPTIONS = [
+  { label: "Auto (Heat & Cool)", value: "heat_cool" },
   { label: "Heat Only", value: "heat" },
   { label: "Cool Only", value: "cool" },
-  { label: "Auto", value: "heat_cool" },
 ];
 
 const FAN_MODE_OPTIONS = [
@@ -129,32 +128,42 @@ export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, sa
         />
       </div>
 
+      {/* THERMOSTAT MODE */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Thermostat Mode</label>
+        <select
+          value={form.occupied_hvac_mode}
+          onChange={(e) => setForm({ ...form, occupied_hvac_mode: e.target.value, unoccupied_hvac_mode: e.target.value })}
+          className="w-full border rounded-lg px-3 py-2 text-sm"
+        >
+          {THERMOSTAT_MODE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+
       {/* OCCUPIED */}
       <div className="border rounded-lg p-4 bg-green-50/50">
         <h4 className="font-semibold text-green-700 mb-3 text-sm uppercase tracking-wide">Occupied (Open Hours)</h4>
-        <div className="grid grid-cols-4 gap-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Heat Setpoint</label>
-            <div className="flex items-center">
-              {isHeatDisabled(form.occupied_hvac_mode) ? (
-                <input type="text" value="N/A" disabled className="w-full border rounded px-2 py-1.5 text-sm bg-gray-100 text-gray-400" />
-              ) : (
+        <div className="grid grid-cols-3 gap-3">
+          {!isHeatDisabled(form.occupied_hvac_mode) && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Heat Setpoint</label>
+              <div className="flex items-center">
                 <input type="number" value={form.occupied_heat_f} onChange={(e) => setForm({ ...form, occupied_heat_f: Number(e.target.value) })} className="w-full border rounded px-2 py-1.5 text-sm" />
-              )}
-              <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+                <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+              </div>
             </div>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Cool Setpoint</label>
-            <div className="flex items-center">
-              {isCoolDisabled(form.occupied_hvac_mode) ? (
-                <input type="text" value="N/A" disabled className="w-full border rounded px-2 py-1.5 text-sm bg-gray-100 text-gray-400" />
-              ) : (
+          )}
+          {!isCoolDisabled(form.occupied_hvac_mode) && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Cool Setpoint</label>
+              <div className="flex items-center">
                 <input type="number" value={form.occupied_cool_f} onChange={(e) => setForm({ ...form, occupied_cool_f: Number(e.target.value) })} className="w-full border rounded px-2 py-1.5 text-sm" />
-              )}
-              <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+                <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+              </div>
             </div>
-          </div>
+          )}
           <div>
             <label className="block text-xs text-gray-500 mb-1">Fan Mode</label>
             <select value={form.occupied_fan_mode} onChange={(e) => setForm({ ...form, occupied_fan_mode: e.target.value })} className="w-full border rounded px-2 py-1.5 text-sm">
@@ -163,43 +172,37 @@ export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, sa
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">HVAC Mode</label>
-            <select value={form.occupied_hvac_mode} onChange={(e) => setForm({ ...form, occupied_hvac_mode: e.target.value })} className="w-full border rounded px-2 py-1.5 text-sm">
-              {HVAC_MODE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
         </div>
+        {isCoolDisabled(form.occupied_hvac_mode) && (
+          <p className="text-xs text-gray-400 mt-2 italic">Cooling disabled for this profile</p>
+        )}
+        {isHeatDisabled(form.occupied_hvac_mode) && (
+          <p className="text-xs text-gray-400 mt-2 italic">Heating disabled for this profile</p>
+        )}
       </div>
 
       {/* UNOCCUPIED */}
       <div className="border rounded-lg p-4 bg-gray-50">
         <h4 className="font-semibold text-gray-600 mb-3 text-sm uppercase tracking-wide">Unoccupied (Closed Hours)</h4>
-        <div className="grid grid-cols-4 gap-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Heat Setpoint</label>
-            <div className="flex items-center">
-              {isHeatDisabled(form.unoccupied_hvac_mode) ? (
-                <input type="text" value="N/A" disabled className="w-full border rounded px-2 py-1.5 text-sm bg-gray-100 text-gray-400" />
-              ) : (
+        <div className="grid grid-cols-3 gap-3">
+          {!isHeatDisabled(form.unoccupied_hvac_mode) && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Heat Setpoint</label>
+              <div className="flex items-center">
                 <input type="number" value={form.unoccupied_heat_f} onChange={(e) => setForm({ ...form, unoccupied_heat_f: Number(e.target.value) })} className="w-full border rounded px-2 py-1.5 text-sm" />
-              )}
-              <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+                <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+              </div>
             </div>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Cool Setpoint</label>
-            <div className="flex items-center">
-              {isCoolDisabled(form.unoccupied_hvac_mode) ? (
-                <input type="text" value="N/A" disabled className="w-full border rounded px-2 py-1.5 text-sm bg-gray-100 text-gray-400" />
-              ) : (
+          )}
+          {!isCoolDisabled(form.unoccupied_hvac_mode) && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Cool Setpoint</label>
+              <div className="flex items-center">
                 <input type="number" value={form.unoccupied_cool_f} onChange={(e) => setForm({ ...form, unoccupied_cool_f: Number(e.target.value) })} className="w-full border rounded px-2 py-1.5 text-sm" />
-              )}
-              <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+                <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+              </div>
             </div>
-          </div>
+          )}
           <div>
             <label className="block text-xs text-gray-500 mb-1">Fan Mode</label>
             <select value={form.unoccupied_fan_mode} onChange={(e) => setForm({ ...form, unoccupied_fan_mode: e.target.value })} className="w-full border rounded px-2 py-1.5 text-sm">
@@ -208,15 +211,13 @@ export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, sa
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">HVAC Mode</label>
-            <select value={form.unoccupied_hvac_mode} onChange={(e) => setForm({ ...form, unoccupied_hvac_mode: e.target.value })} className="w-full border rounded px-2 py-1.5 text-sm">
-              {HVAC_MODE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
         </div>
+        {isCoolDisabled(form.unoccupied_hvac_mode) && (
+          <p className="text-xs text-gray-400 mt-2 italic">Cooling disabled for this profile</p>
+        )}
+        {isHeatDisabled(form.unoccupied_hvac_mode) && (
+          <p className="text-xs text-gray-400 mt-2 italic">Heating disabled for this profile</p>
+        )}
         <p className="text-xs text-gray-400 mt-2">Setpoints locked during unoccupied &mdash; no manager override allowed</p>
       </div>
 
@@ -569,10 +570,10 @@ export default function ProfileManager({ orgId }: Props) {
   };
 
   const formatHvacMode = (v: string | null | undefined): string => {
-    const opt = HVAC_MODE_OPTIONS.find((o) => o.value === v);
+    const opt = THERMOSTAT_MODE_OPTIONS.find((o) => o.value === v);
     if (opt) return opt.label;
-    if (v === "auto") return "Auto";
-    return v || "Auto";
+    if (v === "auto") return "Auto (Heat & Cool)";
+    return v || "Auto (Heat & Cool)";
   };
 
   const formatFanMode = (v: string | null | undefined): string => {
@@ -645,12 +646,13 @@ export default function ProfileManager({ orgId }: Props) {
                     </div>
                     <div className="text-sm text-gray-600 mt-1 space-y-0.5">
                       <p>
+                        <span className="text-xs text-gray-400 mr-1">{formatHvacMode(profile.occupied_hvac_mode)}</span>
+                        <span className="mx-1 text-gray-300">|</span>
                         <span className="text-green-700 font-medium">Occupied:</span>{" "}
                         {(() => {
                           const m = mapHvacMode(profile.occupied_hvac_mode);
-                          if (m === "off") return "Off";
-                          if (m === "heat") return `${profile.occupied_heat_f}°F (${formatHvacMode(profile.occupied_hvac_mode)})`;
-                          if (m === "cool") return `${profile.occupied_cool_f}°F (${formatHvacMode(profile.occupied_hvac_mode)})`;
+                          if (m === "heat") return `${profile.occupied_heat_f}°F`;
+                          if (m === "cool") return `${profile.occupied_cool_f}°F`;
                           return `${profile.occupied_heat_f}°–${profile.occupied_cool_f}°F`;
                         })()}
                         {" / "}{formatFanMode(profile.occupied_fan_mode)}
@@ -658,9 +660,8 @@ export default function ProfileManager({ orgId }: Props) {
                         <span className="text-gray-500 font-medium">Unoccupied:</span>{" "}
                         {(() => {
                           const m = mapHvacMode(profile.unoccupied_hvac_mode);
-                          if (m === "off") return "Off";
-                          if (m === "heat") return `${profile.unoccupied_heat_f}°F (${formatHvacMode(profile.unoccupied_hvac_mode)})`;
-                          if (m === "cool") return `${profile.unoccupied_cool_f}°F (${formatHvacMode(profile.unoccupied_hvac_mode)})`;
+                          if (m === "heat") return `${profile.unoccupied_heat_f}°F`;
+                          if (m === "cool") return `${profile.unoccupied_cool_f}°F`;
                           return `${profile.unoccupied_heat_f}°–${profile.unoccupied_cool_f}°F`;
                         })()}
                       </p>

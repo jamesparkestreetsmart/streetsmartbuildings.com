@@ -51,29 +51,14 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Find all zones linked to this profile
-    // Try with is_override filter first, fall back without it
-    let zones: any[] | null = null;
-    const { data: zonesData, error: zonesErr } = await supabase
+    const { data: zones, error: zonesErr } = await supabase
       .from("a_hvac_zones")
       .select("hvac_zone_id, name, site_id, thermostat_device_id")
-      .eq("profile_id", profile_id)
-      .eq("is_override", false);
+      .eq("profile_id", profile_id);
 
     if (zonesErr) {
-      console.error("[global-push] Zones query with is_override failed:", zonesErr.message);
-      // Fallback: just filter by profile_id
-      const { data: fallbackZones, error: fallbackErr } = await supabase
-        .from("a_hvac_zones")
-        .select("hvac_zone_id, name, site_id, thermostat_device_id")
-        .eq("profile_id", profile_id);
-
-      if (fallbackErr) {
-        console.error("[global-push] Zones fallback also failed:", fallbackErr.message);
-        return NextResponse.json({ error: fallbackErr.message }, { status: 500 });
-      }
-      zones = fallbackZones;
-    } else {
-      zones = zonesData;
+      console.error("[global-push] Zones query failed:", zonesErr.message);
+      return NextResponse.json({ error: zonesErr.message }, { status: 500 });
     }
 
     if (!zones || zones.length === 0) {

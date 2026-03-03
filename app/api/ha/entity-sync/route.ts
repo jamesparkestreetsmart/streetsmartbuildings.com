@@ -650,7 +650,7 @@ export async function POST(req: NextRequest) {
           const { data: zone } = await svcSupabase
             .from("a_hvac_zones")
             .select(
-              "hvac_zone_id, name, equipment_id, profile_id, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes"
+              "hvac_zone_id, name, equipment_id, profile_id, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, guardrail_min_f, guardrail_max_f"
             )
             .eq("thermostat_device_id", device.device_id)
             .eq("site_id", site_id)
@@ -663,12 +663,14 @@ export async function POST(req: NextRequest) {
             manager_offset_up_f?: number | null;
             manager_offset_down_f?: number | null;
             manager_override_reset_minutes?: number | null;
+            guardrail_min_f?: number | null;
+            guardrail_max_f?: number | null;
           } = {};
           if (zone.profile_id) {
             const { data: p } = await svcSupabase
               .from("b_thermostat_profiles")
               .select(
-                "manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes"
+                "manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, guardrail_min_f, guardrail_max_f"
               )
               .eq("profile_id", zone.profile_id)
               .maybeSingle();
@@ -775,6 +777,34 @@ export async function POST(req: NextRequest) {
             } else if (coolAdj < -maxLower) {
               finalCool = ts.last_pushed_cool_f - maxLower;
               bounced = true;
+            }
+          }
+
+          // ── Hard guardrail clamp ──
+          const hardMin = zone.guardrail_min_f ?? profileGuardrails.guardrail_min_f ?? 45;
+          const hardMax = zone.guardrail_max_f ?? profileGuardrails.guardrail_max_f ?? 95;
+          const preclampHeat = finalHeat;
+          const preclampCool = finalCool;
+          finalHeat = Math.min(Math.max(finalHeat, hardMin), hardMax);
+          if (finalCool != null) {
+            finalCool = Math.min(Math.max(finalCool, hardMin), hardMax);
+          }
+          if (finalHeat !== preclampHeat || (finalCool != null && finalCool !== preclampCool)) {
+            bounced = true;
+            console.log(`[entity-sync] Guardrail clamp on ${ce.entity_id}: heat ${preclampHeat}→${finalHeat}, cool ${preclampCool}→${finalCool} (range ${hardMin}–${hardMax}°F)`);
+            try {
+              await svcSupabase.from("b_records_log").insert({
+                site_id,
+                org_id: siteInfo?.org_id || org_id,
+                equipment_id: zone.equipment_id || null,
+                event_type: "guardrail_clamp",
+                event_date: new Date().toLocaleDateString("en-CA", { timeZone: siteInfo?.timezone || "America/Chicago" }),
+                message: `Manager override clamped: requested ${preclampHeat}°F, clamped to ${finalHeat}°F (guardrail ${hardMin}–${hardMax}°F)`,
+                source: "entity_sync",
+                created_by: "system",
+              });
+            } catch (clampLogErr: any) {
+              console.error("[entity-sync] Guardrail clamp log error:", clampLogErr.message);
             }
           }
 

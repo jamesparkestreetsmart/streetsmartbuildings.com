@@ -20,7 +20,7 @@ interface ResolvedData {
   equipment: { equipment_id: string; equipment_name: string; slug: string; equipment_group: string; equipment_type_id: string };
   zone: {
     hvac_zone_id: string; name: string; zone_type: string;
-    control_scope: string; is_override: boolean; smart_start_enabled: boolean;
+    control_scope: string; smart_start_enabled: boolean;
   } | null;
   // From b_zone_setpoint_log — same fields as SpaceHvacTable
   zone_snapshot: {

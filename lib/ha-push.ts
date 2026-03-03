@@ -542,7 +542,7 @@ export async function executePushForSite(
   const { data: zones } = await supabase
     .from("a_hvac_zones")
     .select(
-      "hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, is_override, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode"
+      "hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode"
     )
     .eq("site_id", siteId);
 
@@ -765,6 +765,34 @@ export async function executePushForSite(
           } else if (coolAdj < -maxLower) {
             finalCool = thermoState.last_pushed_cool_f - maxLower;
             bounced = true;
+          }
+        }
+
+        // ── Hard guardrail clamp ──
+        const hardMin = resolved.guardrail_min_f;
+        const hardMax = resolved.guardrail_max_f;
+        const preclampHeat = finalHeat;
+        const preclampCool = finalCool;
+        finalHeat = Math.min(Math.max(finalHeat, hardMin), hardMax);
+        if (finalCool != null) {
+          finalCool = Math.min(Math.max(finalCool, hardMin), hardMax);
+        }
+        if (finalHeat !== preclampHeat || (finalCool != null && finalCool !== preclampCool)) {
+          bounced = true;
+          console.log(`[ha-push] Zone "${zone.name}": Guardrail clamp heat ${preclampHeat}→${finalHeat}, cool ${preclampCool}→${finalCool} (range ${hardMin}–${hardMax}°F)`);
+          try {
+            await supabase.from("b_records_log").insert({
+              site_id: siteId,
+              org_id: site?.org_id || null,
+              equipment_id: zone.equipment_id || null,
+              event_type: "guardrail_clamp",
+              event_date: targetDate,
+              message: `Manager override clamped: requested ${preclampHeat}°F, clamped to ${finalHeat}°F (guardrail ${hardMin}–${hardMax}°F)`,
+              source: "ha_push",
+              created_by: "system",
+            });
+          } catch (clampLogErr) {
+            console.error("[ha-push] Guardrail clamp log error:", clampLogErr);
           }
         }
 

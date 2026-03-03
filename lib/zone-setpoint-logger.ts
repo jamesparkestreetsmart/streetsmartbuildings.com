@@ -1118,7 +1118,7 @@ export async function logZoneSetpointSnapshot(
     const { data: zones } = await supabase
       .from("a_hvac_zones")
       .select(
-        "hvac_zone_id, equipment_id, thermostat_device_id, profile_id, is_override, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode, anomaly_thresholds"
+        "hvac_zone_id, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode, anomaly_thresholds"
       )
       .eq("site_id", siteId)
       .eq("control_scope", "managed")
