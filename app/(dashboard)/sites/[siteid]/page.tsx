@@ -117,26 +117,23 @@ export default async function SitePage(props: any) {
     infrastructureEquipment = data || [];
   }
 
-  // Weather from today's manifest (same data the Logic Map displays)
+  // Weather from latest log_weathers entry (populated every ~5 min by HA push cycle)
   let weatherText: string | null = null;
   let weatherLux: number | null = null;
   if (!isInventorySite) {
-    const tz = site.timezone || "America/Chicago";
-    const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: tz });
-
     const svcSupabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    const { data: manifestRow } = await svcSupabase
-      .from("b_store_hours_manifests")
-      .select("operations_manifest")
+    const { data: w } = await svcSupabase
+      .from("log_weathers")
+      .select("temperature, feels_like, wind_speed, cloud_cover, lux_estimate, sun_elevation, recorded_at")
       .eq("site_id", id)
-      .eq("manifest_date", todayStr)
-      .single();
+      .order("recorded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    const w = manifestRow?.operations_manifest?.weather;
     if (w?.temperature != null) {
       const sunEl = w.sun_elevation ?? 0;
       const cloud = w.cloud_cover ?? 0;
