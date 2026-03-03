@@ -76,9 +76,9 @@ interface ZoneInfo {
   zone_type: string | null;
   equipment_id: string | null;
   profile_id: string | null;
-  smart_start_enabled: boolean;
-  manager_override_active: boolean;
-  manager_override_remaining_min: number | null;
+  smart_start_enabled?: boolean;
+  manager_override_active?: boolean;
+  manager_override_remaining_min?: number | null;
 }
 
 interface ProfileInfo {
@@ -257,22 +257,43 @@ export default function ZoneDetailPage() {
 
   useEffect(() => {
     const load = async () => {
-      const { data: z } = await supabase
+      // Zone — base columns from a_hvac_zones
+      const { data: z, error: zErr } = await supabase
         .from("a_hvac_zones")
-        .select("hvac_zone_id, name, zone_type, equipment_id, profile_id, smart_start_enabled, manager_override_active, manager_override_remaining_min")
+        .select("hvac_zone_id, name, zone_type, equipment_id, profile_id")
         .eq("hvac_zone_id", zoneId)
+        .eq("site_id", siteId)
         .single();
-      if (z) setZone(z as ZoneInfo);
+      if (zErr) console.error("[ZoneDetail] Zone fetch error:", zErr);
 
+      // Extra fields from view (smart_start, manager override)
+      if (z) {
+        const zoneInfo: ZoneInfo = { ...z };
+        const { data: vz } = await supabase
+          .from("view_hvac_zones_with_state")
+          .select("smart_start_enabled, manager_override_active, manager_override_remaining_min")
+          .eq("hvac_zone_id", zoneId)
+          .maybeSingle();
+        if (vz) {
+          zoneInfo.smart_start_enabled = vz.smart_start_enabled ?? false;
+          zoneInfo.manager_override_active = vz.manager_override_active ?? false;
+          zoneInfo.manager_override_remaining_min = vz.manager_override_remaining_min ?? null;
+        }
+        setZone(zoneInfo);
+      }
+
+      // Profile
       if (z?.profile_id) {
-        const { data: p } = await supabase
+        const { data: p, error: pErr } = await supabase
           .from("b_thermostat_profiles")
           .select("profile_id, profile_name, occupied_hvac_mode, occupied_heat_set_f, occupied_cool_set_f, unoccupied_heat_set_f, unoccupied_cool_set_f, guardrail_min_f, guardrail_max_f")
           .eq("profile_id", z.profile_id)
           .single();
+        if (pErr) console.error("[ZoneDetail] Profile fetch error:", pErr);
         if (p) setProfile(p as ProfileInfo);
       }
 
+      // Site name
       const { data: s } = await supabase
         .from("a_sites")
         .select("site_name")
@@ -280,6 +301,7 @@ export default function ZoneDetailPage() {
         .single();
       if (s) setSiteName(s.site_name);
 
+      // Equipment name
       if (z?.equipment_id) {
         const { data: e } = await supabase
           .from("a_equipments")
@@ -289,18 +311,23 @@ export default function ZoneDetailPage() {
         if (e) setEquipName(e.equipment_name);
       }
 
-      const { data: space } = await supabase
-        .from("a_spaces")
-        .select("space_id")
-        .eq("hvac_zone_id", zoneId)
-        .limit(1)
-        .maybeSingle();
-      if (space) {
-        const { count } = await supabase
-          .from("b_space_sensors")
-          .select("*", { count: "exact", head: true })
-          .eq("space_id", space.space_id);
-        if ((count ?? 0) > 0) setTempSource("Zone Avg");
+      // Temp source — check if zone has space sensors
+      try {
+        const { data: space } = await supabase
+          .from("a_spaces")
+          .select("space_id")
+          .eq("hvac_zone_id", zoneId)
+          .limit(1)
+          .maybeSingle();
+        if (space) {
+          const { count } = await supabase
+            .from("b_space_sensors")
+            .select("*", { count: "exact", head: true })
+            .eq("space_id", space.space_id);
+          if ((count ?? 0) > 0) setTempSource("Zone Avg");
+        }
+      } catch (err) {
+        console.error("[ZoneDetail] Temp source check error:", err);
       }
 
       setLoading(false);
