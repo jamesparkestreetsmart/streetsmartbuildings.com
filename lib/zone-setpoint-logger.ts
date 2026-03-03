@@ -1271,14 +1271,15 @@ export async function logZoneSetpointSnapshot(
         : 0;
 
       // ── Manager Adjustment ──
-      // Read the ACTUAL thermostat setpoints from HA (target_temp_low / target_temp_high).
-      // Compare against what Eagle Eyes EXPECTED to push (profile + adjustments).
-      // If someone adjusted the thermostat at the wall, the delta is the manager override.
+      // Only applies when entity-sync has already flagged manager_override_active.
+      // Computes the delta between HA actual and Eagle Eyes expected to quantify the override.
       let managerAdj = 0;
       const haActualHeat = tState?.target_temp_low_f ?? tState?.current_setpoint_f ?? null;
       const haActualCool = tState?.target_temp_high_f ?? null;
 
-      if (tState && haActualHeat != null) {
+      if (tState?.manager_override_active && haActualHeat != null) {
+        // Only compute manager adjustment when an override is already flagged.
+        // Without this guard, stale HA readings create false overrides.
         const expectedHeat = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj;
         const rawOffset = Math.round((haActualHeat - expectedHeat) * 10) / 10;
         // Clamp: ±profile limit during occupied, ±15 during unoccupied
@@ -1328,18 +1329,17 @@ export async function logZoneSetpointSnapshot(
       // ── Compute final active setpoints ──
       // Priority order:
       // 1. If manager_override_active → use override temps from b_thermostat_state
-      // 2. Else if current_setpoint_f is not null → use HA actual temps
-      // 3. Else → fall back to calculated (profile + adjustments)
+      // 2. Else → use calculated (profile + all adjustments)
+      // We intentionally do NOT fall back to haActualHeat because HA values
+      // can be stale between enforce cycles (e.g. unoccupied temps lingering
+      // after phase transitions). The calculated value reflects Eagle Eyes' intent.
       const expectedHeatTotal = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
       const expectedCoolTotal = profileCool + feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
       let activeHeat: number;
       let activeCool: number;
       if (tState?.manager_override_active && tState?.manager_override_heat_f != null) {
         activeHeat = tState.manager_override_heat_f;
-        activeCool = tState.manager_override_cool_f ?? haActualCool ?? expectedCoolTotal;
-      } else if (haActualHeat != null) {
-        activeHeat = haActualHeat;
-        activeCool = haActualCool ?? expectedCoolTotal;
+        activeCool = tState.manager_override_cool_f ?? expectedCoolTotal;
       } else {
         activeHeat = expectedHeatTotal;
         activeCool = expectedCoolTotal;
