@@ -5,7 +5,7 @@ export interface PastStoreHour {
   occurrence_id: string;
   site_id: string;
   occurrence_date: string;
-  exception_id: string | null;
+  event_id: string | null;
   name: string | null;
   event_type: string;
   open_time: string | null;
@@ -52,7 +52,7 @@ const mapped: PastStoreHour[] = (json.rows ?? []).map((r: any) => ({
   occurrence_id: r.occurrence_id,
   site_id: r.site_id,
   occurrence_date: r.manifest_date,
-  exception_id: r.exception_id,
+  event_id: r.event_id,
   name: r.manifest_name,
   event_type: r.event_type,
   open_time: r.open_time,

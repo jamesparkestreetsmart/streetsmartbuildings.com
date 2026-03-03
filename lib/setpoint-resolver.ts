@@ -118,8 +118,8 @@ export function resolveZoneSetpointsSync(
   zone: ZoneRow,
   profile?: ProfileRow | null
 ): ResolvedSetpoints {
-  // If zone is explicitly overriding, or has no profile, use zone columns
-  if (zone.is_override || !zone.profile_id) {
+  // If no profile linked (custom mode), use zone columns as base
+  if (!zone.profile_id) {
     if (hasZoneValues(zone)) {
       return resolveFromRow(zone, "zone_override");
     }
@@ -146,7 +146,7 @@ export async function resolveZoneSetpoints(
   supabaseClient: SupabaseClient,
   zone: ZoneRow
 ): Promise<ResolvedSetpoints> {
-  if (zone.is_override || !zone.profile_id) {
+  if (!zone.profile_id) {
     return resolveZoneSetpointsSync(zone);
   }
 

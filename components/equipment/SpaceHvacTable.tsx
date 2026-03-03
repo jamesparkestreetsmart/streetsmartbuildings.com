@@ -685,12 +685,47 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         )}
                       </td>
 
-                      {/* G2: Active Setpoint */}
+                      {/* G2: Active Setpoint — contextual display per mode/action */}
                       <td className={TD}>
-                        {log.active_heat_f != null && log.active_cool_f != null ? (
-                          <span className="font-medium text-gray-800">
-                            {log.active_heat_f}°–{log.active_cool_f}°F
-                          </span>
+                        {log.active_heat_f != null || log.active_cool_f != null ? (
+                          (() => {
+                            const heat = log.active_heat_f;
+                            const cool = log.active_cool_f;
+                            const action = log.hvac_action;
+                            // Heat-only mode
+                            if (heat != null && cool == null) return (
+                              <span className="font-medium text-amber-700">{heat}°F <span className="text-[10px] text-gray-400">↑</span></span>
+                            );
+                            // Cool-only mode
+                            if (cool != null && heat == null) return (
+                              <span className="font-medium text-blue-700">{cool}°F <span className="text-[10px] text-gray-400">↓</span></span>
+                            );
+                            // Dual mode (auto / heat_cool)
+                            if (heat != null && cool != null) {
+                              if (action === "heating") return (
+                                <span className="whitespace-nowrap">
+                                  <span className="font-medium text-amber-700">{heat}°F ↑</span>
+                                  <span className="text-gray-300 mx-0.5">·</span>
+                                  <span className="text-[11px] text-gray-400">{cool}°F</span>
+                                </span>
+                              );
+                              if (action === "cooling") return (
+                                <span className="whitespace-nowrap">
+                                  <span className="text-[11px] text-gray-400">{heat}°F</span>
+                                  <span className="text-gray-300 mx-0.5">·</span>
+                                  <span className="font-medium text-blue-700">{cool}°F ↓</span>
+                                </span>
+                              );
+                              // idle / off / unknown
+                              return (
+                                <span className="whitespace-nowrap">
+                                  <span className="font-medium text-gray-700">{heat}–{cool}°F</span>
+                                  <span className="text-[10px] text-green-600 ml-1">in range</span>
+                                </span>
+                              );
+                            }
+                            return <span className="text-gray-400">—</span>;
+                          })()
                         ) : (
                           <span className="text-gray-400">—</span>
                         )}

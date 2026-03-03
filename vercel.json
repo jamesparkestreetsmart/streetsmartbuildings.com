@@ -5,6 +5,9 @@
     },
     "app/api/cron/thermostat-enforce/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/manifest-generate/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -15,6 +18,10 @@
     {
       "path": "/api/cron/thermostat-enforce",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/manifest-generate",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

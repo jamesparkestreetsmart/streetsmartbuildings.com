@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useManifest, ManifestData, SmartStartCalcData } from "./useManifest";
 import { useActivityLog, ActivityLogEntry } from "./useActivityLog";
 import { LUX_TIERS } from "@/lib/sun-calc";
@@ -1686,6 +1686,15 @@ export default function LogicMap({ siteId, timezone }: LogicMapProps) {
     }
   }, [siteId, selectedDate, refetch]);
 
+  // Auto-generate manifest when none exists for the selected date
+  const autoGenTriggered = useRef<string | null>(null);
+  useEffect(() => {
+    if (!loading && !error && !data && !generating && autoGenTriggered.current !== selectedDate) {
+      autoGenTriggered.current = selectedDate;
+      generateManifest();
+    }
+  }, [loading, error, data, generating, selectedDate, generateManifest]);
+
   // Split activity entries into morning (before noon) and evening (noon onward)
   const morningAnnotations = useMemo(() => {
     return activityEntries.filter((e) => {
@@ -1964,22 +1973,27 @@ export default function LogicMap({ siteId, timezone }: LogicMapProps) {
         </div>
       )}
 
-      {/* No manifest */}
+      {/* No manifest — auto-generating */}
       {!loading && !error && !data && (
         <div className="py-12 text-center">
-          <p className="text-gray-500">
-            No manifest found for {formatDateLabel(selectedDate)}.
-          </p>
-          <p className="text-xs text-gray-400 mt-1">
-            Has the daily schedule been pushed? Manifests are generated automatically at midnight.
-          </p>
-          <button
-            className="mt-3 px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 font-medium disabled:opacity-50"
-            onClick={generateManifest}
-            disabled={generating}
-          >
-            {generating ? "Generating..." : "Generate Now"}
-          </button>
+          {generating ? (
+            <>
+              <p className="text-gray-500">Generating manifest for {formatDateLabel(selectedDate)}...</p>
+              <p className="text-xs text-gray-400 mt-1 animate-pulse">Building schedule, weather, and equipment logic</p>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-500">
+                No manifest found for {formatDateLabel(selectedDate)}.
+              </p>
+              <button
+                className="mt-3 px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 font-medium"
+                onClick={generateManifest}
+              >
+                Generate Now
+              </button>
+            </>
+          )}
         </div>
       )}
 

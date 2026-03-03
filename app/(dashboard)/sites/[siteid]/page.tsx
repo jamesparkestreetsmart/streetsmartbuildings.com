@@ -1,5 +1,4 @@
 import { createServerClient } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import TabClientWrapper from "./tab-client-wrapper";
@@ -117,38 +116,31 @@ export default async function SitePage(props: any) {
     infrastructureEquipment = data || [];
   }
 
-  // Weather from latest log_weathers entry (populated every ~5 min by HA push cycle)
+  // Weather — fetch live from Open-Meteo using site lat/lng
   let weatherText: string | null = null;
   let weatherLux: number | null = null;
-  if (!isInventorySite) {
-    const svcSupabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-
-    const { data: w } = await svcSupabase
-      .from("log_weathers")
-      .select("temperature, feels_like, wind_speed, cloud_cover, lux_estimate, sun_elevation, recorded_at")
-      .eq("site_id", id)
-      .order("recorded_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (w?.temperature != null) {
-      const sunEl = w.sun_elevation ?? 0;
-      const cloud = w.cloud_cover ?? 0;
-      const lux = w.lux_estimate ?? 0;
-      weatherLux = lux;
-      const icon = getWeatherIcon(sunEl, cloud, lux);
-      const parts = [`${Math.round(w.temperature)}°F`];
-      if (w.feels_like != null) {
-        parts.push(`Feels ${Math.round(w.feels_like)}°F`);
+  if (!isInventorySite && site.latitude != null && site.longitude != null) {
+    try {
+      const { fetchWeather } = await import("@/lib/weather");
+      const w = await fetchWeather(site.latitude, site.longitude);
+      if (w?.temperature != null) {
+        const sunEl = w.sun_elevation ?? 0;
+        const cloud = w.cloud_cover ?? 0;
+        const lux = w.lux_estimate ?? 0;
+        weatherLux = lux;
+        const icon = getWeatherIcon(sunEl, cloud, lux);
+        const parts = [`${Math.round(w.temperature)}°F`];
+        if (w.feels_like != null) {
+          parts.push(`Feels ${Math.round(w.feels_like)}°F`);
+        }
+        if (w.wind_speed != null) {
+          parts.push(`Wind ${Math.round(w.wind_speed)} mph`);
+        }
+        parts.push(formatLux(lux));
+        weatherText = `${icon} ${parts.join(" · ")}`;
       }
-      if (w.wind_speed != null) {
-        parts.push(`Wind ${Math.round(w.wind_speed)} mph`);
-      }
-      parts.push(formatLux(lux));
-      weatherText = `${icon} ${parts.join(" · ")}`;
+    } catch (err) {
+      console.error("[site-page] Weather fetch failed:", err);
     }
   }
 

@@ -45,15 +45,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Filter: show actual events (with exception_id) from this year/last year
-  // OR show base hours (no exception_id) only from last 7 days
+  // Filter: show actual events (with event_id) from this year/last year
+  // OR show base hours (no event_id) only from last 7 days
   const filtered = (data ?? []).filter((row: any) => {
-    // Check for truthy exception_id (handles both null and undefined)
-    const hasException = !!row.exception_id;
+    const isEvent = !!row.event_id;
     const isWithin7Days = row.manifest_date >= sevenDaysAgoStr;
 
     // Keep if it's an actual event OR if it's base hours within last 7 days
-    return hasException || isWithin7Days;
+    return isEvent || isWithin7Days;
   });
 
   return NextResponse.json({ rows: filtered });

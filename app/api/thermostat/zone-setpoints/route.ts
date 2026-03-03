@@ -138,9 +138,22 @@ export async function PATCH(req: NextRequest) {
     const ALL_SETTABLE_FIELDS = [...SETPOINT_VALUE_FIELDS, ...MODE_ONLY_FIELDS];
 
     if ("profile_id" in fields && !fields.is_override) {
-      // Switching to a profile — clear override
+      // Switching to a profile — clear override and sync zone columns to profile values
       update.profile_id = fields.profile_id;
       update.is_override = false;
+
+      // Fetch profile setpoints and sync to zone columns so they never drift
+      const { data: prof } = await supabase
+        .from("b_thermostat_profiles")
+        .select("occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes")
+        .eq("profile_id", fields.profile_id)
+        .single();
+
+      if (prof) {
+        for (const [key, val] of Object.entries(prof)) {
+          if (val != null) update[key] = val;
+        }
+      }
     } else if (ALL_SETTABLE_FIELDS.some((f) => f in fields)) {
       // Copy all provided fields to update
       for (const f of ALL_SETTABLE_FIELDS) {

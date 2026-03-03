@@ -990,10 +990,45 @@ export async function executePushForSite(
 
     const pushResult = await pushThermostatState(config, desired, current, guardrails);
 
-    // Update b_thermostat_state with directive info
-    const directiveText = pushResult.pushed
-      ? `Pushed ${desired.hvac_mode} ${desired.hvac_mode === "heat" ? desired.heat_setpoint_f : desired.hvac_mode === "cool" ? desired.cool_setpoint_f : `${desired.heat_setpoint_f}-${desired.cool_setpoint_f}`}°F (${phase}, profile: ${resolved.profile_name || resolved.source})`
-      : thermoState?.eagle_eye_directive || "No push needed";
+    // Update b_thermostat_state with directive — always recalculate from current state
+    const zoneTemp = thermoState?.current_temperature_f ?? current.current_temperature_f;
+    const curAction = thermoState?.hvac_action || null;
+    let directiveText: string;
+    if (zoneTemp != null) {
+      const mode = desired.hvac_mode;
+      const heatSp = desired.heat_setpoint_f;
+      const coolSp = desired.cool_setpoint_f;
+      if (mode === "off") {
+        directiveText = `Off (${phase})`;
+      } else if (mode === "heat") {
+        directiveText = zoneTemp >= heatSp + 1
+          ? `Idle — zone ${zoneTemp}°F above setpoint ${heatSp}°F (${phase})`
+          : zoneTemp <= heatSp - 1
+          ? `Heating to ${heatSp}°F — zone at ${zoneTemp}°F (${phase})`
+          : `At setpoint ${heatSp}°F — zone at ${zoneTemp}°F (${phase})`;
+      } else if (mode === "cool") {
+        directiveText = zoneTemp <= coolSp - 1
+          ? `Idle — zone ${zoneTemp}°F below setpoint ${coolSp}°F (${phase})`
+          : zoneTemp >= coolSp + 1
+          ? `Cooling to ${coolSp}°F — zone at ${zoneTemp}°F (${phase})`
+          : `At setpoint ${coolSp}°F — zone at ${zoneTemp}°F (${phase})`;
+      } else {
+        // heat_cool / auto
+        if (zoneTemp <= heatSp - 1) {
+          directiveText = `Heating to ${heatSp}°F — zone at ${zoneTemp}°F (${phase})`;
+        } else if (zoneTemp >= coolSp + 1) {
+          directiveText = `Cooling to ${coolSp}°F — zone at ${zoneTemp}°F (${phase})`;
+        } else {
+          directiveText = `Idle — zone ${zoneTemp}°F in range ${heatSp}–${coolSp}°F (${phase})`;
+        }
+      }
+      // Append profile info
+      directiveText += `, profile: ${resolved.profile_name || resolved.source}`;
+    } else {
+      directiveText = pushResult.pushed
+        ? `Pushed ${desired.hvac_mode} ${desired.heat_setpoint_f}–${desired.cool_setpoint_f}°F (${phase})`
+        : "No zone temp available";
+    }
 
     if (climateEntityId) {
       const stateUpdate: Record<string, any> = {
