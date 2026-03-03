@@ -675,39 +675,69 @@ export async function POST(req: NextRequest) {
             if (p) profileGuardrails = p;
           }
 
-          const maxRaise =
-            zone.manager_offset_up_f ??
-            profileGuardrails.manager_offset_up_f ??
-            4;
-          const maxLower =
-            zone.manager_offset_down_f ??
-            profileGuardrails.manager_offset_down_f ??
-            4;
-          const resetMinutes =
-            zone.manager_override_reset_minutes ??
-            profileGuardrails.manager_override_reset_minutes ??
-            120;
-
-          // Expected = last pushed (profile + all adjustments at push time)
-          const expected = ts.last_pushed_heat_f;
-          const managerAdj =
-            Math.round((refHeat - expected) * 10) / 10;
-
-          // Load site info (cached) for HA credentials and logging
+          // ── Load site info (cached) for occupancy check and HA credentials ──
           if (!cachedSiteHA) {
             const { data: s } = await svcSupabase
               .from("a_sites")
               .select("ha_url, ha_token, timezone, org_id")
               .eq("site_id", site_id)
               .single();
-            cachedSiteHA = s || {
-              ha_url: null,
-              ha_token: null,
-              timezone: null,
-              org_id: null,
-            };
+            cachedSiteHA = s || { ha_url: null, ha_token: null, timezone: null, org_id: null };
           }
           const siteInfo = cachedSiteHA;
+
+          // ── Determine occupancy phase from store hours ──
+          const overrideTz = siteInfo?.timezone || "America/Chicago";
+          const overrideNow = new Date().toLocaleString("en-US", { timeZone: overrideTz });
+          const overrideDate = new Date(overrideNow);
+          const overrideMins = overrideDate.getHours() * 60 + overrideDate.getMinutes();
+          const overrideDateStr = new Date().toLocaleDateString("en-CA", { timeZone: overrideTz });
+          const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+          const [oy, om, od] = overrideDateStr.split("-").map(Number);
+          const overrideDow = dayNames[new Date(oy, om - 1, od).getDay()];
+
+          const { data: overrideBaseHours } = await svcSupabase
+            .from("b_store_hours")
+            .select("open_time, close_time, is_closed")
+            .eq("site_id", site_id)
+            .eq("day_of_week", overrideDow)
+            .single();
+
+          let overrideOpen: number | null = null;
+          let overrideClose: number | null = null;
+          let overrideClosed = overrideBaseHours?.is_closed || false;
+          if (overrideBaseHours?.open_time) {
+            const p = overrideBaseHours.open_time.split(":");
+            overrideOpen = parseInt(p[0]) * 60 + parseInt(p[1]);
+          }
+          if (overrideBaseHours?.close_time) {
+            const p = overrideBaseHours.close_time.split(":");
+            overrideClose = parseInt(p[0]) * 60 + parseInt(p[1]);
+          }
+          const isOccupiedNow = !overrideClosed && overrideOpen !== null && overrideClose !== null
+            && overrideMins >= overrideOpen && overrideMins < overrideClose;
+
+          // During occupied hours, use profile guardrails. During unoccupied, allow ±15°F.
+          const maxRaise = isOccupiedNow
+            ? (zone.manager_offset_up_f ?? profileGuardrails.manager_offset_up_f ?? 4)
+            : 15;
+          const maxLower = isOccupiedNow
+            ? (zone.manager_offset_down_f ?? profileGuardrails.manager_offset_down_f ?? 4)
+            : 15;
+          let resetMinutes =
+            zone.manager_override_reset_minutes ??
+            profileGuardrails.manager_override_reset_minutes ??
+            120;
+
+          if (!isOccupiedNow) {
+            resetMinutes = Math.min(15, resetMinutes);
+            console.log(`[entity-sync] Unoccupied override on ${ce.entity_id} — capping to ${resetMinutes}m`);
+          }
+
+          // Expected = last pushed (profile + all adjustments at push time)
+          const expected = ts.last_pushed_heat_f;
+          const managerAdj =
+            Math.round((refHeat - expected) * 10) / 10;
 
           const localDate = new Date().toLocaleDateString("en-CA", {
             timeZone: siteInfo?.timezone || "America/Chicago",
@@ -844,6 +874,33 @@ export async function POST(req: NextRequest) {
             // Set cooldown so echo from bounce-back push is ignored
             overrideUpdate.last_pushed_at = new Date().toISOString();
           }
+
+          // ── Recalculate Eagle Eye directive against new setpoint ──
+          // Use zone temp vs active setpoint with ±1°F tolerance to prevent rapid switching
+          const zoneTemp = ts.current_temperature_f;
+          const hvacMode = ts.hvac_mode || "heat_cool";
+          let newDirective: string | null = null;
+          if (zoneTemp != null) {
+            if (hvacMode === "heat" || hvacMode === "heat_cool") {
+              if (zoneTemp >= finalHeat + 1) {
+                newDirective = `Idle — zone ${zoneTemp}°F above setpoint ${finalHeat}°F (${isOccupiedNow ? "occupied" : "unoccupied"}, manager override)`;
+              } else if (zoneTemp <= finalHeat - 1) {
+                newDirective = `Heating to ${finalHeat}°F — zone at ${zoneTemp}°F (${isOccupiedNow ? "occupied" : "unoccupied"}, manager override)`;
+              }
+            }
+            if (hvacMode === "cool" || hvacMode === "heat_cool") {
+              if (finalCool != null && zoneTemp <= finalCool - 1) {
+                newDirective = `Idle — zone ${zoneTemp}°F below setpoint ${finalCool}°F (${isOccupiedNow ? "occupied" : "unoccupied"}, manager override)`;
+              } else if (finalCool != null && zoneTemp >= finalCool + 1) {
+                newDirective = `Cooling to ${finalCool}°F — zone at ${zoneTemp}°F (${isOccupiedNow ? "occupied" : "unoccupied"}, manager override)`;
+              }
+            }
+          }
+          if (!newDirective) {
+            newDirective = `Manager override: ${finalHeat}°–${finalCool ?? "?"}°F (${isOccupiedNow ? "occupied" : "unoccupied"}, ${resetMinutes}m)`;
+          }
+          overrideUpdate.eagle_eye_directive = newDirective;
+          overrideUpdate.directive_generated_at = new Date().toISOString();
 
           await svcSupabase
             .from("b_thermostat_state")

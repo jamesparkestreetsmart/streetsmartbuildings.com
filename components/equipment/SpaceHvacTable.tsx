@@ -219,7 +219,21 @@ export default function SpaceHvacTable({ siteId }: Props) {
       console.error("[SpaceHvacTable] Log query error:", logError);
     }
 
-    const logRows = (logData || []) as LogRow[];
+    const rawLogRows = (logData || []) as LogRow[];
+
+    // Deduplicate: when multiple rows share the same zone + recorded_at timestamp,
+    // keep only the one with the highest id (most recent write). This prevents
+    // duplicate rows when entity-sync writes an immediate snapshot and the cron
+    // logger also writes for the same interval.
+    const dedupMap = new Map<string, LogRow>();
+    for (const row of rawLogRows) {
+      const key = `${row.hvac_zone_id}__${row.recorded_at}`;
+      const existing = dedupMap.get(key);
+      if (!existing || row.id > existing.id) {
+        dedupMap.set(key, row);
+      }
+    }
+    const logRows = Array.from(dedupMap.values());
 
     // Group by zone
     const logByZone: Record<string, LogRow[]> = {};

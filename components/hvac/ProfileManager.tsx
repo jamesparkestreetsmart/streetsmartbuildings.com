@@ -288,6 +288,41 @@ function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, saveLabel
         </p>
       </div>
 
+      {/* MANAGER OVERRIDE — UNOCCUPIED / CLOSED (read-only) */}
+      <div className="border rounded-lg p-4 bg-gray-50/50 opacity-75">
+        <h4 className="font-semibold text-gray-500 mb-3 text-sm uppercase tracking-wide flex items-center gap-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" /></svg>
+          Manager Override (unoccupied / closed hours)
+        </h4>
+        <div className="grid grid-cols-2 gap-4 mb-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Max raise</label>
+            <div className="flex items-center opacity-50">
+              <span className="text-sm text-gray-500 mr-1">+</span>
+              <input type="number" value={15} readOnly tabIndex={-1} className="w-full border rounded px-2 py-1.5 text-sm bg-gray-100 cursor-not-allowed" />
+              <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Max lower</label>
+            <div className="flex items-center opacity-50">
+              <span className="text-sm text-gray-500 mr-1">&minus;</span>
+              <input type="number" value={15} readOnly tabIndex={-1} className="w-full border rounded px-2 py-1.5 text-sm bg-gray-100 cursor-not-allowed" />
+              <span className="ml-1 text-xs text-gray-400">&deg;F</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-2">Reset after</label>
+          <div className="flex gap-1 opacity-50">
+            <span className="px-3 py-1.5 text-sm rounded-lg border bg-gray-500 text-white border-gray-500 cursor-not-allowed">15 min</span>
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mt-3 italic">
+          During closed hours, manager overrides are capped at 15 minutes by Eagle Eyes to prevent energy waste overnight.
+        </p>
+      </div>
+
       {/* SETPOINT ADJUSTMENTS */}
       <div className="border rounded-lg p-4 bg-indigo-50/30">
         <h4 className="font-semibold text-indigo-700 mb-3 text-sm uppercase tracking-wide">Setpoint Adjustments</h4>

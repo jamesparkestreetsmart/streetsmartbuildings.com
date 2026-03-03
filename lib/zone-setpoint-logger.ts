@@ -1160,7 +1160,7 @@ export async function logZoneSetpointSnapshot(
     const { data: tStates } = await supabase
       .from("b_thermostat_state")
       .select(
-        "entity_id, ha_device_id, current_temperature_f, current_humidity, current_setpoint_f, target_temp_high_f, target_temp_low_f, fan_mode, hvac_action, last_synced_at, manager_override_active, manager_override_started_at, manager_override_remaining_min"
+        "entity_id, ha_device_id, current_temperature_f, current_humidity, current_setpoint_f, target_temp_high_f, target_temp_low_f, fan_mode, hvac_action, last_synced_at, manager_override_active, manager_override_started_at, manager_override_remaining_min, manager_override_heat_f, manager_override_cool_f"
       )
       .eq("site_id", siteId);
 
@@ -1281,8 +1281,9 @@ export async function logZoneSetpointSnapshot(
       if (tState && haActualHeat != null) {
         const expectedHeat = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj;
         const rawOffset = Math.round((haActualHeat - expectedHeat) * 10) / 10;
-        // Clamp to ±4
-        managerAdj = Math.max(-4, Math.min(4, rawOffset));
+        // Clamp: ±profile limit during occupied, ±15 during unoccupied
+        const clampLimit = phaseInfo.phase === "occupied" ? 4 : 15;
+        managerAdj = Math.max(-clampLimit, Math.min(clampLimit, rawOffset));
         // Zero out if very small (rounding noise from HA)
         if (Math.abs(managerAdj) < 0.5) managerAdj = 0;
         console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id} managerAdj: HA_actual_heat=${haActualHeat} expected=${expectedHeat} rawOffset=${rawOffset} managerAdj=${managerAdj}`);
@@ -1290,7 +1291,9 @@ export async function logZoneSetpointSnapshot(
 
       // ── Override state tracking on b_thermostat_state ──
       const climateEntityId = haDeviceId ? climateEntityByHaDevice[haDeviceId] : null;
-      const overrideResetMinutes = zone.manager_override_reset_minutes ?? 120;
+      // Cap override to 30 minutes during unoccupied hours
+      const baseOverrideMinutes = zone.manager_override_reset_minutes ?? 120;
+      const overrideResetMinutes = phaseInfo.phase === "occupied" ? baseOverrideMinutes : Math.min(15, baseOverrideMinutes);
 
       if (climateEntityId) {
         if (managerAdj !== 0 && !tState?.manager_override_active) {
@@ -1323,12 +1326,24 @@ export async function logZoneSetpointSnapshot(
       }
 
       // ── Compute final active setpoints ──
-      // active_heat_f / active_cool_f = what the thermostat is ACTUALLY set to
-      // If HA actual is available, use it directly. Otherwise fall back to calculated.
+      // Priority order:
+      // 1. If manager_override_active → use override temps from b_thermostat_state
+      // 2. Else if current_setpoint_f is not null → use HA actual temps
+      // 3. Else → fall back to calculated (profile + adjustments)
       const expectedHeatTotal = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
       const expectedCoolTotal = profileCool + feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
-      const activeHeat = haActualHeat ?? expectedHeatTotal;
-      const activeCool = haActualCool ?? expectedCoolTotal;
+      let activeHeat: number;
+      let activeCool: number;
+      if (tState?.manager_override_active && tState?.manager_override_heat_f != null) {
+        activeHeat = tState.manager_override_heat_f;
+        activeCool = tState.manager_override_cool_f ?? haActualCool ?? expectedCoolTotal;
+      } else if (haActualHeat != null) {
+        activeHeat = haActualHeat;
+        activeCool = haActualCool ?? expectedCoolTotal;
+      } else {
+        activeHeat = expectedHeatTotal;
+        activeCool = expectedCoolTotal;
+      }
 
       // ── Equipment sensors ──
       const equipSensors = await getEquipmentSensors(supabase, siteId, zone.equipment_id);

@@ -652,7 +652,9 @@ export async function executePushForSite(
     }
 
     // ── Manager Override: Check before computing/pushing ──
-    const overrideResetMinutes = resolved.manager_override_reset_minutes ?? 120;
+    // Cap override to 30 minutes during unoccupied hours
+    const baseOverrideMinutes = resolved.manager_override_reset_minutes ?? 120;
+    const overrideResetMinutes = isOccupied ? baseOverrideMinutes : Math.min(15, baseOverrideMinutes);
     const isOverrideActive = thermoState?.manager_override_active === true;
 
     if (isOverrideActive) {
@@ -677,12 +679,39 @@ export async function executePushForSite(
           .eq("site_id", siteId);
         // Continue to push the profile setpoint
       } else {
-        // Override still active — skip push
+        // Override still active — skip push, recalculate directive
         console.log(`[ha-push] Zone "${zone.name}": Skipping push — manager override active (${remaining}m remaining)`);
+        const activeOverrideHeat = thermoState?.manager_override_heat_f;
+        const activeOverrideCool = thermoState?.manager_override_cool_f;
+        const overrideZoneTemp = thermoState?.current_temperature_f;
+        const overrideMode = thermoState?.hvac_mode || "heat_cool";
+        let holdDirective: string | null = null;
+        if (overrideZoneTemp != null && activeOverrideHeat != null) {
+          if (overrideMode === "heat" || overrideMode === "heat_cool") {
+            if (overrideZoneTemp >= activeOverrideHeat + 1) {
+              holdDirective = `Idle — zone ${overrideZoneTemp}°F above setpoint ${activeOverrideHeat}°F (${phase}, manager override, ${remaining}m left)`;
+            } else if (overrideZoneTemp <= activeOverrideHeat - 1) {
+              holdDirective = `Heating to ${activeOverrideHeat}°F — zone at ${overrideZoneTemp}°F (${phase}, manager override, ${remaining}m left)`;
+            }
+          }
+          if (overrideMode === "cool" || overrideMode === "heat_cool") {
+            if (activeOverrideCool != null && overrideZoneTemp <= activeOverrideCool - 1) {
+              holdDirective = `Idle — zone ${overrideZoneTemp}°F below setpoint ${activeOverrideCool}°F (${phase}, manager override, ${remaining}m left)`;
+            } else if (activeOverrideCool != null && overrideZoneTemp >= activeOverrideCool + 1) {
+              holdDirective = `Cooling to ${activeOverrideCool}°F — zone at ${overrideZoneTemp}°F (${phase}, manager override, ${remaining}m left)`;
+            }
+          }
+        }
+        if (!holdDirective) {
+          holdDirective = `Manager override active: ${activeOverrideHeat ?? "?"}°–${activeOverrideCool ?? "?"}°F (${phase}, ${remaining}m left)`;
+        }
+
         await supabase
           .from("b_thermostat_state")
           .update({
             manager_override_remaining_min: remaining,
+            eagle_eye_directive: holdDirective,
+            directive_generated_at: new Date().toISOString(),
           })
           .eq("entity_id", climateEntityId)
           .eq("site_id", siteId);
@@ -706,8 +735,9 @@ export async function executePushForSite(
         // Manager changed the thermostat at the wall
         let haActualCool = thermoState.target_temp_high_f ?? null;
         const managerAdj = Math.round((haActualHeat - lastPushedHeat) * 10) / 10;
-        const maxRaise = resolved.manager_offset_up_f ?? 4;
-        const maxLower = resolved.manager_offset_down_f ?? 4;
+        // During occupied hours, use profile guardrails. During unoccupied, allow ±15°F.
+        const maxRaise = isOccupied ? (resolved.manager_offset_up_f ?? 4) : 15;
+        const maxLower = isOccupied ? (resolved.manager_offset_down_f ?? 4) : 15;
 
         console.log(`[ha-push] Zone "${zone.name}": Manager override detected! HA actual=${haActualHeat}°F vs last pushed=${lastPushedHeat}°F (adj=${managerAdj > 0 ? "+" : ""}${managerAdj}°F, guardrails: +${maxRaise}/-${maxLower})`);
 
@@ -807,7 +837,7 @@ export async function executePushForSite(
           }
         }
 
-        // Update b_thermostat_state with override info
+        // Update b_thermostat_state with override info + recalculated directive
         const overrideUpdate: Record<string, any> = {
           manager_override_active: true,
           manager_override_heat_f: finalHeat,
@@ -820,6 +850,33 @@ export async function executePushForSite(
         if (bounced) {
           overrideUpdate.last_pushed_at = new Date().toISOString();
         }
+
+        // Recalculate Eagle Eye directive against new override setpoint
+        // Use ±1°F tolerance to prevent rapid switching
+        const zoneTemp = thermoState?.current_temperature_f;
+        const curMode = thermoState?.hvac_mode || "heat_cool";
+        let overrideDirective: string | null = null;
+        if (zoneTemp != null) {
+          if (curMode === "heat" || curMode === "heat_cool") {
+            if (zoneTemp >= finalHeat + 1) {
+              overrideDirective = `Idle — zone ${zoneTemp}°F above setpoint ${finalHeat}°F (${phase}, manager override)`;
+            } else if (zoneTemp <= finalHeat - 1) {
+              overrideDirective = `Heating to ${finalHeat}°F — zone at ${zoneTemp}°F (${phase}, manager override)`;
+            }
+          }
+          if (curMode === "cool" || curMode === "heat_cool") {
+            if (haActualCool != null && zoneTemp <= haActualCool - 1) {
+              overrideDirective = `Idle — zone ${zoneTemp}°F below setpoint ${haActualCool}°F (${phase}, manager override)`;
+            } else if (haActualCool != null && zoneTemp >= haActualCool + 1) {
+              overrideDirective = `Cooling to ${haActualCool}°F — zone at ${zoneTemp}°F (${phase}, manager override)`;
+            }
+          }
+        }
+        if (!overrideDirective) {
+          overrideDirective = `Manager override: ${finalHeat}°–${haActualCool ?? "?"}°F (${phase}, ${overrideResetMinutes}m)`;
+        }
+        overrideUpdate.eagle_eye_directive = overrideDirective;
+        overrideUpdate.directive_generated_at = new Date().toISOString();
 
         await supabase
           .from("b_thermostat_state")
