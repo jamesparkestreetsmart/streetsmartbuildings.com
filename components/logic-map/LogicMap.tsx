@@ -821,8 +821,7 @@ function activityIcon(eventType: string, metadata?: any): string {
 
 function formatCreatedBy(email: string): string {
   if (!email) return "";
-  const atIdx = email.indexOf("@");
-  return atIdx > 0 ? email.substring(0, atIdx) : email;
+  return email;
 }
 
 // Parse minutes-from-midnight from an ISO timestamp using site timezone
