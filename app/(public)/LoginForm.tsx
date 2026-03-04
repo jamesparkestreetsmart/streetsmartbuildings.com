@@ -28,6 +28,10 @@ export default function LoginForm() {
         return;
       }
 
+      // Clear saved org so OrgContext uses default selection
+      // (service providers default to their root org)
+      sessionStorage.removeItem("selectedOrgId");
+
       // All users go to /live — OrgContext determines what they see
       router.push("/live");
     } catch (err) {
