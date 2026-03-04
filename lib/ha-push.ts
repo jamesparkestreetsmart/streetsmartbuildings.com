@@ -457,59 +457,106 @@ export async function executePushForSite(
   const currentMins = nowDate.getHours() * 60 + nowDate.getMinutes();
 
   const targetDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
-  const [y, m, d] = targetDate.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  const dayOfWeek = DAY_NAMES[dt.getDay()];
 
-  // Get base store hours
-  const { data: baseHours } = await supabase
-    .from("b_store_hours")
+  let openTime: string | null = null;
+  let closeTime: string | null = null;
+  let isClosed = false;
+  let hoursSource = "none";
+
+  // Step 1: Try b_store_hours_manifests for today (pre-computed, includes exceptions)
+  const { data: manifest } = await supabase
+    .from("b_store_hours_manifests")
     .select("open_time, close_time, is_closed")
     .eq("site_id", siteId)
-    .eq("day_of_week", dayOfWeek)
-    .single();
+    .eq("manifest_date", targetDate)
+    .maybeSingle();
 
-  let openTime: string | null = baseHours?.open_time || null;
-  let closeTime: string | null = baseHours?.close_time || null;
-  let isClosed: boolean = baseHours?.is_closed || false;
+  if (manifest) {
+    openTime = manifest.open_time || null;
+    closeTime = manifest.close_time || null;
+    isClosed = manifest.is_closed || false;
+    hoursSource = "manifest_today";
+  }
 
-  // Check exception events
-  const { data: events } = await supabase
-    .from("b_store_hours_events")
-    .select("event_id, rule_id, event_date")
-    .eq("site_id", siteId)
-    .eq("event_date", targetDate);
+  // Step 2: If no manifest for today, try same weekday last week
+  if (!manifest) {
+    const [y, m, d] = targetDate.split("-").map(Number);
+    const lastWeek = new Date(y, m - 1, d);
+    lastWeek.setDate(lastWeek.getDate() - 7);
+    const lastWeekDate = lastWeek.toISOString().slice(0, 10);
 
-  if (events && events.length > 0) {
-    const ruleId = events[0].rule_id;
-    const { data: rule } = await supabase
-      .from("b_store_hours_exception_rules")
-      .select("*")
-      .eq("rule_id", ruleId)
-      .single();
+    const { data: lastWeekManifest } = await supabase
+      .from("b_store_hours_manifests")
+      .select("open_time, close_time, is_closed")
+      .eq("site_id", siteId)
+      .eq("manifest_date", lastWeekDate)
+      .maybeSingle();
 
-    if (rule) {
-      if (rule.rule_type === "date_range_daily") {
-        if (targetDate === rule.effective_from_date) {
-          openTime = rule.start_day_open;
-          closeTime = rule.start_day_close;
-          isClosed = false;
-        } else if (targetDate === rule.effective_to_date) {
-          openTime = rule.end_day_open;
-          closeTime = rule.end_day_close;
-          isClosed = false;
-        } else {
-          openTime = rule.middle_days_open;
-          closeTime = rule.middle_days_close;
-          isClosed = rule.middle_days_closed || false;
-        }
-      } else {
-        isClosed = rule.is_closed ?? isClosed;
-        openTime = rule.is_closed ? null : (rule.open_time ?? openTime);
-        closeTime = rule.is_closed ? null : (rule.close_time ?? closeTime);
-      }
+    if (lastWeekManifest) {
+      openTime = lastWeekManifest.open_time || null;
+      closeTime = lastWeekManifest.close_time || null;
+      isClosed = lastWeekManifest.is_closed || false;
+      hoursSource = "manifest_last_week";
+
+      try {
+        await supabase.from("b_records_log").insert({
+          site_id: siteId,
+          org_id: site?.org_id || null,
+          event_type: "manifest_fallback",
+          event_date: targetDate,
+          message: `No manifest for ${targetDate}, used same weekday last week (${lastWeekDate})`,
+          source: "ha_push",
+          created_by: triggeredBy || "eagle_eyes",
+        });
+      } catch { /* best-effort logging */ }
     }
   }
+
+  // Step 3: If still no hours, fall back to raw b_store_hours
+  if (hoursSource === "none") {
+    const [y, m, d] = targetDate.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    const dayOfWeek = DAY_NAMES[dt.getDay()];
+
+    const { data: baseHours } = await supabase
+      .from("b_store_hours")
+      .select("open_time, close_time, is_closed")
+      .eq("site_id", siteId)
+      .eq("day_of_week", dayOfWeek)
+      .single();
+
+    if (baseHours) {
+      openTime = baseHours.open_time || null;
+      closeTime = baseHours.close_time || null;
+      isClosed = baseHours.is_closed || false;
+      hoursSource = "b_store_hours";
+    }
+
+    try {
+      await supabase.from("b_records_log").insert({
+        site_id: siteId,
+        org_id: site?.org_id || null,
+        event_type: "manifest_fallback",
+        event_date: targetDate,
+        message: `No manifest for ${targetDate} or last week, fell back to ${baseHours ? "b_store_hours" : "no hours found"}`,
+        source: "ha_push",
+        created_by: triggeredBy || "eagle_eyes",
+      });
+    } catch { /* best-effort logging */ }
+  }
+
+  // Log which source resolved
+  try {
+    await supabase.from("b_records_log").insert({
+      site_id: siteId,
+      org_id: site?.org_id || null,
+      event_type: "manifest_found",
+      event_date: targetDate,
+      message: `Hours source: ${hoursSource} (open: ${openTime}, close: ${closeTime}, closed: ${isClosed})`,
+      source: "ha_push",
+      created_by: triggeredBy || "eagle_eyes",
+    });
+  } catch { /* best-effort logging */ }
 
   const openMins = timeToMinutes(openTime);
   const closeMins = timeToMinutes(closeTime);
@@ -521,7 +568,36 @@ export async function executePushForSite(
     currentMins < closeMins;
 
   const phase = isOccupied ? "occupied" : "unoccupied";
-  console.log(`[ha-push] Phase: ${phase} (time: ${currentMins}min, open: ${openMins}, close: ${closeMins}, closed: ${isClosed})`);
+  console.log(`[ha-push] Phase: ${phase} (time: ${currentMins}min, open: ${openMins}, close: ${closeMins}, closed: ${isClosed}, source: ${hoursSource})`);
+
+  // Log occupancy state changes (check last recorded phase for this site today)
+  try {
+    const { data: lastOccLog } = await supabase
+      .from("b_records_log")
+      .select("message")
+      .eq("site_id", siteId)
+      .eq("event_type", "occupancy_change")
+      .eq("event_date", targetDate)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const lastPhase = lastOccLog?.message?.includes("occupied →") ? "occupied"
+      : lastOccLog?.message?.includes("unoccupied →") ? "unoccupied"
+      : null;
+
+    if (lastPhase !== phase) {
+      await supabase.from("b_records_log").insert({
+        site_id: siteId,
+        org_id: site?.org_id || null,
+        event_type: "occupancy_change",
+        event_date: targetDate,
+        message: `${lastPhase || "unknown"} → ${phase} (open: ${openTime}, close: ${closeTime}, source: ${hoursSource})`,
+        source: "ha_push",
+        created_by: triggeredBy || "eagle_eyes",
+      });
+    }
+  } catch { /* best-effort logging */ }
 
   // Fetch smart start offsets for today
   const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
