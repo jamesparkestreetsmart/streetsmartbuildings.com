@@ -7,6 +7,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { useOrg } from "@/context/OrgContext";
 import { ArrowLeft, Cpu, Trash2, Edit3, Zap, Settings } from "lucide-react";
 import { useReturnTo } from "@/app/hooks/useReturnTo";
+import PairingSection from "@/components/devices/PairingSection";
+import CommissioningSection from "@/components/devices/CommissioningSection";
 
 interface DeviceRow {
   device_id: string;
@@ -28,6 +30,13 @@ interface DeviceRow {
   modbus_stop_bits: number | null;
   electrical_service_voltage: number | null;
   ha_device_id: string | null;
+  smartstart_dsk: string | null;
+  inclusion_pin: string | null;
+  pairing_status: string | null;
+  pairing_started_at: string | null;
+  paired_at: string | null;
+  pairing_error: string | null;
+  commissioned_at: string | null;
 
   site_id: string | null;
   equipment_id: string | null;
@@ -86,6 +95,7 @@ export default function DeviceDetailPageClient({
 
   const [showEdit, setShowEdit] = useState(false);
   const [editData, setEditData] = useState<Record<string, any>>({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   /* ---- Load device + related data ---- */
   const loadData = async () => {
@@ -223,6 +233,8 @@ export default function DeviceDetailPageClient({
       modbus_parity: device.modbus_parity ?? "E",
       modbus_stop_bits: device.modbus_stop_bits ?? 1,
       electrical_service_voltage: device.electrical_service_voltage ?? "",
+      smartstart_dsk: device.smartstart_dsk || "",
+      inclusion_pin: device.inclusion_pin || "",
     });
     setShowEdit(true);
   };
@@ -241,6 +253,8 @@ export default function DeviceDetailPageClient({
       service_notes: editData.service_notes || null,
       site_id: editData.site_id || null,
       equipment_id: editData.equipment_id || null,
+      smartstart_dsk: editData.smartstart_dsk || null,
+      inclusion_pin: editData.inclusion_pin || null,
     };
 
     // Include energy meter fields if applicable
@@ -270,7 +284,6 @@ export default function DeviceDetailPageClient({
 
   const deleteDevice = async () => {
     if (!device) return;
-    if (!confirm("Delete device?")) return;
     await supabase
       .from("a_devices")
       .delete()
@@ -393,12 +406,30 @@ export default function DeviceDetailPageClient({
             >
               Retire
             </button>
-            <button
-              onClick={deleteDevice}
-              className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700"
-            >
-              <Trash2 className="w-4 h-4 inline mr-1" /> Delete
-            </button>
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                <Trash2 className="w-4 h-4 inline mr-1" /> Delete
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-red-600">Are you sure?</span>
+                <button
+                  onClick={deleteDevice}
+                  className="px-3 py-1.5 text-sm bg-red-700 text-white rounded-md"
+                >
+                  Yes, Delete
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -595,6 +626,26 @@ export default function DeviceDetailPageClient({
         )}
       </div>
 
+      {/* Z-WAVE PAIRING */}
+      {device.site_id && (device.smartstart_dsk || device.inclusion_pin || (device.protocol || "").toLowerCase().includes("wave")) && (
+        <PairingSection
+          deviceId={device.device_id}
+          siteId={device.site_id}
+          pairingStatus={device.pairing_status || "unpaired"}
+          smartstartDsk={device.smartstart_dsk}
+          inclusionPin={device.inclusion_pin}
+          pairedAt={device.paired_at}
+          pairingError={device.pairing_error}
+          onStatusChange={loadData}
+        />
+      )}
+
+      {/* COMMISSIONING EVIDENCE */}
+      <CommissioningSection
+        deviceId={device.device_id}
+        commissionedAt={device.commissioned_at}
+      />
+
       {/* EDIT MODAL */}
       {showEdit && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -640,6 +691,43 @@ export default function DeviceDetailPageClient({
                   <option value="retired">Retired</option>
                 </select>
               </div>
+
+              {/* Z-Wave fields */}
+              {(editData.protocol || "").toLowerCase().includes("wave") && (
+                <>
+                  <hr className="my-3" />
+                  <p className="text-xs font-semibold text-purple-700 uppercase">
+                    Z-Wave Pairing
+                  </p>
+                  <div>
+                    <label className="block mb-1">DSK / QR Code</label>
+                    <textarea
+                      className="w-full border rounded-md p-2 font-mono text-sm"
+                      rows={2}
+                      value={editData.smartstart_dsk || ""}
+                      onChange={(e) =>
+                        setEditData({ ...editData, smartstart_dsk: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1">5-Digit Inclusion PIN</label>
+                    <input
+                      type="text"
+                      maxLength={5}
+                      inputMode="numeric"
+                      className="w-32 border rounded-md p-2 font-mono text-center tracking-widest"
+                      value={editData.inclusion_pin || ""}
+                      onChange={(e) =>
+                        setEditData({
+                          ...editData,
+                          inclusion_pin: e.target.value.replace(/\D/g, "").slice(0, 5),
+                        })
+                      }
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Energy meter specific fields */}
               {isEnergyMeter && (

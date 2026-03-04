@@ -99,6 +99,8 @@ export default function AddDeviceForm({
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [selectedLibraryId, setSelectedLibraryId] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Energy meter specific fields
   const [phaseConfiguration, setPhaseConfiguration] = useState<string>("");
@@ -229,27 +231,34 @@ export default function AddDeviceForm({
   /* =========================
      SAVE DEVICE
   ========================= */
+  const isZwave = (newDevice.protocol || "").toLowerCase().includes("wave");
+
   const handleSave = async () => {
+    const newErrors: Record<string, string> = {};
+
     if (!selectedOrgId) {
-      alert("Please select an organization first.");
-      return;
+      newErrors.org = "Please select an organization first.";
     }
-
-    if (!newDevice.device_name || !newDevice.serial_number) {
-      alert("Device Name & Serial Number are required.");
-      return;
+    if (!newDevice.device_name) {
+      newErrors.device_name = "Device Name is required.";
     }
-
-    if (!newDevice.site_id || !newDevice.equipment_id) {
-      alert("Please select both a Site and Equipment.");
-      return;
+    if (!newDevice.site_id) {
+      newErrors.site_id = "Please select a Site.";
     }
-
+    if (!newDevice.equipment_id) {
+      newErrors.equipment_id = "Please select Equipment.";
+    }
     if (showPhaseConfig && !phaseConfiguration) {
-      alert("Please select a Phase Configuration for this meter.");
+      newErrors.phase = "Please select a Phase Configuration for this meter.";
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
 
+    setErrors({});
+    setSuccessMessage(null);
     setSaving(true);
 
     const lib = libraryOptions.find(
@@ -266,12 +275,18 @@ export default function AddDeviceForm({
       library_device_id: lib?.library_device_id ?? null,
       protocol: newDevice.protocol,
       connection_type: newDevice.connection_type,
-      serial_number: newDevice.serial_number,
+      serial_number: newDevice.serial_number || null,
       firmware_version: newDevice.firmware_version,
       ip_address: newDevice.ip_address || null,
       status: newDevice.status,
       device_role: lib?.device_role ?? null,
     };
+
+    // Add Z-Wave fields
+    if (isZwave) {
+      insertPayload.smartstart_dsk = newDevice.smartstart_dsk || null;
+      insertPayload.inclusion_pin = newDevice.inclusion_pin || null;
+    }
 
     // Add energy meter fields
     if (isEnergyMeter) {
@@ -294,16 +309,16 @@ export default function AddDeviceForm({
 
     if (deviceError) {
       console.error(deviceError);
-      alert("Failed to add device.");
+      setErrors({ save: "Failed to add device." });
       setSaving(false);
       return;
     }
 
     /* ---- Done — sensors are resolved at runtime from library_devices.default_sensors ---- */
     await fetchDevices();
-    setShowAdd(false);
-    alert("Device created successfully!");
+    setSuccessMessage("Device created successfully!");
     setSaving(false);
+    setTimeout(() => setShowAdd(false), 1200);
   };
 
   /* =========================
@@ -311,6 +326,22 @@ export default function AddDeviceForm({
   ========================= */
   return (
     <div className="space-y-4">
+      {/* INLINE ERRORS */}
+      {Object.keys(errors).length > 0 && (
+        <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 space-y-1">
+          {Object.values(errors).map((msg, i) => (
+            <p key={i} className="text-sm text-red-700">{msg}</p>
+          ))}
+        </div>
+      )}
+
+      {/* SUCCESS BANNER */}
+      {successMessage && (
+        <div className="rounded-md bg-green-50 border border-green-200 px-4 py-3">
+          <p className="text-sm text-green-700">{successMessage}</p>
+        </div>
+      )}
+
       {/* TEMPLATE */}
       <div>
         <label className="block text-sm font-medium mb-1">
@@ -334,7 +365,7 @@ export default function AddDeviceForm({
       {(
         [
           ["device_name", "Device Name"],
-          ["serial_number", "Serial Number"],
+          ["serial_number", "Serial Number (optional)"],
           ["protocol", "Protocol"],
           ["connection_type", "Connection Type"],
           ["firmware_version", "Firmware Version"],
@@ -356,6 +387,60 @@ export default function AddDeviceForm({
           />
         </div>
       ))}
+
+      {/* Z-WAVE FIELDS */}
+      {isZwave && (
+        <div className="border border-purple-200 bg-purple-50/30 rounded-lg p-4 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm font-semibold text-purple-800">
+              Z-Wave Pairing
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 text-gray-700">
+              DSK / QR Code
+            </label>
+            <textarea
+              className="w-full border rounded-md p-2 font-mono text-sm"
+              rows={2}
+              placeholder="e.g. 12345-67890-12345-67890-12345-67890-12345-67890"
+              value={newDevice.smartstart_dsk ?? ""}
+              onChange={(e) => {
+                const dsk = e.target.value;
+                setNewDevice((prev) => ({
+                  ...prev,
+                  smartstart_dsk: dsk,
+                  inclusion_pin: dsk.replace(/\D/g, "").slice(0, 5) || prev.inclusion_pin || "",
+                }));
+              }}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              SmartStart DSK from device label or QR code. First 5 digits auto-fill the PIN.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 text-gray-700">
+              5-Digit Inclusion PIN
+            </label>
+            <input
+              type="text"
+              maxLength={5}
+              inputMode="numeric"
+              className="w-32 border rounded-md p-2 font-mono text-center tracking-widest"
+              placeholder="00000"
+              value={newDevice.inclusion_pin ?? ""}
+              onChange={(e) =>
+                setNewDevice((prev) => ({
+                  ...prev,
+                  inclusion_pin: e.target.value.replace(/\D/g, "").slice(0, 5),
+                }))
+              }
+            />
+          </div>
+        </div>
+      )}
 
       {/* ================================
           PHASE CONFIGURATION (energy meters)

@@ -21,6 +21,8 @@ export default function AddDevicePage() {
     site_id: "",
     equipment_id: "",
     status: "active",
+    smartstart_dsk: "",
+    inclusion_pin: "",
   });
 
   return (

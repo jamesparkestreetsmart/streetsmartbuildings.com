@@ -73,7 +73,7 @@ function normalizeHaDeviceId(id: string | null | undefined): string | null {
 
 // ─── HA API helpers ───────────────────────────────────────────────────────────
 
-async function haFetch(
+export async function haFetch(
   url: string,
   token: string,
   options: RequestInit = {},

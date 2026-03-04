@@ -8,6 +8,10 @@ export interface NewDevice {
   site_id: string;
   equipment_id: string;
   status: string;
+  smartstart_dsk?: string;
+  inclusion_pin?: string;
 }
+
+export type PairingStatus = "unpaired" | "pairing" | "paired" | "failed";
 
 export {}; // <-- keep this line

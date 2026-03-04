@@ -83,12 +83,12 @@ interface ZoneInfo {
 
 interface ProfileInfo {
   profile_id: string;
-  profile_name: string;
+  name: string;
   occupied_hvac_mode: string;
-  occupied_heat_set_f: number | null;
-  occupied_cool_set_f: number | null;
-  unoccupied_heat_set_f: number | null;
-  unoccupied_cool_set_f: number | null;
+  occupied_heat_f: number | null;
+  occupied_cool_f: number | null;
+  unoccupied_heat_f: number | null;
+  unoccupied_cool_f: number | null;
   guardrail_min_f: number | null;
   guardrail_max_f: number | null;
 }
@@ -273,6 +273,7 @@ export default function ZoneDetailPage() {
           .from("view_hvac_zones_with_state")
           .select("smart_start_enabled, manager_override_active, manager_override_remaining_min")
           .eq("hvac_zone_id", zoneId)
+          .eq("site_id", siteId)
           .maybeSingle();
         if (vz) {
           zoneInfo.smart_start_enabled = vz.smart_start_enabled ?? false;
@@ -286,7 +287,7 @@ export default function ZoneDetailPage() {
       if (z?.profile_id) {
         const { data: p, error: pErr } = await supabase
           .from("b_thermostat_profiles")
-          .select("profile_id, profile_name, occupied_hvac_mode, occupied_heat_set_f, occupied_cool_set_f, unoccupied_heat_set_f, unoccupied_cool_set_f, guardrail_min_f, guardrail_max_f")
+          .select("profile_id, name, occupied_hvac_mode, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, guardrail_min_f, guardrail_max_f")
           .eq("profile_id", z.profile_id)
           .single();
         if (pErr) console.error("[ZoneDetail] Profile fetch error:", pErr);
@@ -311,21 +312,21 @@ export default function ZoneDetailPage() {
         if (e) setEquipName(e.equipment_name);
       }
 
-      // Temp source — check if zone has space sensors
+      // Temp source — match SpaceHvacTable logic: check spaces linked to this zone
+      // AND the zone ID itself (SpaceHvacTable uses zone ID as fallback space ID)
       try {
-        const { data: space } = await supabase
+        const { data: spaces } = await supabase
           .from("a_spaces")
           .select("space_id")
-          .eq("hvac_zone_id", zoneId)
-          .limit(1)
-          .maybeSingle();
-        if (space) {
-          const { count } = await supabase
-            .from("b_space_sensors")
-            .select("*", { count: "exact", head: true })
-            .eq("space_id", space.space_id);
-          if ((count ?? 0) > 0) setTempSource("Zone Avg");
-        }
+          .eq("site_id", siteId)
+          .eq("hvac_zone_id", zoneId);
+        const idsToCheck = (spaces || []).map((s: any) => s.space_id);
+        idsToCheck.push(zoneId); // fallback: zone ID used as space ID
+        const { data: sensors } = await supabase
+          .from("b_space_sensors")
+          .select("space_id")
+          .in("space_id", idsToCheck);
+        if (sensors && sensors.length > 0) setTempSource("Zone Avg");
       } catch (err) {
         console.error("[ZoneDetail] Temp source check error:", err);
       }
@@ -463,11 +464,11 @@ export default function ZoneDetailPage() {
             {profile && (
               <div className="mt-2 space-y-1">
                 <p className="text-white/90 text-sm">
-                  {profile.profile_name} {"\u00B7"} {friendlyMode(profile.occupied_hvac_mode)}
+                  {profile.name} {"\u00B7"} {friendlyMode(profile.occupied_hvac_mode)}
                 </p>
                 <p className="text-white/80 text-xs">
-                  Occupied: {profile.occupied_heat_set_f ?? "\u2014"}{"\u00B0"}{"\u2013"}{profile.occupied_cool_set_f ?? "\u2014"}{"\u00B0"}F
-                  {" | "}Unoccupied: {profile.unoccupied_heat_set_f ?? "\u2014"}{"\u00B0"}{"\u2013"}{profile.unoccupied_cool_set_f ?? "\u2014"}{"\u00B0"}F
+                  Occupied: {profile.occupied_heat_f ?? "\u2014"}{"\u00B0"}{"\u2013"}{profile.occupied_cool_f ?? "\u2014"}{"\u00B0"}F
+                  {" | "}Unoccupied: {profile.unoccupied_heat_f ?? "\u2014"}{"\u00B0"}{"\u2013"}{profile.unoccupied_cool_f ?? "\u2014"}{"\u00B0"}F
                   {" | "}Guardrails: {profile.guardrail_min_f ?? "\u2014"}{"\u00B0"}{"\u2013"}{profile.guardrail_max_f ?? "\u2014"}{"\u00B0"}F
                 </p>
               </div>

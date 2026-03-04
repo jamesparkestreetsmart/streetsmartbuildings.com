@@ -111,7 +111,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
           <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />
           <SpaceHvacTable siteId={siteId} />
           <CompressorCycleTable siteId={siteId} />
-          <AnomalyEventsTable siteId={siteId} />
+          <AnomalyEventsTable siteId={siteId} orgId={orgId || undefined} />
         </>
       )}
       {tab === "logic-map" && !isInventorySite && (

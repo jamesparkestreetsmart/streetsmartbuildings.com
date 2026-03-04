@@ -231,14 +231,18 @@ export default function CompressorCycleTable({ siteId }: Props) {
                       <td className={TD}>
                         <ModeBadge mode={row.hvac_mode} />
                       </td>
-                      <td className={TD} title={formatDate(row.started_at)}>
-                        <span className="font-mono text-gray-700">{formatTime(row.started_at)}</span>
+                      <td className={TD}>
+                        <div className="flex flex-col">
+                          <span className="text-gray-500 text-[10px]">{formatDate(row.started_at)}</span>
+                          <span className="font-mono text-gray-700">{formatTime(row.started_at)}</span>
+                        </div>
                       </td>
                       <td className={TD}>
                         {row.ended_at ? (
-                          <span className="font-mono text-gray-700" title={formatDate(row.ended_at)}>
-                            {formatTime(row.ended_at)}
-                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-gray-500 text-[10px]">{formatDate(row.ended_at)}</span>
+                            <span className="font-mono text-gray-700">{formatTime(row.ended_at)}</span>
+                          </div>
                         ) : (
                           <span className="text-green-600 text-xs">--</span>
                         )}

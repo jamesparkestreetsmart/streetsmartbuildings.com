@@ -24,6 +24,9 @@ interface Device {
   firmware_version: string | null;
   last_message: string | null;
   created_at: string;
+  pairing_status: string | null;
+  smartstart_dsk: string | null;
+  inclusion_pin: string | null;
 }
 
 export default function DevicesPage() {
@@ -39,13 +42,35 @@ export default function DevicesPage() {
   const fetchDevices = useCallback(async () => {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("view_settings_devices")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const [viewRes, pairingRes] = await Promise.all([
+      supabase
+        .from("view_settings_devices")
+        .select("*")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("a_devices")
+        .select("device_id, pairing_status, smartstart_dsk, inclusion_pin"),
+    ]);
 
-    if (!error) setDevices(data ?? []);
-    else console.error(error);
+    if (!viewRes.error) {
+      const pairingMap = new Map(
+        (pairingRes.data || []).map((d: any) => [d.device_id, d])
+      );
+
+      const merged = (viewRes.data ?? []).map((d: any) => {
+        const p = pairingMap.get(d.device_id);
+        return {
+          ...d,
+          pairing_status: p?.pairing_status ?? null,
+          smartstart_dsk: p?.smartstart_dsk ?? null,
+          inclusion_pin: p?.inclusion_pin ?? null,
+        };
+      });
+
+      setDevices(merged);
+    } else {
+      console.error(viewRes.error);
+    }
 
     setLoading(false);
   }, []);
@@ -114,6 +139,7 @@ export default function DevicesPage() {
             <tr>
               {[
                 ["Status", "status"],
+                ["Pairing", "pairing_status"],
                 ["Device Name", "device_name"],
                 ["Site", "site_name"],
                 ["Equipment", "equipment_name"],
@@ -144,6 +170,25 @@ export default function DevicesPage() {
             {devices.map((d) => (
               <tr key={d.device_id} className="border-b hover:bg-gray-50">
                 <td className="p-3 font-medium">{d.status}</td>
+
+                <td className="p-3">
+                  {d.pairing_status === "paired" ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Paired</span>
+                  ) : d.pairing_status === "pairing" ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 animate-pulse">Pairing...</span>
+                  ) : d.pairing_status === "failed" ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Failed</span>
+                  ) : (d.smartstart_dsk || d.inclusion_pin) ? (
+                    <span
+                      className="text-xs text-blue-600 hover:underline cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); router.push(`/settings/devices/${d.device_id}`); }}
+                    >
+                      Pair
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </td>
 
                 <td
                   className="p-3 text-green-700 cursor-pointer hover:underline"

@@ -24,6 +24,15 @@ export default function EditSiteForm({ site }: EditSiteFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // HA Connection state
+  const [haUrl, setHaUrl] = useState(site.ha_url ?? "");
+  const [haToken, setHaToken] = useState("");
+  const [haTokenSet, setHaTokenSet] = useState(!!site.ha_token_set);
+  const [haTestStatus, setHaTestStatus] = useState<"idle" | "testing" | "connected" | "failed">("idle");
+  const [haSaving, setHaSaving] = useState(false);
+  const [haError, setHaError] = useState<string | null>(null);
+  const [haSuccess, setHaSuccess] = useState<string | null>(null);
+
   const [form, setForm] = useState({
     site_name: site.site_name ?? "",
     brand: site.brand ?? "",
@@ -53,6 +62,45 @@ export default function EditSiteForm({ site }: EditSiteFormProps) {
     (field: string) => (value: string) => {
       setForm((prev) => ({ ...prev, [field]: value }));
     };
+
+  const handleTestHA = async () => {
+    setHaTestStatus("testing");
+    try {
+      const res = await fetch(`/api/ha/test-connection?siteId=${site.site_id}`);
+      const data = await res.json();
+      setHaTestStatus(data.connected ? "connected" : "failed");
+    } catch {
+      setHaTestStatus("failed");
+    }
+  };
+
+  const handleSaveHA = async () => {
+    setHaSaving(true);
+    setHaError(null);
+    setHaSuccess(null);
+    try {
+      const res = await fetch(`/api/site/${site.site_id}/ha-credentials`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ha_url: haUrl,
+          ...(haToken ? { ha_token: haToken } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setHaError(data.error || "Failed to save HA credentials");
+      } else {
+        setHaSuccess("HA credentials saved.");
+        if (haToken) setHaTokenSet(true);
+        setHaToken("");
+        setHaTestStatus("idle");
+      }
+    } catch {
+      setHaError("Network error saving HA credentials");
+    }
+    setHaSaving(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,6 +369,77 @@ export default function EditSiteForm({ site }: EditSiteFormProps) {
               onChange={handleChange("ha_webhook_url")}
               rows={2}
             />
+          </div>
+
+          {/* HA Connection Section */}
+          <div className="border border-blue-200 bg-blue-50/30 rounded-lg p-4 space-y-4">
+            <h3 className="text-sm font-semibold text-blue-800">Home Assistant Connection</h3>
+
+            {haError && (
+              <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                {haError}
+              </div>
+            )}
+            {haSuccess && (
+              <div className="rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-700">
+                {haSuccess}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="ha_url">HA URL</Label>
+                <Input
+                  id="ha_url"
+                  value={haUrl}
+                  onChange={(e) => setHaUrl(e.target.value)}
+                  placeholder="http://homeassistant.local:8123"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="ha_token">
+                  Long-Lived Access Token
+                  {haTokenSet && <span className="text-green-600 ml-2 text-xs font-normal">(set)</span>}
+                </Label>
+                <Input
+                  id="ha_token"
+                  type="password"
+                  value={haToken}
+                  onChange={(e) => setHaToken(e.target.value)}
+                  placeholder={haTokenSet ? "••••••••" : "Paste token here"}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSaveHA}
+                disabled={haSaving || !haUrl}
+              >
+                {haSaving ? "Saving..." : "Save HA Credentials"}
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestHA}
+                disabled={haTestStatus === "testing"}
+              >
+                {haTestStatus === "testing" ? "Testing..." : "Test Connection"}
+              </Button>
+
+              {haTestStatus === "connected" && (
+                <span className="text-sm text-green-600 font-medium">Connected</span>
+              )}
+              {haTestStatus === "failed" && (
+                <span className="text-sm text-red-600 font-medium">Connection failed</span>
+              )}
+            </div>
           </div>
 
           <CardFooter className="px-0 pt-4 flex justify-between">

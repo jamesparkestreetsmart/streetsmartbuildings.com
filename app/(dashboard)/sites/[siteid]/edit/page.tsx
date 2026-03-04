@@ -46,10 +46,17 @@ export default async function EditSitePage(props: any) {
     );
   }
 
+  // Sanitize: never send ha_token to the client
+  const sanitizedSite = {
+    ...site,
+    ha_token: undefined,
+    ha_token_set: !!site.ha_token,
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto p-6">
-        <EditSiteForm site={site} />
+        <EditSiteForm site={sanitizedSite} />
       </div>
     </div>
   );
