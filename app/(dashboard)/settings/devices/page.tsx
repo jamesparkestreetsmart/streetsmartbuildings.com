@@ -52,6 +52,10 @@ export default function DevicesPage() {
         .select("device_id, pairing_status, smartstart_dsk, inclusion_pin"),
     ]);
 
+    if (pairingRes.error) {
+      console.warn("Pairing columns not available (run migration?):", pairingRes.error.message);
+    }
+
     if (!viewRes.error) {
       const pairingMap = new Map(
         (pairingRes.data || []).map((d: any) => [d.device_id, d])
@@ -69,7 +73,7 @@ export default function DevicesPage() {
 
       setDevices(merged);
     } else {
-      console.error(viewRes.error);
+      console.error("view_settings_devices error:", viewRes.error);
     }
 
     setLoading(false);
