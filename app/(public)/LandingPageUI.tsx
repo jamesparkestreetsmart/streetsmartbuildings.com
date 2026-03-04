@@ -169,7 +169,8 @@ export default function LandingPageUI() {
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex flex-col">
+    <div className="flex flex-1">
       {/* LEFT */}
       <div className="flex-1 text-white px-8 py-4 flex flex-col justify-between bg-gradient-to-r from-green-700 to-yellow-500">
         {/* Header */}
@@ -333,6 +334,17 @@ export default function LandingPageUI() {
           </div>
         </div>
       </div>
+    </div>
+
+      {/* Footer */}
+      <footer className="py-4 text-center text-sm text-gray-500 bg-gray-50 border-t border-gray-200">
+        <p>&copy; 2026 Street Smart Buildings LLC</p>
+        <p className="mt-1">
+          <a href="/privacy-policy" className="hover:text-gray-700 underline">Privacy Policy</a>
+          <span className="mx-2">|</span>
+          <a href="/terms" className="hover:text-gray-700 underline">Terms</a>
+        </p>
+      </footer>
     </div>
   );
 }
