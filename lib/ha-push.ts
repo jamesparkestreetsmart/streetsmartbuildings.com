@@ -988,6 +988,43 @@ export async function executePushForSite(
           .eq("entity_id", climateEntityId)
           .eq("site_id", siteId);
 
+        // Log resolution chain for manager override
+        try {
+          await supabase.from("b_records_log").insert({
+            org_id: site?.org_id || null,
+            site_id: siteId,
+            equipment_id: zone.equipment_id || null,
+            device_id: zone.thermostat_device_id,
+            event_type: "thermostat_push_attempt",
+            event_date: targetDate,
+            source: "ha_push",
+            message: `${zone.name}: Base ${lastPushedHeat}/${thermoState.last_pushed_cool_f ?? "?"} (${phase}) → Manager override ${managerAdj > 0 ? "+" : ""}${managerAdj} → Final ${finalHeat}/${finalCool ?? "?"} → ${bounced ? "bounced" : "accepted"}`,
+            metadata: {
+              base_heat: lastPushedHeat,
+              base_cool: thermoState.last_pushed_cool_f ?? null,
+              phase,
+              feels_like_adj: 0,
+              smart_start_adj: 0,
+              occupancy_adj: 0,
+              adjusted_heat: haActualHeat,
+              adjusted_cool: haActualCool,
+              guardrail_clamped: bounced,
+              guardrail_min: hardMin,
+              guardrail_max: hardMax,
+              manager_override: true,
+              manager_adj: managerAdj,
+              final_heat: finalHeat,
+              final_cool: finalCool,
+              push_result: bounced ? "bounced" : "accepted",
+              entity_id: climateEntityId,
+              trigger,
+            },
+            created_by: triggeredBy || "eagle_eyes",
+          });
+        } catch (logErr) {
+          console.error("[ha-push] Failed to log manager override push_attempt:", logErr);
+        }
+
         results.push({
           zone_name: zone.name || "",
           hvac_zone_id: zone.hvac_zone_id,
@@ -1048,22 +1085,36 @@ export async function executePushForSite(
       `[ha-push] Zone "${zone.name}" adjustments: feels_like=${feelsLikeAdj}, smart_start=${smartStartAdj}, occupancy=${occupancyAdj}, total=${totalAdj}`
     );
 
-    // Build desired state with adjustments applied
-    const desired: DesiredState = isOccupied
-      ? {
-          entity_id: climateEntityId,
-          hvac_mode: resolved.occupied_hvac_mode,
-          heat_setpoint_f: resolved.occupied_heat_f + totalAdj,
-          cool_setpoint_f: resolved.occupied_cool_f + totalAdj,
-          fan_mode: resolved.occupied_fan_mode,
-        }
-      : {
-          entity_id: climateEntityId,
-          hvac_mode: resolved.unoccupied_hvac_mode,
-          heat_setpoint_f: resolved.unoccupied_heat_f + totalAdj,
-          cool_setpoint_f: resolved.unoccupied_cool_f + totalAdj,
-          fan_mode: resolved.unoccupied_fan_mode,
-        };
+    // STEP 1 — Base: Select occupied/unoccupied profile setpoints
+    const baseHeat = isOccupied ? resolved.occupied_heat_f : resolved.unoccupied_heat_f;
+    const baseCool = isOccupied ? resolved.occupied_cool_f : resolved.unoccupied_cool_f;
+    const baseMode = isOccupied ? resolved.occupied_hvac_mode : resolved.unoccupied_hvac_mode;
+    const baseFan = isOccupied ? resolved.occupied_fan_mode : resolved.unoccupied_fan_mode;
+
+    // STEP 2 — Feels-like + adjustments: Apply to base setpoints
+    const adjustedHeat = baseHeat + totalAdj;
+    const adjustedCool = baseCool + totalAdj;
+
+    // STEP 3 — Guardrails: Clamp adjusted setpoints to guardrail range
+    const gMin = resolved.guardrail_min_f;
+    const gMax = resolved.guardrail_max_f;
+    const finalHeat = Math.min(Math.max(adjustedHeat, gMin), gMax);
+    const finalCool = Math.min(Math.max(adjustedCool, gMin), gMax);
+    const guardrailClamped = finalHeat !== adjustedHeat || finalCool !== adjustedCool;
+
+    // Log the full resolution chain
+    console.log(
+      `[ha-push] Zone "${zone.name}" resolution: Base: ${baseHeat}/${baseCool} (${phase}) → Adj: ${totalAdj >= 0 ? "+" : ""}${totalAdj} → Adjusted: ${adjustedHeat}/${adjustedCool} → Guardrails ${guardrailClamped ? "CLAMPED" : "OK"} (${gMin}–${gMax}) → Final: ${finalHeat}/${finalCool}`
+    );
+
+    // Build desired state with fully resolved setpoints
+    const desired: DesiredState = {
+      entity_id: climateEntityId,
+      hvac_mode: baseMode,
+      heat_setpoint_f: finalHeat,
+      cool_setpoint_f: finalCool,
+      fan_mode: baseFan,
+    };
 
     // Map generic mode values to HA-compatible values
     if (desired.hvac_mode === "auto") desired.hvac_mode = "heat_cool";
@@ -1073,8 +1124,8 @@ export async function executePushForSite(
     if (desired.fan_mode === "circulate") desired.fan_mode = "Circulation";
 
     const guardrails: Guardrails = {
-      min_f: resolved.guardrail_min_f,
-      max_f: resolved.guardrail_max_f,
+      min_f: gMin,
+      max_f: gMax,
     };
 
     const current: CurrentState = {
@@ -1089,7 +1140,7 @@ export async function executePushForSite(
 
     // Execute the push
     console.log(
-      `[ha-push] Zone "${zone.name}" (${climateEntityId}): ${phase} → profile=${profileHeat}/${profileCool}, active=${desired.heat_setpoint_f}/${desired.cool_setpoint_f}, mode=${desired.hvac_mode}, fan=${desired.fan_mode}`
+      `[ha-push] Zone "${zone.name}" (${climateEntityId}): ${phase} → base=${baseHeat}/${baseCool}, final=${desired.heat_setpoint_f}/${desired.cool_setpoint_f}, mode=${desired.hvac_mode}, fan=${desired.fan_mode}`
     );
 
     const pushResult = await pushThermostatState(config, desired, current, guardrails);
@@ -1140,10 +1191,11 @@ export async function executePushForSite(
         directive_generated_at: new Date().toISOString(),
       };
 
-      // Track what we pushed so we can detect manager overrides next cycle
+      // Track what we actually pushed (effective values after guardrails) so we can detect manager overrides next cycle
       if (pushResult.pushed) {
-        stateUpdate.last_pushed_heat_f = desired.heat_setpoint_f;
-        stateUpdate.last_pushed_cool_f = desired.cool_setpoint_f;
+        const effective = pushResult.desired_state;
+        stateUpdate.last_pushed_heat_f = effective.heat_setpoint_f;
+        stateUpdate.last_pushed_cool_f = effective.cool_setpoint_f;
         stateUpdate.last_pushed_at = new Date().toISOString();
       }
 
@@ -1157,6 +1209,49 @@ export async function executePushForSite(
     // Read back actual state from HA to confirm push took effect
     if (pushResult.pushed && climateEntityId) {
       await readBackThermostatState(config, climateEntityId, siteId, supabase);
+    }
+
+    // Log full resolution chain to b_records_log (queryable forever)
+    const pushResultLabel = pushResult.pushed
+      ? "pushed"
+      : pushResult.reason === "Already at target"
+      ? "skipped_at_target"
+      : "failed";
+
+    try {
+      await supabase.from("b_records_log").insert({
+        org_id: site?.org_id || null,
+        site_id: siteId,
+        equipment_id: zone.equipment_id || null,
+        device_id: zone.thermostat_device_id,
+        event_type: "thermostat_push_attempt",
+        event_date: targetDate,
+        source: "ha_push",
+        message: `${zone.name}: Base ${baseHeat}/${baseCool} (${phase}) → Adj ${totalAdj >= 0 ? "+" : ""}${totalAdj} → Final ${finalHeat}/${finalCool} → ${pushResultLabel}`,
+        metadata: {
+          base_heat: baseHeat,
+          base_cool: baseCool,
+          phase,
+          feels_like_adj: feelsLikeAdj,
+          smart_start_adj: smartStartAdj,
+          occupancy_adj: occupancyAdj,
+          adjusted_heat: adjustedHeat,
+          adjusted_cool: adjustedCool,
+          guardrail_clamped: guardrailClamped,
+          guardrail_min: gMin,
+          guardrail_max: gMax,
+          manager_override: false,
+          final_heat: finalHeat,
+          final_cool: finalCool,
+          push_result: pushResultLabel,
+          entity_id: climateEntityId,
+          profile: resolved.profile_name || resolved.source,
+          trigger,
+        },
+        created_by: triggeredBy || "eagle_eyes",
+      });
+    } catch (logErr) {
+      console.error("[ha-push] Failed to log thermostat_push_attempt:", logErr);
     }
 
     // Log to b_records_log

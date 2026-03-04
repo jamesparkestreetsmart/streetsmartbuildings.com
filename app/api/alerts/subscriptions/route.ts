@@ -77,8 +77,22 @@ export async function GET(req: NextRequest) {
     description: d.description,
     severity: d.severity,
     entity_type: d.entity_type,
+    entity_id: d.entity_id,
     condition_type: d.condition_type,
     threshold_value: d.threshold_value,
+    target_value: d.target_value,
+    stale_minutes: d.stale_minutes,
+    delta_value: d.delta_value,
+    delta_direction: d.delta_direction,
+    window_minutes: d.window_minutes,
+    sustain_minutes: d.sustain_minutes,
+    equipment_type: d.equipment_type,
+    sensor_role: d.sensor_role,
+    anomaly_type: d.anomaly_type,
+    derived_metric: d.derived_metric,
+    scope_level: d.scope_level,
+    scope_mode: d.scope_mode,
+    scope_ids: d.scope_ids,
     active_instances: instanceCounts[d.id] || 0,
     subscription: userSubs[d.id] || null,
   }));
@@ -102,31 +116,68 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "alert_def_id required" }, { status: 400 });
   }
 
-  const { data: subscription, error } = await supabase
-    .from("b_alert_subscriptions")
-    .upsert(
-      {
-        user_id: userId,
-        alert_def_id,
-        dashboard_enabled: dashboard_enabled ?? true,
-        email_enabled: email_enabled ?? false,
-        sms_enabled: sms_enabled ?? false,
-        repeat_enabled: repeat_enabled ?? false,
-        repeat_interval_min: repeat_interval_min ?? 60,
-        max_repeats: max_repeats ?? null,
-        send_resolved: send_resolved ?? true,
-        quiet_hours_override: quiet_hours_override ?? false,
-        quiet_start: quiet_start ?? null,
-        quiet_end: quiet_end ?? null,
-        timezone: timezone ?? "America/Chicago",
-        enabled: true,
-      },
-      { onConflict: "user_id,alert_def_id" }
-    )
-    .select()
+  const payload = {
+    dashboard_enabled: dashboard_enabled ?? true,
+    email_enabled: email_enabled ?? false,
+    sms_enabled: sms_enabled ?? false,
+    repeat_enabled: repeat_enabled ?? false,
+    repeat_interval_min: repeat_interval_min ?? 60,
+    max_repeats: max_repeats ?? null,
+    send_resolved: send_resolved ?? true,
+    quiet_hours_override: quiet_hours_override ?? false,
+    quiet_start: quiet_start ?? null,
+    quiet_end: quiet_end ?? null,
+    timezone: timezone ?? "America/Chicago",
+    enabled: true,
+  };
+
+  // Look up org_id from the definition
+  const { data: def } = await supabase
+    .from("b_alert_definitions")
+    .select("org_id")
+    .eq("id", alert_def_id)
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!def) {
+    return NextResponse.json({ error: "Alert definition not found" }, { status: 404 });
+  }
+
+  // Check if subscription already exists
+  const { data: existing } = await supabase
+    .from("b_alert_subscriptions")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("alert_def_id", alert_def_id)
+    .maybeSingle();
+
+  let subscription;
+  let error;
+
+  if (existing) {
+    // Update existing
+    const result = await supabase
+      .from("b_alert_subscriptions")
+      .update(payload)
+      .eq("id", existing.id)
+      .select()
+      .single();
+    subscription = result.data;
+    error = result.error;
+  } else {
+    // Insert new
+    const result = await supabase
+      .from("b_alert_subscriptions")
+      .insert({ user_id: userId, alert_def_id, org_id: def.org_id, ...payload })
+      .select()
+      .single();
+    subscription = result.data;
+    error = result.error;
+  }
+
+  if (error) {
+    console.error("[SUBSCRIPTIONS] POST error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   return NextResponse.json({ subscription });
 }
 

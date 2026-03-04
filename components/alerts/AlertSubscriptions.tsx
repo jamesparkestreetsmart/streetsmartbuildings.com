@@ -8,8 +8,22 @@ interface SubscriptionDef {
   description: string | null;
   severity: string;
   entity_type: string;
+  entity_id: string | null;
   condition_type: string;
   threshold_value: number | null;
+  target_value: string | null;
+  stale_minutes: number | null;
+  delta_value: number | null;
+  delta_direction: string | null;
+  window_minutes: number | null;
+  sustain_minutes: number | null;
+  equipment_type: string | null;
+  sensor_role: string | null;
+  anomaly_type: string | null;
+  derived_metric: string | null;
+  scope_level: string | null;
+  scope_mode: string | null;
+  scope_ids: string[] | null;
   active_instances: number;
   subscription: {
     id: string;
@@ -46,7 +60,7 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
 
   const toggleSubscription = async (def: SubscriptionDef) => {
     if (def.subscription) {
-      // Unsubscribe
+      // Unsubscribe — DELETE
       await fetch(`/api/alerts/subscriptions?subscription_id=${def.subscription.id}`, {
         method: "DELETE",
       });
@@ -54,7 +68,7 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
         prev.map((d) => (d.id === def.id ? { ...d, subscription: null } : d))
       );
     } else {
-      // Subscribe with defaults
+      // Subscribe with defaults — INSERT
       const res = await fetch("/api/alerts/subscriptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -77,7 +91,7 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
     }
   };
 
-  const updateSubscription = async (defId: string, updates: Record<string, any>) => {
+  const updateSubscription = async (defId: string, updates: Record<string, unknown>) => {
     const def = definitions.find((d) => d.id === defId);
     if (!def?.subscription) return;
 
@@ -98,11 +112,48 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
     }
   };
 
+  // ─── Display helpers (matches AlertRulesManager) ─────────────────────────
+
   const severityColor = (s: string) => {
-    if (s === "critical") return "bg-red-100 text-red-700 border-red-200";
-    if (s === "warning") return "bg-amber-100 text-amber-700 border-amber-200";
-    return "bg-blue-100 text-blue-700 border-blue-200";
+    if (s === "critical") return "bg-red-50 text-red-600 border-red-200";
+    if (s === "warning") return "bg-amber-50 text-amber-600 border-amber-200";
+    return "bg-blue-50 text-blue-600 border-blue-200";
   };
+
+  const watchDescription = (def: SubscriptionDef) => {
+    let what = "";
+    if (def.entity_type === "sensor") {
+      if (def.equipment_type) {
+        what = `${def.equipment_type} → ${def.sensor_role || "sensor"}`;
+      } else if (def.entity_id) {
+        what = def.entity_id;
+      } else {
+        what = "Sensor";
+      }
+    } else if (def.entity_type === "derived") {
+      what = def.derived_metric?.replace(/_/g, " ") || "Derived";
+    } else if (def.entity_type === "anomaly") {
+      what = def.anomaly_type?.replace(/_/g, " ") || "Anomaly";
+    }
+
+    let condition = "";
+    if (def.condition_type === "above_threshold") condition = `> ${def.threshold_value}`;
+    else if (def.condition_type === "below_threshold") condition = `< ${def.threshold_value}`;
+    else if (def.condition_type === "changes_to") condition = `= "${def.target_value}"`;
+    else if (def.condition_type === "stale") condition = `${def.stale_minutes}min stale`;
+    else if (def.condition_type === "rate_of_change") condition = `delta ${def.delta_value} / ${def.window_minutes}min`;
+
+    return `${what} ${condition}`.trim();
+  };
+
+  const scopeLabel = (def: SubscriptionDef) => {
+    if (def.scope_mode === "all" || !def.scope_mode) return "All Sites";
+    const count = def.scope_ids?.length || 0;
+    if (def.scope_mode === "include") return `${count} site${count !== 1 ? "s" : ""}`;
+    return `Excluding ${count} site${count !== 1 ? "s" : ""}`;
+  };
+
+  const subscribedCount = definitions.filter((d) => d.subscription).length;
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden">
@@ -113,7 +164,7 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
         <div className="flex items-center gap-2">
           <span className="text-lg font-semibold">My Notifications</span>
           <span className="text-xs bg-indigo-400 px-2 py-0.5 rounded-full">
-            {definitions.filter((d) => d.subscription).length} subscribed
+            {subscribedCount} subscribed
           </span>
         </div>
         <span className={`transition-transform ${collapsed ? "" : "rotate-180"}`}>&#9650;</span>
@@ -128,9 +179,17 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
               No alert definitions available. Ask your program manager to create alert definitions.
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {definitions.map((def) => (
-                <div key={def.id} className="p-3 rounded-lg border border-gray-200 bg-white">
+                <div
+                  key={def.id}
+                  className={`p-3 rounded-lg border transition-colors ${
+                    def.subscription
+                      ? "border-indigo-200 bg-indigo-50/30"
+                      : "border-gray-200 bg-white"
+                  }`}
+                >
+                  {/* Row 1: Toggle + Name + Active badge */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <button
@@ -138,6 +197,7 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
                         className={`w-8 h-5 rounded-full relative transition-colors ${
                           def.subscription ? "bg-indigo-500" : "bg-gray-300"
                         }`}
+                        title={def.subscription ? "Unsubscribe" : "Subscribe"}
                       >
                         <span
                           className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
@@ -146,38 +206,63 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
                         />
                       </button>
                       <span className="font-medium text-sm text-gray-900">{def.name}</span>
-                      <span className={`px-2 py-0.5 text-xs rounded-full border ${severityColor(def.severity)}`}>
-                        {def.severity}
-                      </span>
                       {def.active_instances > 0 && (
-                        <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded-full">
+                        <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-medium">
                           {def.active_instances} active
                         </span>
                       )}
+                      {!def.subscription && (
+                        <button
+                          onClick={() => toggleSubscription(def)}
+                          className="px-2.5 py-1 text-xs font-medium text-indigo-600 bg-indigo-100 border border-indigo-200 rounded-full hover:bg-indigo-200 transition-colors"
+                        >
+                          Subscribe
+                        </button>
+                      )}
                     </div>
                   </div>
+
+                  {/* Row 2: Condition tags (severity, watch, scope, sustain) */}
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 ml-10">
+                    <span className={`px-2 py-0.5 text-xs rounded-full border ${severityColor(def.severity)}`}>
+                      {def.severity}
+                    </span>
+                    <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-xs rounded-full border border-indigo-200">
+                      {watchDescription(def)}
+                    </span>
+                    <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                      {scopeLabel(def)}
+                    </span>
+                    {(def.sustain_minutes ?? 0) > 0 && (
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                        {def.sustain_minutes}min sustain
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Row 3: Description */}
                   {def.description && (
                     <div className="mt-1 ml-10 text-xs text-gray-500">{def.description}</div>
                   )}
 
-                  {/* Subscription channels */}
+                  {/* Row 4: Channel toggles (only when subscribed) */}
                   {def.subscription && (
                     <div className="mt-2 ml-10 flex flex-wrap gap-2 items-center">
                       <span className="text-xs text-gray-500">Channels:</span>
-                      {[
+                      {([
                         { key: "dashboard_enabled", label: "Dashboard" },
                         { key: "email_enabled", label: "Email" },
                         { key: "sms_enabled", label: "SMS" },
-                      ].map((ch) => (
+                      ] as const).map((ch) => (
                         <button
                           key={ch.key}
                           onClick={() =>
                             updateSubscription(def.id, {
-                              [ch.key]: !(def.subscription as any)[ch.key],
+                              [ch.key]: !(def.subscription as NonNullable<typeof def.subscription>)[ch.key],
                             })
                           }
                           className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
-                            (def.subscription as any)[ch.key]
+                            (def.subscription as NonNullable<typeof def.subscription>)[ch.key]
                               ? "bg-indigo-100 text-indigo-700 border-indigo-300"
                               : "bg-gray-100 text-gray-400 border-gray-200"
                           }`}
