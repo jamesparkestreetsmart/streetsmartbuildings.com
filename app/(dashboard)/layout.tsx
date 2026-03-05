@@ -1,6 +1,7 @@
 import "../globals.css";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { redirect } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import ActivityTracker from "@/components/activitytracker";
 import { getCurrentUserId, getCurrentUserEmail } from "@/lib/auth";
@@ -28,6 +29,9 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const userId = await getCurrentUserId();
+  if (!userId) {
+    redirect("/");
+  }
   const userEmail = await getCurrentUserEmail();
 
   return (

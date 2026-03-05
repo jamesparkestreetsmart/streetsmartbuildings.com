@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Users, Shield, ShieldCheck, ChevronDown, Building2, MessageSquare } from "lucide-react";
 import { useOrg } from "@/context/OrgContext";
 import { useState, useRef, useEffect } from "react";
@@ -19,6 +19,7 @@ const links = [
 
 export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { orgs, selectedOrg, selectedOrgId, setSelectedOrgId, isServiceProvider, loading } = useOrg();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -188,6 +189,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
                     onClick={() => {
                       setSelectedOrgId(org.org_id);
                       setDropdownOpen(false);
+                      router.push("/sites");
                     }}
                     className={`w-full text-left px-3 py-2 text-sm transition-colors ${
                       isSelected

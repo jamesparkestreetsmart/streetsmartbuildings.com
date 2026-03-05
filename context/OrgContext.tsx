@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 interface Organization {
@@ -137,13 +137,15 @@ export function OrgProvider({
     fetchOrgs();
   }, [fetchOrgs]);
 
-  // Try to restore selection from sessionStorage
+  // Try to restore selection from sessionStorage — only once on mount
+  const hasRestoredRef = useRef(false);
   useEffect(() => {
-    if (orgs.length === 0) return;
+    if (orgs.length === 0 || hasRestoredRef.current) return;
     const saved = sessionStorage.getItem("selectedOrgId");
     if (saved && orgs.some((o) => o.org_id === saved)) {
       setSelectedOrgId(saved);
     }
+    hasRestoredRef.current = true;
   }, [orgs]);
 
   // Persist selection
