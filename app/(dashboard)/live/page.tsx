@@ -53,12 +53,6 @@ export default function AlertsPage() {
   const { selectedOrgId, selectedOrg, loading: orgLoading } = useOrg();
   const tabParam = searchParams.get("tab");
 
-  // SSB org users don't use Live Alerts — redirect to Admin
-  useEffect(() => {
-    if (!orgLoading && selectedOrg?.org_identifier === "SSB1") {
-      router.replace("/admin");
-    }
-  }, [orgLoading, selectedOrg, router]);
   const activeTab: Tab = tabParam === "history" ? "history" : tabParam === "configuration" ? "configuration" : "live";
 
   // Live Alerts state
@@ -108,9 +102,11 @@ export default function AlertsPage() {
 
   // ===== Live Alerts Functions =====
   const fetchLive = async () => {
+    if (!selectedOrgId) return;
     const { data, error } = await supabase
       .from("view_live_alerts")
       .select("*")
+      .eq("org_id", selectedOrgId)
       .order("start", { ascending: false });
 
     if (!error && data) {
@@ -220,12 +216,14 @@ export default function AlertsPage() {
   };
 
   const fetchHistory = async () => {
+    if (!selectedOrgId) return;
     const { start, end } = getDateRange();
     if (range === "custom" && (!start || !end)) return;
 
     const { data, error } = await supabase
       .from("view_alert_history")
       .select("*")
+      .eq("org_id", selectedOrgId)
       .gte("start", start)
       .lte("start", end)
       .order("start", { ascending: false });
@@ -295,17 +293,23 @@ export default function AlertsPage() {
   });
 
   // ===== Effects =====
+  // Clear data on org change to avoid stale cross-org data
+  useEffect(() => {
+    setLiveRows([]);
+    setHistoryLogs([]);
+  }, [selectedOrgId]);
+
   useEffect(() => {
     fetchLive();
     const interval = setInterval(fetchLive, 300_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedOrgId]);
 
   useEffect(() => {
     if (activeTab === "history") {
       fetchHistory();
     }
-  }, [activeTab, range, customStart, customEnd]);
+  }, [activeTab, range, customStart, customEnd, selectedOrgId]);
 
   return (
     <div className="p-6">
