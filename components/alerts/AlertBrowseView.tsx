@@ -11,6 +11,7 @@ interface BrowseDef {
   threshold_value: number | null;
   equipment_type: string | null;
   sensor_role: string | null;
+  resolved_dead_time_minutes?: number;
   subscription: {
     id: string;
     dashboard_enabled: boolean;
@@ -38,6 +39,7 @@ export default function AlertBrowseView({ orgId }: { orgId: string }) {
   const [loading, setLoading] = useState(true);
   const [expandedSites, setExpandedSites] = useState<Set<string>>(new Set());
   const [expandedEquipment, setExpandedEquipment] = useState<Set<string>>(new Set());
+  const [expandedDef, setExpandedDef] = useState<string | null>(null);
 
   // Filters
   const [siteFilter, setSiteFilter] = useState<string>("all");
@@ -63,23 +65,40 @@ export default function AlertBrowseView({ orgId }: { orgId: string }) {
 
   useEffect(() => { fetchBrowse(); }, [fetchBrowse]);
 
+  const subscribe = async (defId: string) => {
+    await fetch("/api/alerts/subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        alert_def_id: defId,
+        dashboard_enabled: true,
+        email_enabled: false,
+        sms_enabled: false,
+        send_resolved: false,
+      }),
+    });
+  };
+
+  const unsubscribe = async (subscriptionId: string) => {
+    await fetch(`/api/alerts/subscriptions?subscription_id=${subscriptionId}`, { method: "DELETE" });
+  };
+
   const toggleSubscription = async (defId: string, currentSub: BrowseDef["subscription"]) => {
     if (currentSub) {
-      // Unsubscribe
-      await fetch(`/api/alerts/subscriptions?subscription_id=${currentSub.id}`, { method: "DELETE" });
+      if (!confirm("Unsubscribe from this alert?")) return;
+      await unsubscribe(currentSub.id);
+      setExpandedDef(null);
     } else {
-      // Quick subscribe with defaults
-      await fetch("/api/alerts/subscriptions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          alert_def_id: defId,
-          dashboard_enabled: true,
-          email_enabled: false,
-          sms_enabled: false,
-          send_resolved: true,
-        }),
-      });
+      await subscribe(defId);
+    }
+    await fetchBrowse();
+  };
+
+  const subscribeAll = async (defs: BrowseDef[]) => {
+    const unsub = defs.filter((d) => !d.subscription);
+    if (unsub.length === 0) return;
+    for (const def of unsub) {
+      await subscribe(def.id);
     }
     await fetchBrowse();
   };
@@ -217,61 +236,152 @@ export default function AlertBrowseView({ orgId }: { orgId: string }) {
 
                 {expandedSites.has(site.site_id) && (
                   <div className="px-3 pb-2">
-                    {site.equipment.map((eq) => (
-                      <div key={eq.equipment_id} className="mt-1">
-                        {/* Equipment header */}
-                        <button
-                          onClick={() => toggleEquipExpand(eq.equipment_id)}
-                          className="w-full px-2 py-1.5 hover:bg-gray-50 flex items-center gap-2 text-sm text-gray-700 rounded transition-colors"
-                        >
-                          <span className={`text-xs transition-transform ${expandedEquipment.has(eq.equipment_id) ? "rotate-90" : ""}`}>
-                            &#9654;
-                          </span>
-                          <span className="font-medium">{eq.equipment_name}</span>
-                          {eq.equipment_group && (
-                            <span className="text-xs text-gray-400">{eq.equipment_group}</span>
-                          )}
-                          <span className="text-xs text-gray-400">
-                            {eq.definitions.length} alert{eq.definitions.length !== 1 ? "s" : ""}
-                          </span>
-                        </button>
+                    {site.equipment.map((eq) => {
+                      const subCount = eq.definitions.filter((d) => d.subscription).length;
+                      const totalCount = eq.definitions.length;
+                      const allSubscribed = subCount === totalCount;
+                      const noneSubscribed = subCount === 0;
 
-                        {expandedEquipment.has(eq.equipment_id) && (
-                          <div className="ml-6 mt-1 space-y-1">
-                            {eq.definitions.map((def) => (
-                              <div
-                                key={def.id}
-                                className={`flex items-center justify-between px-2 py-1.5 rounded border text-xs ${
-                                  def.subscription
-                                    ? "border-indigo-200 bg-indigo-50/30"
-                                    : "border-gray-200 bg-white"
-                                }`}
+                      return (
+                        <div key={eq.equipment_id} className="mt-1">
+                          {/* Equipment header with subscription summary */}
+                          <div className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded transition-colors">
+                            <button
+                              onClick={() => toggleEquipExpand(eq.equipment_id)}
+                              className="flex items-center gap-2 text-sm text-gray-700 flex-1 min-w-0"
+                            >
+                              <span className={`text-xs transition-transform flex-shrink-0 ${expandedEquipment.has(eq.equipment_id) ? "rotate-90" : ""}`}>
+                                &#9654;
+                              </span>
+                              <span className="font-medium truncate">{eq.equipment_name}</span>
+                              {eq.equipment_group && (
+                                <span className="text-xs text-gray-400 flex-shrink-0">{eq.equipment_group}</span>
+                              )}
+                              <span className="text-xs text-gray-400 flex-shrink-0">
+                                {totalCount} alert{totalCount !== 1 ? "s" : ""}
+                              </span>
+                            </button>
+
+                            {/* Subscription summary badge */}
+                            <span className={`text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                              allSubscribed
+                                ? "bg-green-50 text-green-700 border-green-200"
+                                : noneSubscribed
+                                ? "bg-gray-100 text-gray-500 border-gray-200"
+                                : "bg-amber-50 text-amber-600 border-amber-200"
+                            }`}>
+                              {subCount} of {totalCount} subscribed{allSubscribed ? " \u2713" : ""}
+                            </span>
+
+                            {/* Subscribe All shortcut */}
+                            {noneSubscribed && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); subscribeAll(eq.definitions); }}
+                                className="text-xs px-2 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors flex-shrink-0"
                               >
-                                <div className="flex items-center gap-2">
-                                  <span className={`px-1.5 py-0.5 rounded-full border ${severityColor(def.severity)}`}>
-                                    {def.severity}
-                                  </span>
-                                  <span className="font-medium text-gray-800">{def.name}</span>
-                                  {def.sensor_role && (
-                                    <span className="text-gray-400">{def.sensor_role}</span>
+                                + Subscribe All
+                              </button>
+                            )}
+                          </div>
+
+                          {expandedEquipment.has(eq.equipment_id) && (
+                            <div className="ml-6 mt-1 space-y-1">
+                              {eq.definitions.map((def) => (
+                                <div key={def.id}>
+                                  {/* Alert definition row */}
+                                  <div
+                                    className={`flex items-center justify-between px-2 py-1.5 rounded border text-xs cursor-pointer transition-colors ${
+                                      def.subscription
+                                        ? "border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50/60"
+                                        : "border-gray-200 bg-white hover:bg-gray-50"
+                                    }`}
+                                    onClick={() => def.subscription && setExpandedDef(expandedDef === def.id ? null : def.id)}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {/* Subscription indicator dot */}
+                                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                        def.subscription ? "bg-indigo-500" : "bg-gray-300"
+                                      }`} />
+                                      <span className={`px-1.5 py-0.5 rounded-full border ${severityColor(def.severity)}`}>
+                                        {def.severity}
+                                      </span>
+                                      <span className="font-medium text-gray-800">{def.name}</span>
+                                      {def.sensor_role && (
+                                        <span className="text-gray-400">{def.sensor_role}</span>
+                                      )}
+                                      {def.condition_type === "above_threshold" && def.threshold_value !== null && (
+                                        <span className="text-gray-400">&gt; {def.threshold_value}</span>
+                                      )}
+                                      {def.condition_type === "below_threshold" && def.threshold_value !== null && (
+                                        <span className="text-gray-400">&lt; {def.threshold_value}</span>
+                                      )}
+                                    </div>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); toggleSubscription(def.id, def.subscription); }}
+                                      className={`px-2.5 py-1 rounded-full font-medium transition-colors border flex-shrink-0 ${
+                                        def.subscription
+                                          ? "bg-indigo-100 text-indigo-700 border-indigo-300 hover:bg-indigo-200"
+                                          : "bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200"
+                                      }`}
+                                    >
+                                      {def.subscription ? "\u2713 Subscribed" : "Subscribe"}
+                                    </button>
+                                  </div>
+
+                                  {/* Inline subscription detail expansion */}
+                                  {def.subscription && expandedDef === def.id && (
+                                    <div className="ml-4 mt-1 mb-1 px-3 py-2 bg-indigo-50/50 border border-indigo-200 rounded text-xs space-y-1.5">
+                                      <div className="flex items-center gap-4">
+                                        <span className="text-gray-600 w-32">Dashboard alerts:</span>
+                                        <span className={def.subscription.dashboard_enabled ? "text-green-600 font-medium" : "text-gray-400"}>
+                                          {def.subscription.dashboard_enabled ? "On" : "Off"}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                        <span className="text-gray-600 w-32">Email alerts:</span>
+                                        <span className={def.subscription.email_enabled ? "text-green-600 font-medium" : "text-gray-400"}>
+                                          {def.subscription.email_enabled ? "On" : "Off"}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                        <span className="text-gray-600 w-32">SMS alerts:</span>
+                                        <span className={def.subscription.sms_enabled ? "text-green-600 font-medium" : "text-gray-400"}>
+                                          {def.subscription.sms_enabled ? "On" : "Off"}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                        <span className="text-gray-600 w-32">Notify on resolve:</span>
+                                        <span className={def.subscription.send_resolved ? "text-green-600 font-medium" : "text-gray-400"}>
+                                          {def.subscription.send_resolved ? "On" : "Off"}
+                                        </span>
+                                        {def.subscription.send_resolved && (def.resolved_dead_time_minutes ?? 0) > 0 && (
+                                          <span className="text-teal-600">({def.resolved_dead_time_minutes}min dead time)</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2 pt-1 border-t border-indigo-200/50">
+                                        <button
+                                          onClick={() => {
+                                            if (confirm("Unsubscribe from this alert?")) {
+                                              unsubscribe(def.subscription!.id).then(() => {
+                                                setExpandedDef(null);
+                                                fetchBrowse();
+                                              });
+                                            }
+                                          }}
+                                          className="px-2 py-0.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                                        >
+                                          Unsubscribe
+                                        </button>
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
-                                <button
-                                  onClick={() => toggleSubscription(def.id, def.subscription)}
-                                  className={`px-2.5 py-1 rounded-full font-medium transition-colors border ${
-                                    def.subscription
-                                      ? "bg-indigo-100 text-indigo-700 border-indigo-300 hover:bg-indigo-200"
-                                      : "bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200"
-                                  }`}
-                                >
-                                  {def.subscription ? "Subscribed" : "Subscribe"}
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -43,12 +43,27 @@ export async function GET(req: NextRequest) {
       .eq("org_id", orgId)
       .order("site_name");
 
-    // Get all equipment with their groups
+    // Get all equipment with their groups and type IDs
     const { data: allEquipment } = await supabase
       .from("a_equipments")
-      .select("equipment_id, equipment_name, equipment_group, site_id")
+      .select("equipment_id, equipment_name, equipment_group, equipment_type_id, site_id")
       .eq("org_id", orgId)
       .order("equipment_name");
+
+    // Build equipment_type_id → display name mapping via library_equipment_types
+    const typeIds = [...new Set(
+      (allEquipment || []).map((eq: any) => eq.equipment_type_id).filter(Boolean)
+    )];
+    let typeNameMap: Record<string, string> = {};
+    if (typeIds.length > 0) {
+      const { data: libTypes } = await supabase
+        .from("library_equipment_types")
+        .select("equipment_type_id, name")
+        .in("equipment_type_id", typeIds);
+      for (const lt of libTypes || []) {
+        typeNameMap[lt.equipment_type_id] = lt.name;
+      }
+    }
 
     // Get all enabled definitions
     const { data: definitions } = await supabase
@@ -76,11 +91,21 @@ export async function GET(req: NextRequest) {
       const siteEquipment = (allEquipment || []).filter((eq: any) => eq.site_id === site.site_id);
 
       const equipmentWithDefs = siteEquipment.map((eq: any) => {
+        // Resolve this equipment's display type name via library
+        const resolvedTypeName = eq.equipment_type_id
+          ? typeNameMap[eq.equipment_type_id] || null
+          : null;
+
         // Find definitions matching this equipment's type/group
         const matchingDefs = (definitions || []).filter((def: any) => {
           // Check if definition targets this equipment type
           if (def.entity_type === "sensor" && def.equipment_type) {
-            if (def.equipment_type !== eq.equipment_group) return false;
+            // Match against resolved library name, equipment_group, or equipment_type_id
+            const matches =
+              def.equipment_type === resolvedTypeName ||
+              def.equipment_type === eq.equipment_group ||
+              def.equipment_type === eq.equipment_type_id;
+            if (!matches) return false;
           } else if (def.entity_type === "sensor" && def.entity_id) {
             // Specific sensor — we'd need to check if it belongs to this equipment
             // Skip for now — these show up as org-level
@@ -108,6 +133,7 @@ export async function GET(req: NextRequest) {
           threshold_value: def.threshold_value,
           equipment_type: def.equipment_type,
           sensor_role: def.sensor_role,
+          resolved_dead_time_minutes: def.resolved_dead_time_minutes ?? 0,
           subscription: userSubs[def.id] || null,
         }));
 
