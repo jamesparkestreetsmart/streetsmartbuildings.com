@@ -58,7 +58,6 @@ export default function AlertSubscriptions({
 
   // Local edit state for the expanded dispatch editor
   const [editState, setEditState] = useState<{
-    dashboard_enabled: boolean;
     email_enabled: boolean;
     sms_enabled: boolean;
     repeat_enabled: boolean;
@@ -95,7 +94,6 @@ export default function AlertSubscriptions({
     setExpandedId(def.id);
     if (def.subscription) {
       setEditState({
-        dashboard_enabled: def.subscription.dashboard_enabled,
         email_enabled: def.subscription.email_enabled,
         sms_enabled: def.subscription.sms_enabled,
         repeat_enabled: def.subscription.repeat_enabled,
@@ -181,10 +179,16 @@ export default function AlertSubscriptions({
   };
 
   const dispatchSummary = (sub: NonNullable<SubscriptionDef["subscription"]>) => {
+    const channels: string[] = [];
+    if (sub.email_enabled) channels.push("Email");
+    if (sub.sms_enabled) channels.push("SMS");
+
     const parts: string[] = [];
-    if (sub.dashboard_enabled) parts.push("Dashboard");
-    if (sub.email_enabled) parts.push("Email");
-    if (sub.sms_enabled) parts.push("SMS");
+    if (channels.length > 0) {
+      parts.push(channels.join(" + "));
+    } else {
+      parts.push("Dashboard only");
+    }
     if (sub.repeat_enabled && sub.repeat_interval_min > 0) {
       parts.push(`${sub.repeat_interval_min}min repeat`);
     }
@@ -273,15 +277,8 @@ export default function AlertSubscriptions({
                         {/* Channels */}
                         <div>
                           <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Channels</label>
+                          <p className="mt-1 text-xs text-gray-400">Dashboard notifications are always on.</p>
                           <div className="mt-2 space-y-2">
-                            <label className="flex items-center gap-2 text-sm">
-                              <input
-                                type="checkbox"
-                                checked={editState.dashboard_enabled}
-                                onChange={(e) => setEditState({ ...editState, dashboard_enabled: e.target.checked })}
-                              />
-                              Dashboard notifications
-                            </label>
                             <div className="flex items-center gap-2">
                               <label className="flex items-center gap-2 text-sm">
                                 <input

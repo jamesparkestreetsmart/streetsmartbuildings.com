@@ -125,6 +125,8 @@ export default function AlertRulesManager({
   const [totalSites, setTotalSites] = useState(0);
   const [watchingData, setWatchingData] = useState<WatchingSite[]>([]);
   const [watchingLoading, setWatchingLoading] = useState(false);
+  const [scopePopoverId, setScopePopoverId] = useState<string | null>(null);
+  const [scopePopoverSaving, setScopePopoverSaving] = useState(false);
 
   // Cascading data
   const [sites, setSites] = useState<SiteOption[]>([]);
@@ -354,6 +356,30 @@ export default function AlertRulesManager({
     setDefinitions((prev) => prev.filter((d) => d.id !== id));
   };
 
+  const quickSetScope = async (defId: string, scopeLevel: string, scopeMode: string, scopeIds: string[]) => {
+    setScopePopoverSaving(true);
+    try {
+      const res = await fetch("/api/alerts/rules", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: defId, scope_level: scopeLevel, scope_mode: scopeMode, scope_ids: scopeIds }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.definition) {
+          setDefinitions((prev) =>
+            prev.map((d) => (d.id === defId ? { ...d, ...data.definition } : d))
+          );
+        }
+      }
+    } catch (err) {
+      console.error("Failed to set scope:", err);
+    } finally {
+      setScopePopoverSaving(false);
+      setScopePopoverId(null);
+    }
+  };
+
   // ─── Display helpers ────────────────────────────────────────────────────
   const watchDescription = (def: AlertDefinition) => {
     let what = "";
@@ -545,9 +571,9 @@ export default function AlertRulesManager({
                     />
                     <div>
                       <span className="font-medium">All sites in org</span>
-                      <span className="text-gray-500 ml-1 text-xs">
-                        Watches all{form.selectedEquipmentType ? ` ${form.selectedEquipmentType}` : ""} equipment across every site.
-                      </span>
+                      <p className="text-gray-500 text-xs mt-0.5">
+                        Watches all{form.selectedEquipmentType ? ` ${form.selectedEquipmentType}` : ""} equipment across every current and future site. Recommended for org-wide alert templates.
+                      </p>
                     </div>
                   </label>
 
@@ -562,23 +588,39 @@ export default function AlertRulesManager({
                     <span className="font-medium">Specific sites</span>
                   </label>
                   {form.scopeChoice === "include_sites" && (
-                    <div className="ml-6 flex flex-wrap gap-1.5">
-                      {sites.map((site) => (
+                    <div className="ml-6 space-y-1.5">
+                      <div className="flex items-center gap-2">
                         <button
-                          key={site.site_id}
-                          onClick={() => toggleScopeSite(site.site_id)}
-                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-                            form.scopeSiteIds.includes(site.site_id)
-                              ? "bg-indigo-100 text-indigo-700 border-indigo-300"
-                              : "bg-gray-100 text-gray-600 border-gray-200"
-                          }`}
+                          onClick={() => setForm({ ...form, scopeSiteIds: sites.map((s) => s.site_id) })}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 underline"
                         >
-                          {form.scopeSiteIds.includes(site.site_id) ? `${site.name} ×` : site.name}
+                          Select All
                         </button>
-                      ))}
-                      {form.scopeSiteIds.length === 0 && (
-                        <span className="text-xs text-amber-600">Select at least one site</span>
-                      )}
+                        <button
+                          onClick={() => setForm({ ...form, scopeSiteIds: [] })}
+                          className="text-xs text-gray-500 hover:text-gray-700 underline"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sites.map((site) => (
+                          <button
+                            key={site.site_id}
+                            onClick={() => toggleScopeSite(site.site_id)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                              form.scopeSiteIds.includes(site.site_id)
+                                ? "bg-indigo-100 text-indigo-700 border-indigo-300"
+                                : "bg-gray-100 text-gray-600 border-gray-200"
+                            }`}
+                          >
+                            {form.scopeSiteIds.includes(site.site_id) ? `${site.name} ×` : site.name}
+                          </button>
+                        ))}
+                        {form.scopeSiteIds.length === 0 && (
+                          <span className="text-xs text-amber-600">Select at least one site</span>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -593,20 +635,36 @@ export default function AlertRulesManager({
                     <span className="font-medium">All sites except...</span>
                   </label>
                   {form.scopeChoice === "exclude_sites" && (
-                    <div className="ml-6 flex flex-wrap gap-1.5">
-                      {sites.map((site) => (
+                    <div className="ml-6 space-y-1.5">
+                      <div className="flex items-center gap-2">
                         <button
-                          key={site.site_id}
-                          onClick={() => toggleScopeSite(site.site_id)}
-                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-                            form.scopeSiteIds.includes(site.site_id)
-                              ? "bg-red-100 text-red-700 border-red-300"
-                              : "bg-gray-100 text-gray-600 border-gray-200"
-                          }`}
+                          onClick={() => setForm({ ...form, scopeSiteIds: sites.map((s) => s.site_id) })}
+                          className="text-xs text-red-600 hover:text-red-800 underline"
                         >
-                          {form.scopeSiteIds.includes(site.site_id) ? `${site.name} ×` : site.name}
+                          Select All
                         </button>
-                      ))}
+                        <button
+                          onClick={() => setForm({ ...form, scopeSiteIds: [] })}
+                          className="text-xs text-gray-500 hover:text-gray-700 underline"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sites.map((site) => (
+                          <button
+                            key={site.site_id}
+                            onClick={() => toggleScopeSite(site.site_id)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                              form.scopeSiteIds.includes(site.site_id)
+                                ? "bg-red-100 text-red-700 border-red-300"
+                                : "bg-gray-100 text-gray-600 border-gray-200"
+                            }`}
+                          >
+                            {form.scopeSiteIds.includes(site.site_id) ? `${site.name} ×` : site.name}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -1070,12 +1128,49 @@ export default function AlertRulesManager({
                     {(() => {
                       const scope = scopeLabel(def);
                       return (
-                        <span className={`px-2 py-0.5 text-xs rounded-full ${
-                          scope.isUnassigned
-                            ? "bg-amber-100 text-amber-700 border border-amber-300"
-                            : "bg-gray-100 text-gray-500"
-                        }`}>
-                          {scope.text}
+                        <span className="relative inline-block">
+                          {scope.isUnassigned ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setScopePopoverId(scopePopoverId === def.id ? null : def.id); }}
+                              className="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200 transition-colors cursor-pointer"
+                              title="Unassigned — click to set scope"
+                            >
+                              {scope.text}
+                            </button>
+                          ) : (
+                            <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-500">
+                              {scope.text}
+                            </span>
+                          )}
+                          {scopePopoverId === def.id && (
+                            <div className="absolute left-0 top-full mt-1 z-10 bg-white border border-gray-300 rounded-lg shadow-lg p-3 min-w-[200px]"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="text-xs font-semibold text-gray-700 mb-2">Assign scope</div>
+                              <div className="space-y-1.5">
+                                <button
+                                  onClick={() => quickSetScope(def.id, "org", "all", [])}
+                                  disabled={scopePopoverSaving}
+                                  className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-indigo-50 text-gray-700 transition-colors"
+                                >
+                                  All sites in org
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setScopePopoverId(null);
+                                    setExpandedDef(def.id);
+                                    fetchWatching(def.id);
+                                  }}
+                                  className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-gray-50 text-gray-500 transition-colors"
+                                >
+                                  Choose specific sites...
+                                </button>
+                              </div>
+                              {scopePopoverSaving && (
+                                <div className="mt-1 text-xs text-gray-400">Saving...</div>
+                              )}
+                            </div>
+                          )}
                         </span>
                       );
                     })()}

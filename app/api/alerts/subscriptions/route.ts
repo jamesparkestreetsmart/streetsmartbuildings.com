@@ -119,8 +119,9 @@ export async function POST(req: NextRequest) {
   }
 
   // Build payload with only core fields that definitely exist on the table
+  // Dashboard is always on — ignore client value
   const payload: Record<string, any> = {
-    dashboard_enabled: dashboard_enabled ?? true,
+    dashboard_enabled: true,
     email_enabled: email_enabled ?? false,
     sms_enabled: sms_enabled ?? false,
     repeat_enabled: repeat_enabled ?? false,
