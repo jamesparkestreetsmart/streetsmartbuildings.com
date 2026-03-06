@@ -127,6 +127,13 @@ export default function AlertRulesManager({
   const [watchingLoading, setWatchingLoading] = useState(false);
   const [scopePopoverId, setScopePopoverId] = useState<string | null>(null);
   const [scopePopoverSaving, setScopePopoverSaving] = useState(false);
+  const [scopeEditing, setScopeEditing] = useState(false);
+  const [scopeEditMode, setScopeEditMode] = useState<"all" | "include_sites" | "exclude_sites">("all");
+  const [scopeEditChecked, setScopeEditChecked] = useState<Set<string>>(new Set()); // site_ids or equipment_ids
+  const [scopeEditEquipChecked, setScopeEditEquipChecked] = useState<Set<string>>(new Set()); // individual equipment overrides
+  const [allSitesData, setAllSitesData] = useState<WatchingSite[]>([]);
+  const [scopeEditExpanded, setScopeEditExpanded] = useState<Set<string>>(new Set());
+  const [scopeSaving, setScopeSaving] = useState(false);
 
   // Cascading data
   const [sites, setSites] = useState<SiteOption[]>([]);
@@ -458,6 +465,189 @@ export default function AlertRulesManager({
       setWatchingLoading(false);
     }
   }, [orgId]);
+
+  // Fetch all sites with equipment for scope editing
+  const fetchAllSitesForEdit = useCallback(async (defId: string) => {
+    try {
+      const res = await fetch(`/api/alerts/entities?org_id=${orgId}&level=watching&def_id=${defId}&mode=full`);
+      const data = await res.json();
+      setAllSitesData(data.all_sites || []);
+    } catch {
+      setAllSitesData([]);
+    }
+  }, [orgId]);
+
+  // Start editing scope for a definition
+  const startScopeEdit = (def: AlertDefinition) => {
+    fetchAllSitesForEdit(def.id);
+    setScopeEditing(true);
+    setScopeEditExpanded(new Set());
+
+    if (def.scope_mode === "all") {
+      setScopeEditMode("all");
+      setScopeEditChecked(new Set());
+      setScopeEditEquipChecked(new Set());
+    } else if (def.scope_mode === "exclude") {
+      setScopeEditMode("exclude_sites");
+      setScopeEditChecked(new Set(def.scope_ids || []));
+      setScopeEditEquipChecked(new Set());
+    } else if (def.scope_level === "equipment" && def.scope_mode === "include") {
+      // Equipment-level scope: show as include_sites but with individual equipment checked
+      setScopeEditMode("include_sites");
+      setScopeEditChecked(new Set());
+      setScopeEditEquipChecked(new Set(def.scope_ids || []));
+    } else {
+      setScopeEditMode("include_sites");
+      setScopeEditChecked(new Set(def.scope_ids || []));
+      setScopeEditEquipChecked(new Set());
+    }
+  };
+
+  // Save scope from the editor
+  const saveScopeEdit = async (defId: string) => {
+    setScopeSaving(true);
+    try {
+      let scopeLevel: string;
+      let scopeMode: string;
+      let scopeIds: string[];
+
+      if (scopeEditMode === "all") {
+        scopeLevel = "org";
+        scopeMode = "all";
+        scopeIds = [];
+      } else if (scopeEditMode === "exclude_sites") {
+        scopeLevel = "site";
+        scopeMode = "exclude";
+        scopeIds = [...scopeEditChecked];
+      } else {
+        // include_sites mode — check if we have individual equipment selections
+        // If any equipment is individually selected (not all equipment at its site),
+        // use equipment-level scope
+        const hasIndividualEquip = scopeEditEquipChecked.size > 0;
+        const siteChecked = scopeEditChecked;
+
+        if (hasIndividualEquip && siteChecked.size === 0) {
+          // Pure equipment-level scope
+          scopeLevel = "equipment";
+          scopeMode = "include";
+          scopeIds = [...scopeEditEquipChecked];
+        } else if (hasIndividualEquip) {
+          // Mixed: some full sites + some individual equipment
+          // Resolve all to equipment IDs
+          const allEquipIds = new Set<string>();
+          for (const eqId of scopeEditEquipChecked) allEquipIds.add(eqId);
+          for (const sId of siteChecked) {
+            const site = allSitesData.find((s) => s.site_id === sId);
+            if (site) site.equipment.forEach((eq) => allEquipIds.add(eq.equipment_id));
+          }
+          scopeLevel = "equipment";
+          scopeMode = "include";
+          scopeIds = [...allEquipIds];
+        } else {
+          // Pure site-level scope
+          scopeLevel = "site";
+          scopeMode = "include";
+          scopeIds = [...siteChecked];
+        }
+      }
+
+      const res = await fetch("/api/alerts/rules", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: defId, scope_level: scopeLevel, scope_mode: scopeMode, scope_ids: scopeIds }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.definition) {
+          setDefinitions((prev) =>
+            prev.map((d) => (d.id === defId ? { ...d, ...data.definition } : d))
+          );
+        }
+        setScopeEditing(false);
+        fetchWatching(defId);
+      }
+    } catch (err) {
+      console.error("Failed to save scope:", err);
+    } finally {
+      setScopeSaving(false);
+    }
+  };
+
+  // Toggle site in scope editor — checks/unchecks all equipment at that site
+  const toggleScopeEditSite = (siteId: string) => {
+    const site = allSitesData.find((s) => s.site_id === siteId);
+    const siteEquipIds = site ? site.equipment.map((eq) => eq.equipment_id) : [];
+    const isCurrentlyChecked = scopeEditChecked.has(siteId);
+
+    if (isCurrentlyChecked) {
+      // Uncheck site and all its equipment
+      const newChecked = new Set(scopeEditChecked);
+      newChecked.delete(siteId);
+      setScopeEditChecked(newChecked);
+      const newEquip = new Set(scopeEditEquipChecked);
+      siteEquipIds.forEach((id) => newEquip.delete(id));
+      setScopeEditEquipChecked(newEquip);
+    } else {
+      // Check site (all equipment at this site)
+      const newChecked = new Set(scopeEditChecked);
+      newChecked.add(siteId);
+      setScopeEditChecked(newChecked);
+      // Remove individual equipment entries for this site since site covers them
+      const newEquip = new Set(scopeEditEquipChecked);
+      siteEquipIds.forEach((id) => newEquip.delete(id));
+      setScopeEditEquipChecked(newEquip);
+    }
+  };
+
+  // Toggle individual equipment in scope editor
+  const toggleScopeEditEquip = (siteId: string, equipId: string) => {
+    const site = allSitesData.find((s) => s.site_id === siteId);
+    if (!site) return;
+
+    const newEquip = new Set(scopeEditEquipChecked);
+    const newSites = new Set(scopeEditChecked);
+
+    if (newSites.has(siteId)) {
+      // Site was fully checked — uncheck it and check all equipment except this one
+      newSites.delete(siteId);
+      site.equipment.forEach((eq) => {
+        if (eq.equipment_id !== equipId) newEquip.add(eq.equipment_id);
+      });
+      newEquip.delete(equipId);
+    } else if (newEquip.has(equipId)) {
+      // Uncheck this equipment
+      newEquip.delete(equipId);
+    } else {
+      // Check this equipment
+      newEquip.add(equipId);
+      // If all equipment at this site is now checked, promote to site-level
+      const allSiteEquipIds = site.equipment.map((eq) => eq.equipment_id);
+      const allChecked = allSiteEquipIds.every((id) => id === equipId || newEquip.has(id));
+      if (allChecked && allSiteEquipIds.length > 0) {
+        newSites.add(siteId);
+        allSiteEquipIds.forEach((id) => newEquip.delete(id));
+      }
+    }
+
+    setScopeEditChecked(newSites);
+    setScopeEditEquipChecked(newEquip);
+  };
+
+  // Check if equipment is selected (either via site or individually)
+  const isEquipChecked = (siteId: string, equipId: string) => {
+    return scopeEditChecked.has(siteId) || scopeEditEquipChecked.has(equipId);
+  };
+
+  // Get site check state: true (all), false (none), "indeterminate" (some)
+  const getSiteCheckState = (siteId: string): boolean | "indeterminate" => {
+    if (scopeEditChecked.has(siteId)) return true;
+    const site = allSitesData.find((s) => s.site_id === siteId);
+    if (!site || site.equipment.length === 0) return false;
+    const checkedCount = site.equipment.filter((eq) => scopeEditEquipChecked.has(eq.equipment_id)).length;
+    if (checkedCount === 0) return false;
+    if (checkedCount === site.equipment.length) return true;
+    return "indeterminate";
+  };
 
   // Get flattened equipment for the "Specific Equipment" scope selector
   const allEquipmentFlat = equipmentTypes.flatMap((et) =>
@@ -1160,6 +1350,7 @@ export default function AlertRulesManager({
                                     setScopePopoverId(null);
                                     setExpandedDef(def.id);
                                     fetchWatching(def.id);
+                                    startScopeEdit(def);
                                   }}
                                   className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-gray-50 text-gray-500 transition-colors"
                                 >
@@ -1189,8 +1380,10 @@ export default function AlertRulesManager({
                         if (expandedDef === def.id) {
                           setExpandedDef(null);
                           setWatchingData([]);
+                          setScopeEditing(false);
                         } else {
                           setExpandedDef(def.id);
+                          setScopeEditing(false);
                           fetchWatching(def.id);
                         }
                       }}
@@ -1201,43 +1394,214 @@ export default function AlertRulesManager({
                   </div>
                   {expandedDef === def.id && (
                     <div className="mt-2 space-y-3">
-                      {/* Watching Panel */}
+                      {/* Scope Panel */}
                       <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Watching</span>
-                          {(() => {
-                            const scope = scopeLabel(def);
-                            return (
-                              <span className={`px-2 py-0.5 text-xs rounded-full ${
-                                scope.isUnassigned
-                                  ? "bg-amber-100 text-amber-700 border border-amber-300"
-                                  : "bg-indigo-50 text-indigo-600 border border-indigo-200"
-                              }`}>
-                                {scope.text}
-                              </span>
-                            );
-                          })()}
-                        </div>
-                        {watchingLoading ? (
-                          <div className="text-xs text-gray-400 py-2">Loading...</div>
-                        ) : watchingData.length === 0 ? (
-                          <div className="text-xs text-amber-600 py-2">
-                            No sites/equipment in scope. Assign sites in the scope settings to start evaluating.
-                          </div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {watchingData.map((site) => (
-                              <div key={site.site_id} className="flex items-start gap-2 text-xs">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
-                                <div>
-                                  <span className="font-medium text-gray-800">{site.site_name}</span>
-                                  <span className="text-gray-400 ml-2">
-                                    {site.equipment.map((eq) => eq.equipment_name).join(", ")}
-                                  </span>
-                                </div>
+                        {!scopeEditing ? (
+                          <>
+                            {/* Read-only view */}
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Scope</span>
+                                {(() => {
+                                  const scope = scopeLabel(def);
+                                  return (
+                                    <span className={`px-2 py-0.5 text-xs rounded-full ${
+                                      scope.isUnassigned
+                                        ? "bg-amber-100 text-amber-700 border border-amber-300"
+                                        : "bg-indigo-50 text-indigo-600 border border-indigo-200"
+                                    }`}>
+                                      {scope.text}
+                                    </span>
+                                  );
+                                })()}
                               </div>
-                            ))}
-                          </div>
+                              <button
+                                onClick={() => startScopeEdit(def)}
+                                className="px-2 py-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded transition-colors"
+                              >
+                                Edit Scope
+                              </button>
+                            </div>
+                            {watchingLoading ? (
+                              <div className="text-xs text-gray-400 py-2">Loading...</div>
+                            ) : watchingData.length === 0 ? (
+                              <div className="text-xs text-amber-600 py-2">
+                                No sites/equipment in scope. Click &quot;Edit Scope&quot; to assign.
+                              </div>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {watchingData.map((site) => (
+                                  <div key={site.site_id} className="flex items-start gap-2 text-xs">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
+                                    <div>
+                                      <span className="font-medium text-gray-800">{site.site_name}</span>
+                                      <span className="text-gray-400 ml-2">
+                                        {site.equipment.map((eq) => eq.equipment_name).join(", ")}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {/* Editable scope editor */}
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Edit Scope</span>
+                              <button
+                                onClick={() => setScopeEditing(false)}
+                                className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+
+                            {/* Scope mode dropdown */}
+                            <div className="mb-3">
+                              <select
+                                value={scopeEditMode}
+                                onChange={(e) => {
+                                  setScopeEditMode(e.target.value as typeof scopeEditMode);
+                                  setScopeEditChecked(new Set());
+                                  setScopeEditEquipChecked(new Set());
+                                }}
+                                className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg bg-white"
+                              >
+                                <option value="all">All sites in org</option>
+                                <option value="include_sites">Specific sites</option>
+                                <option value="exclude_sites">All sites except...</option>
+                              </select>
+                            </div>
+
+                            {scopeEditMode === "all" && (
+                              <div className="text-xs text-gray-500 mb-3">
+                                Watches all {def.equipment_type || "matching"} equipment across every current and future site.
+                              </div>
+                            )}
+
+                            {/* Site/equipment checklist for include/exclude */}
+                            {scopeEditMode !== "all" && (
+                              <div className="space-y-1 mb-3 max-h-64 overflow-y-auto">
+                                {/* Select All / Clear All */}
+                                <div className="flex items-center gap-2 mb-2">
+                                  <button
+                                    onClick={() => {
+                                      const allSiteIds = allSitesData.filter((s) => s.equipment.length > 0).map((s) => s.site_id);
+                                      setScopeEditChecked(new Set(allSiteIds));
+                                      setScopeEditEquipChecked(new Set());
+                                    }}
+                                    className="text-xs text-indigo-600 hover:text-indigo-800 underline"
+                                  >
+                                    Select All
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setScopeEditChecked(new Set());
+                                      setScopeEditEquipChecked(new Set());
+                                    }}
+                                    className="text-xs text-gray-500 hover:text-gray-700 underline"
+                                  >
+                                    Clear All
+                                  </button>
+                                </div>
+
+                                {allSitesData.map((site) => {
+                                  const hasEquip = site.equipment.length > 0;
+                                  const checkState = getSiteCheckState(site.site_id);
+                                  const isExpSite = scopeEditExpanded.has(site.site_id);
+
+                                  return (
+                                    <div key={site.site_id}>
+                                      <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${
+                                        hasEquip ? "hover:bg-gray-100" : "opacity-50"
+                                      }`}>
+                                        <input
+                                          type="checkbox"
+                                          checked={checkState === true}
+                                          ref={(el) => {
+                                            if (el) el.indeterminate = checkState === "indeterminate";
+                                          }}
+                                          onChange={() => hasEquip && toggleScopeEditSite(site.site_id)}
+                                          disabled={!hasEquip}
+                                          className="flex-shrink-0"
+                                        />
+                                        <span
+                                          className={`font-medium flex-1 ${hasEquip ? "text-gray-800 cursor-pointer" : "text-gray-400"}`}
+                                          onClick={() => {
+                                            if (!hasEquip) return;
+                                            setScopeEditExpanded((prev) => {
+                                              const next = new Set(prev);
+                                              if (next.has(site.site_id)) next.delete(site.site_id); else next.add(site.site_id);
+                                              return next;
+                                            });
+                                          }}
+                                        >
+                                          {site.site_name}
+                                        </span>
+                                        {!hasEquip && (
+                                          <span className="text-gray-400 italic">
+                                            No {def.equipment_type || "matching"} equipment
+                                          </span>
+                                        )}
+                                        {hasEquip && (
+                                          <span className="text-gray-400">
+                                            {site.equipment.length} {site.equipment.length === 1 ? "device" : "devices"}
+                                          </span>
+                                        )}
+                                        {hasEquip && (
+                                          <button
+                                            onClick={() => setScopeEditExpanded((prev) => {
+                                              const next = new Set(prev);
+                                              if (next.has(site.site_id)) next.delete(site.site_id); else next.add(site.site_id);
+                                              return next;
+                                            })}
+                                            className={`text-gray-400 transition-transform ${isExpSite ? "rotate-90" : ""}`}
+                                          >
+                                            &#9654;
+                                          </button>
+                                        )}
+                                      </div>
+                                      {isExpSite && hasEquip && (
+                                        <div className="ml-8 space-y-0.5">
+                                          {site.equipment.map((eq) => (
+                                            <label
+                                              key={eq.equipment_id}
+                                              className="flex items-center gap-2 px-2 py-1 rounded text-xs hover:bg-gray-100 cursor-pointer"
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={isEquipChecked(site.site_id, eq.equipment_id)}
+                                                onChange={() => toggleScopeEditEquip(site.site_id, eq.equipment_id)}
+                                              />
+                                              <span className="text-gray-700">{eq.equipment_name}</span>
+                                            </label>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Save button */}
+                            <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
+                              <button
+                                onClick={() => saveScopeEdit(def.id)}
+                                disabled={scopeSaving}
+                                className="px-4 py-1.5 bg-indigo-500 text-white text-xs font-medium rounded-lg hover:bg-indigo-600 disabled:opacity-50"
+                              >
+                                {scopeSaving ? "Saving..." : "Save Scope"}
+                              </button>
+                              <button
+                                onClick={() => setScopeEditing(false)}
+                                className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </>
                         )}
                       </div>
                       <AlertOverrides orgId={orgId} alertDefId={def.id} />
