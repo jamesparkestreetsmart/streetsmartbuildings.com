@@ -11,6 +11,8 @@ interface BrowseDef {
   threshold_value: number | null;
   equipment_type: string | null;
   sensor_role: string | null;
+  scope_level?: string;
+  scope_mode?: string;
   resolved_dead_time_minutes?: number;
   subscription: {
     id: string;
@@ -241,6 +243,13 @@ export default function AlertBrowseView({ orgId }: { orgId: string }) {
                       const totalCount = eq.definitions.length;
                       const allSubscribed = subCount === totalCount;
                       const noneSubscribed = subCount === 0;
+                      // Check if all subscribed defs are org-wide (scope_mode='all')
+                      const hasOrgWideSub = eq.definitions.some(
+                        (d) => d.subscription && (d.scope_mode === "all" || !d.scope_mode)
+                      );
+                      const allOrgWide = eq.definitions.every(
+                        (d) => d.scope_mode === "all" || !d.scope_mode
+                      );
 
                       return (
                         <div key={eq.equipment_id} className="mt-1">
@@ -263,15 +272,25 @@ export default function AlertBrowseView({ orgId }: { orgId: string }) {
                             </button>
 
                             {/* Subscription summary badge */}
-                            <span className={`text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${
-                              allSubscribed
-                                ? "bg-green-50 text-green-700 border-green-200"
-                                : noneSubscribed
-                                ? "bg-gray-100 text-gray-500 border-gray-200"
-                                : "bg-amber-50 text-amber-600 border-amber-200"
-                            }`}>
-                              {subCount} of {totalCount} subscribed{allSubscribed ? " \u2713" : ""}
-                            </span>
+                            {allSubscribed && allOrgWide && hasOrgWideSub ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full border flex-shrink-0 bg-indigo-50 text-indigo-700 border-indigo-200">
+                                Org-wide subscription &#10003;
+                              </span>
+                            ) : allSubscribed && hasOrgWideSub ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full border flex-shrink-0 bg-green-50 text-green-700 border-green-200">
+                                {subCount} of {totalCount} subscribed &#10003;
+                              </span>
+                            ) : (
+                              <span className={`text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                                allSubscribed
+                                  ? "bg-green-50 text-green-700 border-green-200"
+                                  : noneSubscribed
+                                  ? "bg-gray-100 text-gray-500 border-gray-200"
+                                  : "bg-amber-50 text-amber-600 border-amber-200"
+                              }`}>
+                                {subCount} of {totalCount} subscribed{allSubscribed ? " \u2713" : ""}
+                              </span>
+                            )}
 
                             {/* Subscribe All shortcut */}
                             {noneSubscribed && (

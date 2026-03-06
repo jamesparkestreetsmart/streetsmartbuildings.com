@@ -118,7 +118,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "alert_def_id required" }, { status: 400 });
   }
 
-  const payload = {
+  // Build payload with only core fields that definitely exist on the table
+  const payload: Record<string, any> = {
     dashboard_enabled: dashboard_enabled ?? true,
     email_enabled: email_enabled ?? false,
     sms_enabled: sms_enabled ?? false,
@@ -126,14 +127,16 @@ export async function POST(req: NextRequest) {
     repeat_interval_min: repeat_interval_min ?? 60,
     max_repeats: max_repeats ?? null,
     send_resolved: send_resolved ?? true,
-    quiet_hours_override: quiet_hours_override ?? false,
-    quiet_start: quiet_start ?? null,
-    quiet_end: quiet_end ?? null,
-    timezone: timezone ?? "America/Chicago",
-    email_override: email_override ?? null,
-    sms_override: sms_override ?? null,
     enabled: true,
   };
+
+  // Only include optional fields if explicitly provided (columns may not exist yet)
+  if (quiet_hours_override !== undefined) payload.quiet_hours_override = quiet_hours_override;
+  if (quiet_start !== undefined) payload.quiet_start = quiet_start ?? null;
+  if (quiet_end !== undefined) payload.quiet_end = quiet_end ?? null;
+  if (timezone !== undefined) payload.timezone = timezone;
+  if (email_override !== undefined) payload.email_override = email_override ?? null;
+  if (sms_override !== undefined) payload.sms_override = sms_override ?? null;
 
   // Look up org_id from the definition
   const { data: def } = await supabase

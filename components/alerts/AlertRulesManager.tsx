@@ -70,13 +70,18 @@ const CONDITION_TYPES = [
   { key: "rate_of_change", label: "Rate of Change" },
 ];
 
+interface WatchingSite {
+  site_id: string;
+  site_name: string;
+  equipment: { equipment_id: string; equipment_name: string }[];
+}
+
 const defaultForm = {
   name: "",
   description: "",
   severity: "warning",
   entity_type: "sensor" as "sensor" | "derived" | "anomaly",
   // Sensor selection
-  selectedSites: [] as string[],
   sensorMode: "equipment_type" as "equipment_type" | "specific_equipment",
   selectedEquipmentType: "",
   selectedEquipmentId: "",
@@ -97,6 +102,10 @@ const defaultForm = {
   // Settings
   sustain_minutes: "0",
   resolved_dead_time_minutes: "0",
+  // Scope
+  scopeChoice: "all" as "all" | "include_sites" | "exclude_sites" | "specific_equipment",
+  scopeSiteIds: [] as string[],
+  scopeEquipmentIds: [] as string[],
 };
 
 export default function AlertRulesManager({
@@ -113,6 +122,9 @@ export default function AlertRulesManager({
   const [collapsed, setCollapsed] = useState(false);
   const [expandedDef, setExpandedDef] = useState<string | null>(null);
   const [form, setForm] = useState({ ...defaultForm });
+  const [totalSites, setTotalSites] = useState(0);
+  const [watchingData, setWatchingData] = useState<WatchingSite[]>([]);
+  const [watchingLoading, setWatchingLoading] = useState(false);
 
   // Cascading data
   const [sites, setSites] = useState<SiteOption[]>([]);
@@ -128,6 +140,7 @@ export default function AlertRulesManager({
       const res = await fetch(`/api/alerts/rules?org_id=${orgId}`);
       const data = await res.json();
       setDefinitions(data.definitions || []);
+      if (data.total_sites !== undefined) setTotalSites(data.total_sites);
     } catch (err) {
       console.error("Failed to fetch definitions:", err);
     } finally {
@@ -213,14 +226,23 @@ export default function AlertRulesManager({
         eval_path: "auto",
       };
 
-      // Scope from site selection
-      if (form.selectedSites.length > 0) {
-        body.scope_mode = "include";
-        body.scope_level = "site";
-        body.scope_ids = form.selectedSites;
-      } else {
-        body.scope_mode = "all";
+      // Scope
+      if (form.scopeChoice === "all") {
         body.scope_level = "org";
+        body.scope_mode = "all";
+        body.scope_ids = [];
+      } else if (form.scopeChoice === "include_sites") {
+        body.scope_level = "site";
+        body.scope_mode = "include";
+        body.scope_ids = form.scopeSiteIds;
+      } else if (form.scopeChoice === "exclude_sites") {
+        body.scope_level = "site";
+        body.scope_mode = "exclude";
+        body.scope_ids = form.scopeSiteIds;
+      } else if (form.scopeChoice === "specific_equipment") {
+        body.scope_level = "equipment";
+        body.scope_mode = "include";
+        body.scope_ids = form.scopeEquipmentIds;
       }
 
       if (form.entity_type === "sensor") {
@@ -359,31 +381,69 @@ export default function AlertRulesManager({
     return `${what} ${condition}`.trim();
   };
 
-  const scopeLabel = (def: AlertDefinition) => {
-    if (def.scope_mode === "all") return "All Sites";
+  const scopeLabel = (def: AlertDefinition): { text: string; isUnassigned: boolean } => {
+    if (def.scope_mode === "all") return { text: `All sites (${totalSites})`, isUnassigned: false };
     const count = def.scope_ids?.length || 0;
-    if (def.scope_mode === "include") return `${count} site${count !== 1 ? "s" : ""}`;
-    return `Excluding ${count} site${count !== 1 ? "s" : ""}`;
+    if (def.scope_level === "equipment" && def.scope_mode === "include") {
+      return count > 0
+        ? { text: `${count} equipment`, isUnassigned: false }
+        : { text: "0 equipment", isUnassigned: true };
+    }
+    if (def.scope_mode === "include") {
+      return count > 0
+        ? { text: `${count} site${count !== 1 ? "s" : ""}`, isUnassigned: false }
+        : { text: "0 sites", isUnassigned: true };
+    }
+    if (def.scope_mode === "exclude") {
+      return { text: `All except ${count}`, isUnassigned: false };
+    }
+    return { text: "0 sites", isUnassigned: true };
   };
 
   // ─── Helpers ────────────────────────────────────────────────────────────
-  const toggleSite = (siteId: string) => {
+  const toggleScopeSite = (siteId: string) => {
     setForm((prev) => ({
       ...prev,
-      selectedSites: prev.selectedSites.includes(siteId)
-        ? prev.selectedSites.filter((s) => s !== siteId)
-        : [...prev.selectedSites, siteId],
+      scopeSiteIds: prev.scopeSiteIds.includes(siteId)
+        ? prev.scopeSiteIds.filter((s) => s !== siteId)
+        : [...prev.scopeSiteIds, siteId],
     }));
   };
 
-  // Get flattened equipment for the "Specific Equipment" sub-selector
+  const toggleScopeEquipment = (equipId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      scopeEquipmentIds: prev.scopeEquipmentIds.includes(equipId)
+        ? prev.scopeEquipmentIds.filter((e) => e !== equipId)
+        : [...prev.scopeEquipmentIds, equipId],
+    }));
+  };
+
+  // Fetch watching data when definition is expanded
+  const fetchWatching = useCallback(async (defId: string) => {
+    setWatchingLoading(true);
+    try {
+      const res = await fetch(`/api/alerts/entities?org_id=${orgId}&level=watching&def_id=${defId}`);
+      const data = await res.json();
+      setWatchingData(data.watching || []);
+    } catch {
+      setWatchingData([]);
+    } finally {
+      setWatchingLoading(false);
+    }
+  }, [orgId]);
+
+  // Get flattened equipment for the "Specific Equipment" scope selector
   const allEquipmentFlat = equipmentTypes.flatMap((et) =>
-    et.equipment
-      .filter((eq) =>
-        form.selectedSites.length === 0 || form.selectedSites.includes(eq.site_id)
-      )
-      .map((eq) => ({ ...eq, groupLabel: et.label }))
+    et.equipment.map((eq) => ({ ...eq, groupLabel: et.label }))
   );
+
+  // Filter equipment for "Specific Equipment" scope by equipment_type
+  const scopeEquipmentOptions = form.selectedEquipmentType
+    ? equipmentTypes
+        .filter((et) => et.type === form.selectedEquipmentType)
+        .flatMap((et) => et.equipment.map((eq) => ({ ...eq, groupLabel: et.label })))
+    : allEquipmentFlat;
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden">
@@ -470,33 +530,123 @@ export default function AlertRulesManager({
                 </div>
               </div>
 
-              {/* ─── Site Filter ─── */}
+              {/* ─── Scope — Where should this alert watch? ─── */}
               <div>
-                <label className="text-sm font-medium text-gray-700">Which Sites?</label>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => setForm({ ...form, selectedSites: [] })}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-                      form.selectedSites.length === 0
-                        ? "bg-green-100 text-green-700 border-green-300"
-                        : "bg-gray-100 text-gray-600 border-gray-200"
-                    }`}
-                  >
-                    All Sites
-                  </button>
-                  {sites.map((site) => (
-                    <button
-                      key={site.site_id}
-                      onClick={() => toggleSite(site.site_id)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
-                        form.selectedSites.includes(site.site_id)
-                          ? "bg-indigo-100 text-indigo-700 border-indigo-300"
-                          : "bg-gray-100 text-gray-600 border-gray-200"
-                      }`}
-                    >
-                      {site.name}
-                    </button>
-                  ))}
+                <label className="text-sm font-medium text-gray-700">Scope — Where should this alert watch?</label>
+                <div className="mt-2 space-y-2">
+                  {/* Radio options */}
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="scopeChoice"
+                      checked={form.scopeChoice === "all"}
+                      onChange={() => setForm({ ...form, scopeChoice: "all", scopeSiteIds: [], scopeEquipmentIds: [] })}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <span className="font-medium">All sites in org</span>
+                      <span className="text-gray-500 ml-1 text-xs">
+                        Watches all{form.selectedEquipmentType ? ` ${form.selectedEquipmentType}` : ""} equipment across every site.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="scopeChoice"
+                      checked={form.scopeChoice === "include_sites"}
+                      onChange={() => setForm({ ...form, scopeChoice: "include_sites", scopeEquipmentIds: [] })}
+                      className="mt-0.5"
+                    />
+                    <span className="font-medium">Specific sites</span>
+                  </label>
+                  {form.scopeChoice === "include_sites" && (
+                    <div className="ml-6 flex flex-wrap gap-1.5">
+                      {sites.map((site) => (
+                        <button
+                          key={site.site_id}
+                          onClick={() => toggleScopeSite(site.site_id)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                            form.scopeSiteIds.includes(site.site_id)
+                              ? "bg-indigo-100 text-indigo-700 border-indigo-300"
+                              : "bg-gray-100 text-gray-600 border-gray-200"
+                          }`}
+                        >
+                          {form.scopeSiteIds.includes(site.site_id) ? `${site.name} ×` : site.name}
+                        </button>
+                      ))}
+                      {form.scopeSiteIds.length === 0 && (
+                        <span className="text-xs text-amber-600">Select at least one site</span>
+                      )}
+                    </div>
+                  )}
+
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="scopeChoice"
+                      checked={form.scopeChoice === "exclude_sites"}
+                      onChange={() => setForm({ ...form, scopeChoice: "exclude_sites", scopeEquipmentIds: [] })}
+                      className="mt-0.5"
+                    />
+                    <span className="font-medium">All sites except...</span>
+                  </label>
+                  {form.scopeChoice === "exclude_sites" && (
+                    <div className="ml-6 flex flex-wrap gap-1.5">
+                      {sites.map((site) => (
+                        <button
+                          key={site.site_id}
+                          onClick={() => toggleScopeSite(site.site_id)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                            form.scopeSiteIds.includes(site.site_id)
+                              ? "bg-red-100 text-red-700 border-red-300"
+                              : "bg-gray-100 text-gray-600 border-gray-200"
+                          }`}
+                        >
+                          {form.scopeSiteIds.includes(site.site_id) ? `${site.name} ×` : site.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="scopeChoice"
+                      checked={form.scopeChoice === "specific_equipment"}
+                      onChange={() => setForm({ ...form, scopeChoice: "specific_equipment", scopeSiteIds: [] })}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <span className="font-medium">Specific equipment only</span>
+                      <span className="text-gray-500 ml-1 text-xs">
+                        For one-off overrides. Prefer site scope for portfolio-wide management.
+                      </span>
+                    </div>
+                  </label>
+                  {form.scopeChoice === "specific_equipment" && (
+                    <div className="ml-6 space-y-1.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {scopeEquipmentOptions.map((eq) => (
+                          <button
+                            key={eq.id}
+                            onClick={() => toggleScopeEquipment(eq.id)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                              form.scopeEquipmentIds.includes(eq.id)
+                                ? "bg-indigo-100 text-indigo-700 border-indigo-300"
+                                : "bg-gray-100 text-gray-600 border-gray-200"
+                            }`}
+                          >
+                            {form.scopeEquipmentIds.includes(eq.id) ? "× " : ""}{eq.name} — {eq.site_name}
+                          </button>
+                        ))}
+                      </div>
+                      {form.scopeEquipmentIds.length === 0 && (
+                        <span className="text-xs text-amber-600">Select at least one equipment</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -554,17 +704,11 @@ export default function AlertRulesManager({
                         className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
                       >
                         <option value="">Select equipment type...</option>
-                        {equipmentTypes.map((et) => {
-                          const filteredCount = form.selectedSites.length > 0
-                            ? et.equipment.filter((eq) => form.selectedSites.includes(eq.site_id)).length
-                            : et.count;
-                          if (filteredCount === 0) return null;
-                          return (
-                            <option key={et.type} value={et.type}>
-                              {et.label} ({filteredCount})
-                            </option>
-                          );
-                        })}
+                        {equipmentTypes.map((et) => (
+                          <option key={et.type} value={et.type}>
+                            {et.label} ({et.count})
+                          </option>
+                        ))}
                       </select>
                     </div>
                   )}
@@ -923,9 +1067,18 @@ export default function AlertRulesManager({
                     <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-xs rounded-full border border-indigo-200">
                       {watchDescription(def)}
                     </span>
-                    <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
-                      {scopeLabel(def)}
-                    </span>
+                    {(() => {
+                      const scope = scopeLabel(def);
+                      return (
+                        <span className={`px-2 py-0.5 text-xs rounded-full ${
+                          scope.isUnassigned
+                            ? "bg-amber-100 text-amber-700 border border-amber-300"
+                            : "bg-gray-100 text-gray-500"
+                        }`}>
+                          {scope.text}
+                        </span>
+                      );
+                    })()}
                     {def.sustain_minutes > 0 && (
                       <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
                         {def.sustain_minutes}min sustain
@@ -937,14 +1090,63 @@ export default function AlertRulesManager({
                       </span>
                     )}
                     <button
-                      onClick={() => setExpandedDef(expandedDef === def.id ? null : def.id)}
+                      onClick={() => {
+                        if (expandedDef === def.id) {
+                          setExpandedDef(null);
+                          setWatchingData([]);
+                        } else {
+                          setExpandedDef(def.id);
+                          fetchWatching(def.id);
+                        }
+                      }}
                       className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full hover:bg-gray-200 transition-colors"
                     >
-                      {expandedDef === def.id ? "Hide Overrides" : "Overrides"}
+                      {expandedDef === def.id ? "Hide Details" : "Details"}
                     </button>
                   </div>
                   {expandedDef === def.id && (
-                    <AlertOverrides orgId={orgId} alertDefId={def.id} />
+                    <div className="mt-2 space-y-3">
+                      {/* Watching Panel */}
+                      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Watching</span>
+                          {(() => {
+                            const scope = scopeLabel(def);
+                            return (
+                              <span className={`px-2 py-0.5 text-xs rounded-full ${
+                                scope.isUnassigned
+                                  ? "bg-amber-100 text-amber-700 border border-amber-300"
+                                  : "bg-indigo-50 text-indigo-600 border border-indigo-200"
+                              }`}>
+                                {scope.text}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        {watchingLoading ? (
+                          <div className="text-xs text-gray-400 py-2">Loading...</div>
+                        ) : watchingData.length === 0 ? (
+                          <div className="text-xs text-amber-600 py-2">
+                            No sites/equipment in scope. Assign sites in the scope settings to start evaluating.
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {watchingData.map((site) => (
+                              <div key={site.site_id} className="flex items-start gap-2 text-xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
+                                <div>
+                                  <span className="font-medium text-gray-800">{site.site_name}</span>
+                                  <span className="text-gray-400 ml-2">
+                                    {site.equipment.map((eq) => eq.equipment_name).join(", ")}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <AlertOverrides orgId={orgId} alertDefId={def.id} />
+                    </div>
                   )}
                 </div>
               ))}

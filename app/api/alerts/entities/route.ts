@@ -115,7 +115,8 @@ export async function GET(req: NextRequest) {
           }
 
           // Check scope filtering
-          if (def.scope_mode === "include" && def.scope_ids?.length) {
+          if (def.scope_mode === "include") {
+            if (!def.scope_ids?.length) return false; // Empty include = unassigned
             if (def.scope_level === "site" && !def.scope_ids.includes(site.site_id)) return false;
             if (def.scope_level === "equipment" && !def.scope_ids.includes(eq.equipment_id)) return false;
           } else if (def.scope_mode === "exclude" && def.scope_ids?.length) {
@@ -133,6 +134,8 @@ export async function GET(req: NextRequest) {
           threshold_value: def.threshold_value,
           equipment_type: def.equipment_type,
           sensor_role: def.sensor_role,
+          scope_level: def.scope_level || "org",
+          scope_mode: def.scope_mode || "all",
           resolved_dead_time_minutes: def.resolved_dead_time_minutes ?? 0,
           subscription: userSubs[def.id] || null,
         }));
@@ -153,6 +156,108 @@ export async function GET(req: NextRequest) {
     }).filter((site: any) => site.equipment.length > 0);
 
     return NextResponse.json({ browse });
+  }
+
+  // ─── Level: watching (resolve scope → sites + equipment for a definition) ──
+  if (level === "watching") {
+    const defId = req.nextUrl.searchParams.get("def_id");
+    if (!defId) return NextResponse.json({ error: "def_id required" }, { status: 400 });
+
+    const { data: def } = await supabase
+      .from("b_alert_definitions")
+      .select("*")
+      .eq("id", defId)
+      .single();
+
+    if (!def) return NextResponse.json({ watching: [] });
+
+    // Get all sites in org
+    const { data: allSites } = await supabase
+      .from("a_sites")
+      .select("site_id, site_name")
+      .eq("org_id", orgId)
+      .order("site_name");
+
+    // Determine which sites are in scope
+    let scopedSites = allSites || [];
+    if (def.scope_level === "site" && def.scope_mode === "include" && def.scope_ids?.length) {
+      scopedSites = scopedSites.filter((s: any) => def.scope_ids.includes(s.site_id));
+    } else if (def.scope_level === "site" && def.scope_mode === "exclude" && def.scope_ids?.length) {
+      scopedSites = scopedSites.filter((s: any) => !def.scope_ids.includes(s.site_id));
+    } else if (def.scope_level === "equipment" && def.scope_mode === "include" && def.scope_ids?.length) {
+      // For equipment scope, we need to find which sites have the specified equipment
+      const { data: scopeEquip } = await supabase
+        .from("a_equipments")
+        .select("equipment_id, equipment_name, site_id")
+        .in("equipment_id", def.scope_ids);
+
+      const equipBySite: Record<string, any[]> = {};
+      for (const eq of scopeEquip || []) {
+        if (!equipBySite[eq.site_id]) equipBySite[eq.site_id] = [];
+        equipBySite[eq.site_id].push(eq);
+      }
+
+      const watching = scopedSites
+        .filter((s: any) => equipBySite[s.site_id])
+        .map((s: any) => ({
+          site_id: s.site_id,
+          site_name: s.site_name,
+          equipment: equipBySite[s.site_id].map((eq: any) => ({
+            equipment_id: eq.equipment_id,
+            equipment_name: eq.equipment_name,
+          })),
+        }));
+
+      return NextResponse.json({ watching });
+    } else if (def.scope_mode === "include" && (!def.scope_ids || def.scope_ids.length === 0)) {
+      // Empty include = unassigned
+      return NextResponse.json({ watching: [] });
+    }
+
+    // For site-scoped or org-wide: find matching equipment at each site
+    const scopedSiteIds = scopedSites.map((s: any) => s.site_id);
+    if (scopedSiteIds.length === 0) return NextResponse.json({ watching: [] });
+
+    // Build equipment type name map for matching
+    const { data: allEquip } = await supabase
+      .from("a_equipments")
+      .select("equipment_id, equipment_name, equipment_group, equipment_type_id, site_id")
+      .eq("org_id", orgId)
+      .in("site_id", scopedSiteIds);
+
+    const typeIds = [...new Set((allEquip || []).map((eq: any) => eq.equipment_type_id).filter(Boolean))];
+    let typeNameMap: Record<string, string> = {};
+    if (typeIds.length > 0) {
+      const { data: libTypes } = await supabase
+        .from("library_equipment_types")
+        .select("equipment_type_id, name")
+        .in("equipment_type_id", typeIds);
+      for (const lt of libTypes || []) {
+        typeNameMap[lt.equipment_type_id] = lt.name;
+      }
+    }
+
+    const watching = scopedSites.map((site: any) => {
+      const siteEquip = (allEquip || []).filter((eq: any) => {
+        if (eq.site_id !== site.site_id) return false;
+        if (!def.equipment_type) return true;
+        const resolvedName = eq.equipment_type_id ? typeNameMap[eq.equipment_type_id] : null;
+        return def.equipment_type === resolvedName ||
+          def.equipment_type === eq.equipment_group ||
+          def.equipment_type === eq.equipment_type_id;
+      });
+
+      return {
+        site_id: site.site_id,
+        site_name: site.site_name,
+        equipment: siteEquip.map((eq: any) => ({
+          equipment_id: eq.equipment_id,
+          equipment_name: eq.equipment_name,
+        })),
+      };
+    }).filter((s: any) => s.equipment.length > 0);
+
+    return NextResponse.json({ watching });
   }
 
   // ─── Level: sites ───────────────────────────────────────────────────────

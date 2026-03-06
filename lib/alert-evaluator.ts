@@ -791,16 +791,21 @@ function matchesScope(
   zoneId: string | null
 ): boolean {
   if (def.scope_mode === "all") return true;
-  if (!def.scope_ids?.length) return true;
+
+  // Empty include list = unassigned definition → evaluate nothing
+  if (def.scope_mode === "include" && (!def.scope_ids || def.scope_ids.length === 0)) return false;
+
+  // Empty exclude list = exclude nothing → evaluate everything
+  if (def.scope_mode === "exclude" && (!def.scope_ids || def.scope_ids.length === 0)) return true;
 
   let targetId: string | null = null;
   if (def.scope_level === "site") targetId = siteId;
   if (def.scope_level === "equipment") targetId = equipmentId;
   if (def.scope_level === "zone") targetId = zoneId;
 
-  if (!targetId) return def.scope_mode === "all";
+  if (!targetId) return false;
 
-  const isInList = def.scope_ids.includes(targetId);
+  const isInList = def.scope_ids!.includes(targetId);
   return def.scope_mode === "include" ? isInList : !isInList;
 }
 

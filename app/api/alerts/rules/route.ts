@@ -81,6 +81,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Get total site count for org (for "All sites (N)" display)
+  const { count: totalSites } = await supabase
+    .from("a_sites")
+    .select("site_id", { count: "exact", head: true })
+    .eq("org_id", orgId);
+
   const enriched = (definitions || []).map((d: any) => ({
     ...d,
     active_instances: instanceCounts[d.id] || 0,
@@ -88,7 +94,7 @@ export async function GET(req: NextRequest) {
     my_subscription: userSubs[d.id] || null,
   }));
 
-  return NextResponse.json({ definitions: enriched });
+  return NextResponse.json({ definitions: enriched, total_sites: totalSites || 0 });
 }
 
 // POST: Create new alert definition
