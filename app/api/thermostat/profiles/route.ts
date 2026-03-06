@@ -198,6 +198,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Check for duplicate name at the same scope (org_id + site_id)
+    const siteId = fields.site_id ?? null;
+    const dupeQuery = supabase
+      .from("b_thermostat_profiles")
+      .select("profile_id")
+      .eq("org_id", org_id)
+      .eq("name", profile_name);
+    if (siteId) {
+      dupeQuery.eq("site_id", siteId);
+    } else {
+      dupeQuery.is("site_id", null);
+    }
+    const { data: existing } = await dupeQuery.limit(1);
+    if (existing && existing.length > 0) {
+      return NextResponse.json(
+        { error: "A profile with this name already exists. Please choose a unique name." },
+        { status: 409 }
+      );
+    }
+
     const row: Record<string, any> = {
       org_id,
       name: profile_name,
@@ -289,6 +309,28 @@ export async function PATCH(req: NextRequest) {
       .select("*")
       .eq("profile_id", profile_id)
       .single();
+
+    // Check for duplicate name if name is being changed
+    if (dbFields.name && before && dbFields.name !== before.name) {
+      const dupeQuery = supabase
+        .from("b_thermostat_profiles")
+        .select("profile_id")
+        .eq("org_id", before.org_id)
+        .eq("name", dbFields.name)
+        .neq("profile_id", profile_id);
+      if (before.site_id) {
+        dupeQuery.eq("site_id", before.site_id);
+      } else {
+        dupeQuery.is("site_id", null);
+      }
+      const { data: existing } = await dupeQuery.limit(1);
+      if (existing && existing.length > 0) {
+        return NextResponse.json(
+          { error: "A profile with this name already exists. Please choose a unique name." },
+          { status: 409 }
+        );
+      }
+    }
 
     const { data, error } = await supabase
       .from("b_thermostat_profiles")

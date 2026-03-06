@@ -1,5 +1,17 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
+// ── IMPORTANT: Active Status Gate ─────────────────────────────────
+// All Trust Dashboard health alerts (compressor gap, cron gap, HA offline, etc.)
+// must only be evaluated for sites with a_sites.status = "Active".
+//   Active     = fully installed, commissioned, operational — alerts enabled
+//   Suspended  = likely billing hold — no alerts
+//   Pending    = not yet operational — no alerts
+//   Closed     = permanently closed — no alerts
+//   Retired    = decommissioned — no alerts
+//   inventory  = org HQ / unassigned equipment — no alerts
+// The gate is enforced by the caller (cron route) — it only calls updateDailyHealth
+// for active sites. Any new health check functions should follow this pattern.
+
 // ── Types ──────────────────────────────────────────────────────────
 
 export interface HealthChecks {
@@ -33,6 +45,12 @@ export interface HealthChecks {
     total: number;
     synced: number;
     orphaned: number;
+  };
+  compressor_cycles?: {
+    zones_monitored: number;
+    zones_with_gap: number;
+    max_gap_hours: number;
+    gap_zone_names: string[];
   };
 }
 
@@ -109,6 +127,9 @@ export function calculateScore(checks: HealthChecks): ScoreResult {
   if (checks.ha_connection.downtime_minutes > 60) criticalReasons.push("HA offline >60min");
   if (checks.sensors.total > 0 && checks.sensors.fresh === 0) criticalReasons.push("All sensors stale");
   if (checks.devices.total > 0 && checks.devices.responsive === 0) criticalReasons.push("All devices unresponsive");
+  if (checks.compressor_cycles && checks.compressor_cycles.max_gap_hours >= 24) {
+    criticalReasons.push(`Compressor cycle gap >${Math.round(checks.compressor_cycles.max_gap_hours)}hr (${checks.compressor_cycles.gap_zone_names.join(", ")})`);
+  }
 
   const critical = criticalReasons.length > 0;
   const criticalReason = critical ? criticalReasons.join("; ") : null;
@@ -177,6 +198,12 @@ interface UpdateParams {
   zones_pushed?: number;
   zones_skipped?: number;
   zones_failed?: number;
+  compressor_cycles?: {
+    zones_monitored: number;
+    zones_with_gap: number;
+    max_gap_hours: number;
+    gap_zone_names: string[];
+  };
 }
 
 export async function updateDailyHealth(
@@ -227,6 +254,11 @@ export async function updateDailyHealth(
     checks.directives.pushed += params.zones_pushed || 0;
     checks.directives.skipped += params.zones_skipped || 0;
     checks.directives.failed += params.zones_failed || 0;
+  }
+
+  // Update compressor cycle gap data
+  if (params.compressor_cycles) {
+    checks.compressor_cycles = params.compressor_cycles;
   }
 
   // Calculate score

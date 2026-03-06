@@ -6,6 +6,7 @@ interface Organization {
   org_id: string;
   org_name: string;
   org_identifier: string;
+  parent_org_id: string | null;
 }
 
 interface OrgContextType {
@@ -95,7 +96,7 @@ export function OrgProvider({
 
         const { data: allOrgData } = await supabase
           .from("a_organizations")
-          .select("org_id, org_name, org_identifier")
+          .select("org_id, org_name, org_identifier, parent_org_id")
           .order("org_name");
 
         allOrgs = (allOrgData || []) as Organization[];
@@ -105,6 +106,7 @@ export function OrgProvider({
           org_id: o.org_id,
           org_name: o.org_name,
           org_identifier: o.org_identifier,
+          parent_org_id: o.parent_org_id ?? null,
         }));
       }
 

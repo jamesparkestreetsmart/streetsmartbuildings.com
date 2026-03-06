@@ -77,6 +77,7 @@ interface ZoneInfo {
   name: string;
   zone_type: string | null;
   equipment_id: string | null;
+  control_scope: string | null;
   smart_start_enabled: boolean;
   manager_override_reset_minutes: number | null;
   manager_override_active: boolean;
@@ -245,12 +246,11 @@ export default function SpaceHvacTable({ siteId }: Props) {
       }
     }
 
-    // 2. Zones
+    // 2. Zones (includes managed + open — open zones get observation-only snapshots)
     const { data: zonesData, error: zonesError } = await supabase
       .from("a_hvac_zones")
-      .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, manager_override_reset_minutes")
+      .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, control_scope, manager_override_reset_minutes")
       .eq("site_id", siteId)
-      .eq("control_scope", "managed")
       .not("thermostat_device_id", "is", null)
       .not("equipment_id", "is", null);
 
@@ -319,6 +319,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
         name: z.name,
         zone_type: z.zone_type || null,
         equipment_id: z.equipment_id,
+        control_scope: z.control_scope || null,
         smart_start_enabled: ssEnabledByDevice[z.thermostat_device_id] || false,
         manager_override_reset_minutes: z.manager_override_reset_minutes,
         manager_override_active: overrideState?.active || false,
@@ -585,6 +586,9 @@ export default function SpaceHvacTable({ siteId }: Props) {
                     <tr key={group.zone.hvac_zone_id} className="border-b border-gray-200">
                       <td className={`${TD} align-top`}>
                         <Link href={`/sites/${siteId}/zones/${group.zone.hvac_zone_id}`} className="font-medium text-blue-700 hover:text-blue-900 hover:underline">{group.zone.name}</Link>
+                        {group.zone.control_scope && group.zone.control_scope !== "managed" && (
+                          <span className="ml-1 inline-block text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 capitalize">{group.zone.control_scope}</span>
+                        )}
                         {group.zone.zone_type && (
                           <div className="text-[10px] text-gray-500 capitalize">{group.zone.zone_type}</div>
                         )}

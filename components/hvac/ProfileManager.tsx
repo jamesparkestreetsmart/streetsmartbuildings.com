@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback } from "react";
 import TierBadge, { Tier } from "@/components/ui/TierBadge";
+import { useOrg } from "@/context/OrgContext";
 
 interface Profile {
   profile_id: string;
   org_id: string;
   profile_name: string;
   scope?: string;
+  is_global?: boolean;
   occupied_heat_f: number;
   occupied_cool_f: number;
   unoccupied_heat_f: number;
@@ -429,6 +431,7 @@ interface Props {
 }
 
 export default function ProfileManager({ orgId }: Props) {
+  const { isServiceProvider, selectedOrg } = useOrg();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -436,6 +439,10 @@ export default function ProfileManager({ orgId }: Props) {
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [pushResult, setPushResult] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM });
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Show SSB templates for: service providers OR client orgs (have a parent)
+  const showSSBTemplates = isServiceProvider || selectedOrg?.parent_org_id !== null;
 
   const fetchProfiles = useCallback(async () => {
     if (!orgId) return;
@@ -459,6 +466,7 @@ export default function ProfileManager({ orgId }: Props) {
   }, [fetchProfiles]);
 
   const handleCreate = async () => {
+    setFormError(null);
     const res = await fetch("/api/thermostat/profiles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -468,10 +476,14 @@ export default function ProfileManager({ orgId }: Props) {
       setShowNewModal(false);
       setForm({ ...DEFAULT_FORM });
       fetchProfiles();
+    } else {
+      const data = await res.json();
+      setFormError(data.error || "Failed to create profile.");
     }
   };
 
   const handleSave = async (profileId: string) => {
+    setFormError(null);
     const res = await fetch("/api/thermostat/profiles", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -481,6 +493,9 @@ export default function ProfileManager({ orgId }: Props) {
       setEditingId(null);
       setForm({ ...DEFAULT_FORM });
       fetchProfiles();
+    } else {
+      const data = await res.json();
+      setFormError(data.error || "Failed to update profile.");
     }
   };
 
@@ -597,7 +612,7 @@ export default function ProfileManager({ orgId }: Props) {
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold">Thermostat Profiles</h2>
         <button
-          onClick={() => { setForm({ ...DEFAULT_FORM }); setShowNewModal(true); }}
+          onClick={() => { setForm({ ...DEFAULT_FORM }); setFormError(null); setShowNewModal(true); }}
           className="px-4 py-2 bg-[#12723A] text-white rounded-lg hover:bg-[#0e5c2e] transition-colors text-sm"
         >
           + New Profile
@@ -610,72 +625,83 @@ export default function ProfileManager({ orgId }: Props) {
         </div>
       )}
 
-      {profiles.length === 0 ? (
-        <p className="text-gray-500 text-sm text-center py-4">
-          No thermostat profiles yet. Create one to manage setpoints across zones.
-        </p>
-      ) : (
-        <div className="space-y-3">
-          {profiles.map((profile) => {
-            const isEditing = editingId === profile.profile_id;
+      {formError && (
+        <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+          {formError}
+        </div>
+      )}
 
-            if (isEditing) {
-              return (
-                <div key={profile.profile_id} className="border rounded-xl p-5">
-                  <h3 className="text-base font-semibold mb-3">Edit Profile: {profile.profile_name}</h3>
-                  <ProfileForm
-                    form={form}
-                    setForm={setForm}
-                    onSave={() => handleSave(profile.profile_id)}
-                    onSaveAndPush={() => handleSaveAndPush(profile.profile_id)}
-                    onCancel={() => { setEditingId(null); setForm({ ...DEFAULT_FORM }); }}
-                    saveLabel="Save"
-                  />
-                </div>
-              );
-            }
+      {(() => {
+        const ssbTemplates = profiles.filter((p) => p.is_global);
+        const orgProfiles = profiles.filter((p) => !p.is_global);
 
-            // Collapsed card view
+        const renderProfileCard = (profile: Profile, readOnly: boolean) => {
+          const isEditing = editingId === profile.profile_id;
+
+          if (isEditing && !readOnly) {
             return (
-              <div key={profile.profile_id} className="border rounded-xl p-4 hover:shadow-md transition-shadow">
-                <div className="flex items-start gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+              <div key={profile.profile_id} className="border rounded-xl p-5">
+                <h3 className="text-base font-semibold mb-3">Edit Profile: {profile.profile_name}</h3>
+                <ProfileForm
+                  form={form}
+                  setForm={setForm}
+                  onSave={() => handleSave(profile.profile_id)}
+                  onSaveAndPush={() => handleSaveAndPush(profile.profile_id)}
+                  onCancel={() => { setEditingId(null); setForm({ ...DEFAULT_FORM }); }}
+                  saveLabel="Save"
+                />
+              </div>
+            );
+          }
+
+          return (
+            <div key={profile.profile_id} className={`border rounded-xl p-4 transition-shadow ${readOnly ? "bg-gray-50/50" : "hover:shadow-md"}`}>
+              <div className="flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    {readOnly ? (
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" /></svg>
+                        SSB Template
+                      </span>
+                    ) : (
                       <TierBadge tier={profile.scope === "site" ? "SITE" : "ORG"} />
-                      <h3 className="font-semibold text-base">{profile.profile_name}</h3>
-                    </div>
-                    <div className="text-sm text-gray-600 mt-1 space-y-0.5">
-                      <p>
-                        <span className="text-xs text-gray-400 mr-1">{formatHvacMode(profile.occupied_hvac_mode)}</span>
-                        <span className="mx-1 text-gray-300">|</span>
-                        <span className="text-green-700 font-medium">Occupied:</span>{" "}
-                        {(() => {
-                          const m = mapHvacMode(profile.occupied_hvac_mode);
-                          if (m === "heat") return `${profile.occupied_heat_f}°F`;
-                          if (m === "cool") return `${profile.occupied_cool_f}°F`;
-                          return `${profile.occupied_heat_f}°–${profile.occupied_cool_f}°F`;
-                        })()}
-                        {" / "}{formatFanMode(profile.occupied_fan_mode)}
-                        <span className="mx-2 text-gray-300">|</span>
-                        <span className="text-gray-500 font-medium">Unoccupied:</span>{" "}
-                        {(() => {
-                          const m = mapHvacMode(profile.unoccupied_hvac_mode);
-                          if (m === "heat") return `${profile.unoccupied_heat_f}°F`;
-                          if (m === "cool") return `${profile.unoccupied_cool_f}°F`;
-                          return `${profile.unoccupied_heat_f}°–${profile.unoccupied_cool_f}°F`;
-                        })()}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        Guardrails: {profile.guardrail_min_f ?? 45}&deg;&ndash;{profile.guardrail_max_f ?? 95}&deg;F
-                        <span className="mx-2 text-gray-300">|</span>
-                        Manager: &plusmn;{profile.manager_offset_up_f ?? 4}&deg;F / {formatResetLabel(profile.manager_override_reset_minutes ?? 120)} reset
-                      </p>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Used by: {profile.zone_count} zone{profile.zone_count !== 1 ? "s" : ""} across{" "}
-                      {profile.site_count} site{profile.site_count !== 1 ? "s" : ""}
+                    )}
+                    <h3 className="font-semibold text-base">{profile.profile_name}</h3>
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1 space-y-0.5">
+                    <p>
+                      <span className="text-xs text-gray-400 mr-1">{formatHvacMode(profile.occupied_hvac_mode)}</span>
+                      <span className="mx-1 text-gray-300">|</span>
+                      <span className="text-green-700 font-medium">Occupied:</span>{" "}
+                      {(() => {
+                        const m = mapHvacMode(profile.occupied_hvac_mode);
+                        if (m === "heat") return `${profile.occupied_heat_f}°F`;
+                        if (m === "cool") return `${profile.occupied_cool_f}°F`;
+                        return `${profile.occupied_heat_f}°–${profile.occupied_cool_f}°F`;
+                      })()}
+                      {" / "}{formatFanMode(profile.occupied_fan_mode)}
+                      <span className="mx-2 text-gray-300">|</span>
+                      <span className="text-gray-500 font-medium">Unoccupied:</span>{" "}
+                      {(() => {
+                        const m = mapHvacMode(profile.unoccupied_hvac_mode);
+                        if (m === "heat") return `${profile.unoccupied_heat_f}°F`;
+                        if (m === "cool") return `${profile.unoccupied_cool_f}°F`;
+                        return `${profile.unoccupied_heat_f}°–${profile.unoccupied_cool_f}°F`;
+                      })()}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Guardrails: {profile.guardrail_min_f ?? 45}&deg;&ndash;{profile.guardrail_max_f ?? 95}&deg;F
+                      <span className="mx-2 text-gray-300">|</span>
+                      Manager: &plusmn;{profile.manager_offset_up_f ?? 4}&deg;F / {formatResetLabel(profile.manager_override_reset_minutes ?? 120)} reset
                     </p>
                   </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Used by: {profile.zone_count} zone{profile.zone_count !== 1 ? "s" : ""} across{" "}
+                    {profile.site_count} site{profile.site_count !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                {!readOnly && (
                   <div className="flex gap-1 shrink-0 ml-4">
                     <button onClick={() => startEdit(profile)} className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1">Edit</button>
                     <button
@@ -687,12 +713,53 @@ export default function ProfileManager({ orgId }: Props) {
                     </button>
                     <button onClick={() => handleDelete(profile.profile_id)} className="text-xs text-red-500 hover:text-red-700 px-2 py-1">Delete</button>
                   </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        if (profiles.length === 0) {
+          return (
+            <p className="text-gray-500 text-sm text-center py-4">
+              No thermostat profiles yet. Create one to manage setpoints across zones.
+            </p>
+          );
+        }
+
+        return (
+          <div className="space-y-4">
+            {/* SSB Templates section */}
+            {showSSBTemplates && ssbTemplates.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-blue-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7V4.5A3.5 3.5 0 0 0 8 1Zm2 6V4.5a2 2 0 1 0-4 0V7h4Z" clipRule="evenodd" /></svg>
+                  SSB Templates
+                </h3>
+                <div className="space-y-3">
+                  {ssbTemplates.map((p) => renderProfileCard(p, true))}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            )}
+
+            {/* Org Profiles section */}
+            <div>
+              {showSSBTemplates && ssbTemplates.length > 0 && (
+                <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Your Profiles</h3>
+              )}
+              {orgProfiles.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-4">
+                  No org profiles yet. Create one to manage setpoints across zones.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {orgProfiles.map((p) => renderProfileCard(p, false))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* New Profile Modal */}
       {showNewModal && (

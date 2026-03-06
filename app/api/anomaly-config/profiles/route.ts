@@ -115,6 +115,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Check for duplicate name within same org
+    const { data: existing } = await supabase
+      .from("b_anomaly_config_profiles")
+      .select("profile_id")
+      .eq("org_id", org_id)
+      .eq("profile_name", profile_name.trim())
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return NextResponse.json(
+        { error: "A profile with this name already exists. Please choose a unique name." },
+        { status: 409 }
+      );
+    }
+
     const row: Record<string, any> = {
       org_id,
       profile_name: profile_name.trim(),

@@ -614,13 +614,14 @@ export async function executePushForSite(
     }
   }
 
-  // Load HVAC zones for this site
+  // Load managed HVAC zones for this site (only managed zones get setpoint pushes)
   const { data: zones } = await supabase
     .from("a_hvac_zones")
     .select(
       "hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode"
     )
-    .eq("site_id", siteId);
+    .eq("site_id", siteId)
+    .eq("control_scope", "managed");
 
   if (!zones || zones.length === 0) {
     console.log("[ha-push] No HVAC zones found for site");

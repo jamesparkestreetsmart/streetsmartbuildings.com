@@ -104,6 +104,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Check for duplicate name within same org
+    const { data: existing } = await supabase
+      .from("b_store_hours_templates")
+      .select("template_id")
+      .eq("org_id", org_id)
+      .eq("template_name", template_name.trim())
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return NextResponse.json(
+        { error: "A template with this name already exists. Please choose a unique name." },
+        { status: 409 }
+      );
+    }
+
     const row: Record<string, any> = {
       org_id,
       template_name: template_name.trim(),
