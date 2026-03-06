@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
     alert_def_id, dashboard_enabled, email_enabled, sms_enabled,
     repeat_enabled, repeat_interval_min, max_repeats,
     send_resolved, quiet_hours_override, quiet_start, quiet_end, timezone,
+    email_override, sms_override,
   } = body;
 
   if (!alert_def_id) {
@@ -129,6 +130,8 @@ export async function POST(req: NextRequest) {
     quiet_start: quiet_start ?? null,
     quiet_end: quiet_end ?? null,
     timezone: timezone ?? "America/Chicago",
+    email_override: email_override ?? null,
+    sms_override: sms_override ?? null,
     enabled: true,
   };
 

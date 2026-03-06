@@ -1027,8 +1027,11 @@ async function createEmailDelivery(
   title: string,
   message: string
 ): Promise<void> {
-  const { data: user } = await supabase.auth.admin.getUserById(sub.user_id);
-  const email = user?.user?.email;
+  let email = sub.email_override || null;
+  if (!email) {
+    const { data: user } = await supabase.auth.admin.getUserById(sub.user_id);
+    email = user?.user?.email;
+  }
   if (!email) return;
 
   await supabase.from("b_alert_notifications").insert({
@@ -1055,13 +1058,16 @@ async function createSmsDelivery(
   title: string,
   message: string
 ): Promise<void> {
-  const { data: userRow } = await supabase
-    .from("a_users")
-    .select("phone_number")
-    .eq("user_id", sub.user_id)
-    .single();
-
-  if (!userRow?.phone_number) return;
+  let phone = sub.sms_override || null;
+  if (!phone) {
+    const { data: userRow } = await supabase
+      .from("a_users")
+      .select("phone_number")
+      .eq("user_id", sub.user_id)
+      .single();
+    phone = userRow?.phone_number || null;
+  }
+  if (!phone) return;
 
   await supabase.from("b_alert_notifications").insert({
     org_id: def.org_id,
@@ -1070,7 +1076,7 @@ async function createSmsDelivery(
     channel: "sms",
     notification_type: notificationType,
     recipient_user_id: sub.user_id,
-    recipient_address: userRow.phone_number,
+    recipient_address: phone,
     title,
     message,
     severity: def.severity,

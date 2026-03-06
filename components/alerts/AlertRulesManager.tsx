@@ -30,6 +30,8 @@ interface AlertDefinition {
   sensor_role: string | null;
   enabled: boolean;
   active_instances: number;
+  subscriber_count: number;
+  my_subscription: { id: string } | null;
   created_at: string;
 }
 
@@ -97,7 +99,13 @@ const defaultForm = {
   resolved_dead_time_minutes: "0",
 };
 
-export default function AlertRulesManager({ orgId }: { orgId: string }) {
+export default function AlertRulesManager({
+  orgId,
+  onSubscriptionChange,
+}: {
+  orgId: string;
+  onSubscriptionChange?: () => void;
+}) {
   const [definitions, setDefinitions] = useState<AlertDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -263,7 +271,7 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
         return;
       }
       if (data.definition) {
-        setDefinitions((prev) => [{ ...data.definition, active_instances: 0 }, ...prev]);
+        setDefinitions((prev) => [{ ...data.definition, active_instances: 0, subscriber_count: 0, my_subscription: null }, ...prev]);
         setShowCreate(false);
         setForm({ ...defaultForm });
       }
@@ -274,16 +282,48 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
     }
   };
 
-  // ─── Toggle / Delete ────────────────────────────────────────────────────
-  const toggleDefinition = async (def: AlertDefinition) => {
-    await fetch("/api/alerts/rules", {
-      method: "PATCH",
+  // ─── Subscribe / Unsubscribe ─────────────────────────────────────────────
+  const subscribeToDefinition = async (defId: string) => {
+    const res = await fetch("/api/alerts/subscriptions", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: def.id, enabled: !def.enabled }),
+      body: JSON.stringify({
+        alert_def_id: defId,
+        dashboard_enabled: true,
+        email_enabled: false,
+        sms_enabled: false,
+        repeat_enabled: false,
+        repeat_interval_min: 0,
+        send_resolved: false,
+      }),
+    });
+    const data = await res.json();
+    if (data.subscription) {
+      setDefinitions((prev) =>
+        prev.map((d) =>
+          d.id === defId
+            ? { ...d, my_subscription: data.subscription, subscriber_count: d.subscriber_count + 1 }
+            : d
+        )
+      );
+      onSubscriptionChange?.();
+    }
+  };
+
+  const unsubscribeFromDefinition = async (def: AlertDefinition) => {
+    if (!def.my_subscription) return;
+    if (!confirm("Unsubscribe from this alert?")) return;
+    await fetch(`/api/alerts/subscriptions?subscription_id=${def.my_subscription.id}`, {
+      method: "DELETE",
     });
     setDefinitions((prev) =>
-      prev.map((d) => (d.id === def.id ? { ...d, enabled: !d.enabled } : d))
+      prev.map((d) =>
+        d.id === def.id
+          ? { ...d, my_subscription: null, subscriber_count: Math.max(0, d.subscriber_count - 1) }
+          : d
+      )
     );
+    onSubscriptionChange?.();
   };
 
   const deleteDefinition = async (id: string) => {
@@ -831,33 +871,46 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => toggleDefinition(def)}
-                        className={`w-8 h-5 rounded-full relative transition-colors ${
-                          def.enabled ? "bg-green-500" : "bg-gray-300"
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                            def.enabled ? "left-3.5" : "left-0.5"
-                          }`}
-                        />
-                      </button>
                       <span className="font-medium text-sm text-gray-900">{def.name}</span>
                       {def.active_instances > 0 && (
                         <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-medium">
                           {def.active_instances} active
                         </span>
                       )}
+                      <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                        {def.subscriber_count} subscriber{def.subscriber_count !== 1 ? "s" : ""}
+                      </span>
+                      {!def.enabled && (
+                        <span className="px-1.5 py-0.5 bg-gray-200 text-gray-500 text-xs rounded-full">
+                          disabled
+                        </span>
+                      )}
                     </div>
-                    <button
-                      onClick={() => deleteDefinition(def.id)}
-                      className="text-xs text-red-400 hover:text-red-600"
-                    >
-                      Delete
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {def.my_subscription ? (
+                        <button
+                          onClick={() => unsubscribeFromDefinition(def)}
+                          className="px-2.5 py-1 text-xs font-medium rounded-full border transition-colors bg-green-100 text-green-700 border-green-300 hover:bg-green-200"
+                        >
+                          &#10003; Subscribed
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => subscribeToDefinition(def.id)}
+                          className="px-2.5 py-1 text-xs font-medium rounded-full border transition-colors bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200"
+                        >
+                          + Subscribe
+                        </button>
+                      )}
+                      <button
+                        onClick={() => deleteDefinition(def.id)}
+                        className="text-xs text-red-400 hover:text-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5 ml-10">
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
                     <span className={`px-2 py-0.5 text-xs rounded-full border ${
                       def.severity === "critical"
                         ? "bg-red-50 text-red-600 border-red-200"

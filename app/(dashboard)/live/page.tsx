@@ -79,6 +79,7 @@ export default function AlertsPage() {
   const [historySortDirection, setHistorySortDirection] = useState<"asc" | "desc">("desc");
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
   const [configView, setConfigView] = useState<"list" | "browse">("list");
+  const [subRefreshKey, setSubRefreshKey] = useState(0);
 
   // Unique equipment groups from data
   const liveEquipmentGroups = [...new Set(liveRows.map((r) => r.equipment_group).filter(Boolean))] as string[];
@@ -756,8 +757,8 @@ export default function AlertsPage() {
 
               {configView === "list" ? (
                 <>
-                  <AlertRulesManager orgId={selectedOrgId} />
-                  <AlertSubscriptions orgId={selectedOrgId} />
+                  <AlertRulesManager orgId={selectedOrgId} onSubscriptionChange={() => setSubRefreshKey((k) => k + 1)} />
+                  <AlertSubscriptions orgId={selectedOrgId} refreshKey={subRefreshKey} onSubscriptionChange={() => setSubRefreshKey((k) => k + 1)} />
                 </>
               ) : (
                 <AlertBrowseView orgId={selectedOrgId} />

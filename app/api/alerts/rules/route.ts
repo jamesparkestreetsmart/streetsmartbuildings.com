@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
-async function getCallerEmail(): Promise<string> {
+async function getCallerInfo(): Promise<{ email: string; userId: string | null }> {
   try {
     const cookieStore = await cookies();
     const authClient = createServerClient(
@@ -14,8 +14,8 @@ async function getCallerEmail(): Promise<string> {
       { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
     );
     const { data: { user } } = await authClient.auth.getUser();
-    return user?.email || "system";
-  } catch { return "system"; }
+    return { email: user?.email || "system", userId: user?.id || null };
+  } catch { return { email: "system", userId: null }; }
 }
 
 const supabase = createClient(
@@ -23,10 +23,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// GET: List alert definitions for org, with active instance counts
+// GET: List alert definitions for org, with active instance counts,
+// org-wide subscriber counts, and current user's subscription status
 export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("org_id");
   if (!orgId) return NextResponse.json({ error: "org_id required" }, { status: 400 });
+
+  const { userId } = await getCallerInfo();
 
   const { data: definitions, error } = await supabase
     .from("b_alert_definitions")
@@ -36,11 +39,13 @@ export async function GET(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Get active instance counts per definition
   const defIds = (definitions || []).map((d: any) => d.id);
   let instanceCounts: Record<string, number> = {};
+  let subscriberCounts: Record<string, number> = {};
+  let userSubs: Record<string, any> = {};
 
   if (defIds.length > 0) {
+    // Active instance counts
     const { data: instances } = await supabase
       .from("b_alert_instances")
       .select("alert_def_id")
@@ -50,11 +55,37 @@ export async function GET(req: NextRequest) {
     for (const inst of instances || []) {
       instanceCounts[inst.alert_def_id] = (instanceCounts[inst.alert_def_id] || 0) + 1;
     }
+
+    // Org-wide subscriber counts (single aggregated query)
+    const { data: allSubs } = await supabase
+      .from("b_alert_subscriptions")
+      .select("alert_def_id, user_id")
+      .in("alert_def_id", defIds)
+      .eq("enabled", true);
+
+    for (const sub of allSubs || []) {
+      subscriberCounts[sub.alert_def_id] = (subscriberCounts[sub.alert_def_id] || 0) + 1;
+    }
+
+    // Current user's subscription per definition
+    if (userId) {
+      const { data: mySubs } = await supabase
+        .from("b_alert_subscriptions")
+        .select("*")
+        .eq("user_id", userId)
+        .in("alert_def_id", defIds);
+
+      for (const sub of mySubs || []) {
+        userSubs[sub.alert_def_id] = sub;
+      }
+    }
   }
 
   const enriched = (definitions || []).map((d: any) => ({
     ...d,
     active_instances: instanceCounts[d.id] || 0,
+    subscriber_count: subscriberCounts[d.id] || 0,
+    my_subscription: userSubs[d.id] || null,
   }));
 
   return NextResponse.json({ definitions: enriched });
@@ -62,7 +93,7 @@ export async function GET(req: NextRequest) {
 
 // POST: Create new alert definition
 export async function POST(req: NextRequest) {
-  const callerEmail = await getCallerEmail();
+  const { email: callerEmail } = await getCallerInfo();
   const body = await req.json();
 
   const {
