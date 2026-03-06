@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import AlertOverrides from "./AlertOverrides";
 
 interface AlertDefinition {
   id: string;
@@ -20,6 +21,7 @@ interface AlertDefinition {
   delta_direction: string;
   window_minutes: number | null;
   sustain_minutes: number;
+  resolved_dead_time_minutes: number;
   scope_level: string;
   scope_mode: string;
   scope_ids: string[] | null;
@@ -92,6 +94,7 @@ const defaultForm = {
   window_minutes: "15",
   // Settings
   sustain_minutes: "0",
+  resolved_dead_time_minutes: "0",
 };
 
 export default function AlertRulesManager({ orgId }: { orgId: string }) {
@@ -100,6 +103,7 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [expandedDef, setExpandedDef] = useState<string | null>(null);
   const [form, setForm] = useState({ ...defaultForm });
 
   // Cascading data
@@ -197,6 +201,7 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
         entity_type: form.entity_type,
         condition_type: form.entity_type === "anomaly" ? "changes_to" : form.condition_type,
         sustain_minutes: parseInt(form.sustain_minutes) || 0,
+        resolved_dead_time_minutes: parseInt(form.resolved_dead_time_minutes) || 0,
         eval_path: "auto",
       };
 
@@ -771,6 +776,16 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
                     title="0 = fire immediately"
                   />
                 </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Resolve Dead Time (min)</label>
+                  <input
+                    type="number"
+                    value={form.resolved_dead_time_minutes}
+                    onChange={(e) => setForm({ ...form, resolved_dead_time_minutes: e.target.value })}
+                    className="mt-1 w-24 px-3 py-2 text-sm border border-gray-300 rounded-lg"
+                    title="0 = resolve immediately"
+                  />
+                </div>
               </div>
 
               {/* ─── Section 5: Create ─── */}
@@ -863,7 +878,21 @@ export default function AlertRulesManager({ orgId }: { orgId: string }) {
                         {def.sustain_minutes}min sustain
                       </span>
                     )}
+                    {def.resolved_dead_time_minutes > 0 && (
+                      <span className="px-2 py-0.5 bg-teal-50 text-teal-600 text-xs rounded-full border border-teal-200">
+                        {def.resolved_dead_time_minutes}min dead time
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setExpandedDef(expandedDef === def.id ? null : def.id)}
+                      className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full hover:bg-gray-200 transition-colors"
+                    >
+                      {expandedDef === def.id ? "Hide Overrides" : "Overrides"}
+                    </button>
                   </div>
+                  {expandedDef === def.id && (
+                    <AlertOverrides orgId={orgId} alertDefId={def.id} />
+                  )}
                 </div>
               ))}
             </div>

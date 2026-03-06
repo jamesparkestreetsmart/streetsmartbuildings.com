@@ -69,8 +69,8 @@ export async function POST(req: NextRequest) {
     org_id, name, description, severity, entity_type, entity_id,
     derived_metric, anomaly_type, condition_type, threshold_value,
     target_value, target_value_type, stale_minutes, delta_value,
-    delta_direction, window_minutes, sustain_minutes, scope_level,
-    scope_mode, scope_ids, eval_path, equipment_type, sensor_role,
+    delta_direction, window_minutes, sustain_minutes, resolved_dead_time_minutes,
+    scope_level, scope_mode, scope_ids, eval_path, equipment_type, sensor_role,
   } = body;
 
   if (!org_id || !name || !entity_type || !condition_type) {
@@ -100,6 +100,7 @@ export async function POST(req: NextRequest) {
       delta_direction: delta_direction || "any",
       window_minutes: window_minutes ?? null,
       sustain_minutes: sustain_minutes ?? 0,
+      resolved_dead_time_minutes: resolved_dead_time_minutes ?? 0,
       scope_level: scope_level || "org",
       scope_mode: scope_mode || "all",
       scope_ids: scope_ids || null,
@@ -139,8 +140,8 @@ export async function PATCH(req: NextRequest) {
     "name", "description", "severity", "entity_type", "entity_id",
     "derived_metric", "anomaly_type", "condition_type", "threshold_value",
     "target_value", "target_value_type", "stale_minutes", "delta_value",
-    "delta_direction", "window_minutes", "sustain_minutes", "scope_level",
-    "scope_mode", "scope_ids", "eval_path", "equipment_type", "sensor_role", "enabled",
+    "delta_direction", "window_minutes", "sustain_minutes", "resolved_dead_time_minutes",
+    "scope_level", "scope_mode", "scope_ids", "eval_path", "equipment_type", "sensor_role", "enabled",
   ];
   const filtered: Record<string, any> = { updated_at: new Date().toISOString() };
   for (const key of allowed) {

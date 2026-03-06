@@ -21,12 +21,26 @@ interface AlertDefinition {
   delta_direction: string;
   window_minutes: number | null;
   sustain_minutes: number;
+  resolved_dead_time_minutes: number;
   scope_level: string;
   scope_mode: string;
   scope_ids: string[] | null;
   eval_path: string;
   equipment_type: string | null;  // equipment_group value for type-level alerts
   sensor_role: string | null;     // sensor_type to find on each equipment
+}
+
+interface AlertOverride {
+  override_id: string;
+  org_id: string;
+  alert_def_id: string;
+  site_id: string | null;
+  equipment_id: string | null;
+  threshold_override: number | null;
+  severity_override: string | null;
+  cooldown_override: number | null;
+  sustain_override_min: number | null;
+  enabled: boolean;
 }
 
 interface EvalState {
@@ -46,6 +60,7 @@ interface EvalState {
   rolling_avg: number | null;
   rolling_count: number;
   last_evaluated_at: string;
+  resolved_pending_since: string | null;
 }
 
 interface EvalResult {
@@ -77,6 +92,10 @@ export async function evaluateRealtime(
 
     if (!definitions?.length) return;
 
+    // Prefetch overrides for all matching definitions
+    const defIds = (definitions as AlertDefinition[]).map((d) => d.id);
+    const overrides = await fetchOverrides(supabase, defIds);
+
     for (const def of definitions as AlertDefinition[]) {
       // Check scope
       if (!matchesScope(def, siteId, null, null)) continue;
@@ -87,17 +106,23 @@ export async function evaluateRealtime(
         continue;
       }
 
+      // Resolve overrides (equipment > site > org)
+      const override = resolveOverride(overrides, def.id, siteId, null);
+      if (override && !override.enabled) continue; // Silenced — skip
+
+      const effectiveDef = applyOverride(def, override);
+
       const targetLevel = "entity";
       const targetId = entityId;
 
       // Evaluate the condition
-      const result = evaluateCondition(def, newValue, oldValue);
+      const result = evaluateCondition(effectiveDef, newValue, oldValue);
 
       // Get or create eval state
       const evalState = await getOrCreateEvalState(supabase, def.id, targetLevel, targetId);
 
       // Process the result
-      await processEvalResult(supabase, def, evalState, result, targetLevel, targetId, siteId);
+      await processEvalResult(supabase, effectiveDef, evalState, result, targetLevel, targetId, siteId);
     }
   } catch (err) {
     console.error("[ALERT-EVAL] Realtime evaluation error:", err);
@@ -120,6 +145,10 @@ export async function evaluateCron(
 
     if (!definitions?.length) return;
 
+    // Prefetch all overrides for this org's definitions
+    const defIds = (definitions as AlertDefinition[]).map((d) => d.id);
+    const overrides = await fetchOverrides(supabase, defIds);
+
     for (const def of definitions as AlertDefinition[]) {
       // Skip realtime-only definitions
       if (def.eval_path === "realtime") continue;
@@ -135,9 +164,16 @@ export async function evaluateCron(
       const targets = await getTargetsForDefinition(supabase, def);
 
       for (const target of targets) {
+        // Resolve overrides for this target (equipment > site > org)
+        const equipmentId = target.level === "entity" ? null : null; // entity targets don't have equipment_id directly
+        const override = resolveOverride(overrides, def.id, target.site_id, equipmentId);
+        if (override && !override.enabled) continue; // Silenced — skip
+
+        const effectiveDef = applyOverride(def, override);
+
         // Get current value for this target
-        const currentValue = await getCurrentValue(supabase, def, target);
-        if (currentValue === null && def.condition_type !== "stale") continue;
+        const currentValue = await getCurrentValue(supabase, effectiveDef, target);
+        if (currentValue === null && effectiveDef.condition_type !== "stale") continue;
 
         // Get eval state
         const evalState = await getOrCreateEvalState(
@@ -145,27 +181,27 @@ export async function evaluateCron(
         );
 
         // For stale check: use last_value_ts from eval state
-        if (def.condition_type === "stale") {
-          const result = evaluateStale(def, evalState);
+        if (effectiveDef.condition_type === "stale") {
+          const result = evaluateStale(effectiveDef, evalState);
           await processEvalResult(
-            supabase, def, evalState, result, target.level, target.id, target.site_id
+            supabase, effectiveDef, evalState, result, target.level, target.id, target.site_id
           );
           continue;
         }
 
         // For rate_of_change: update rolling window
-        if (def.condition_type === "rate_of_change" && currentValue !== null) {
-          const result = evaluateRateOfChange(def, evalState, currentValue);
+        if (effectiveDef.condition_type === "rate_of_change" && currentValue !== null) {
+          const result = evaluateRateOfChange(effectiveDef, evalState, currentValue);
           await processEvalResult(
-            supabase, def, evalState, result, target.level, target.id, target.site_id
+            supabase, effectiveDef, evalState, result, target.level, target.id, target.site_id
           );
           continue;
         }
 
         // Standard threshold/changes_to evaluation
-        const result = evaluateCondition(def, currentValue!, evalState.last_value);
+        const result = evaluateCondition(effectiveDef, currentValue!, evalState.last_value);
         await processEvalResult(
-          supabase, def, evalState, result, target.level, target.id, target.site_id
+          supabase, effectiveDef, evalState, result, target.level, target.id, target.site_id
         );
       }
     }
@@ -346,6 +382,7 @@ async function processEvalResult(
       stateUpdate.condition_met = true;
       stateUpdate.condition_true_since = now;
       stateUpdate.fired = false;
+      stateUpdate.resolved_pending_since = null; // Clear any pending resolve
 
       if (def.sustain_minutes <= 0) {
         stateUpdate.fired = true;
@@ -362,16 +399,45 @@ async function processEvalResult(
       }
     } else if (evalState.fired) {
       // ─── Already fired, update peak values on instance
+      // If condition re-fires during dead time, cancel the pending resolve
+      if (evalState.resolved_pending_since) {
+        stateUpdate.resolved_pending_since = null;
+        console.log(`[ALERT] Dead time cancelled: "${def.name}" — condition re-fired`);
+      }
       await updateActiveInstance(supabase, def.id, targetLevel, targetId, result);
     }
   } else {
     if (evalState.condition_met) {
       // ─── Transition: TRUE → FALSE
-      stateUpdate.condition_met = false;
-      stateUpdate.condition_true_since = null;
-      stateUpdate.fired = false;
+      const deadTime = def.resolved_dead_time_minutes || 0;
 
-      await resolveAlert(supabase, def, targetLevel, targetId);
+      if (deadTime <= 0) {
+        // Immediate resolve (existing behavior)
+        stateUpdate.condition_met = false;
+        stateUpdate.condition_true_since = null;
+        stateUpdate.fired = false;
+        stateUpdate.resolved_pending_since = null;
+        await resolveAlert(supabase, def, targetLevel, targetId);
+      } else if (!evalState.resolved_pending_since) {
+        // Start dead time — keep alert active, mark pending
+        stateUpdate.resolved_pending_since = now;
+        console.log(`[ALERT] Dead time started: "${def.name}" — ${deadTime}min before resolve`);
+      } else {
+        // Dead time already started — check if elapsed
+        const pendingMs = Date.now() - new Date(evalState.resolved_pending_since).getTime();
+        const pendingMin = pendingMs / 60000;
+
+        if (pendingMin >= deadTime) {
+          // Dead time elapsed — resolve
+          stateUpdate.condition_met = false;
+          stateUpdate.condition_true_since = null;
+          stateUpdate.fired = false;
+          stateUpdate.resolved_pending_since = null;
+          await resolveAlert(supabase, def, targetLevel, targetId);
+          console.log(`[ALERT] Dead time elapsed: "${def.name}" — resolved after ${deadTime}min`);
+        }
+        // Otherwise keep waiting
+      }
     }
   }
 
@@ -664,6 +730,56 @@ async function processRepeats(
       }
     }
   }
+}
+
+// ─── Override Resolution ─────────────────────────────────────────────────────
+
+async function fetchOverrides(
+  supabase: SupabaseClient,
+  defIds: string[]
+): Promise<AlertOverride[]> {
+  if (defIds.length === 0) return [];
+  const { data } = await supabase
+    .from("b_alert_overrides")
+    .select("override_id, org_id, alert_def_id, site_id, equipment_id, threshold_override, severity_override, cooldown_override, sustain_override_min, enabled")
+    .in("alert_def_id", defIds);
+  return (data || []) as AlertOverride[];
+}
+
+function resolveOverride(
+  overrides: AlertOverride[],
+  defId: string,
+  siteId: string | null,
+  equipmentId: string | null
+): AlertOverride | null {
+  const defOverrides = overrides.filter((o) => o.alert_def_id === defId);
+  if (defOverrides.length === 0) return null;
+
+  // Most specific wins: equipment > site > org
+  if (equipmentId) {
+    const equipMatch = defOverrides.find((o) => o.equipment_id === equipmentId);
+    if (equipMatch) return equipMatch;
+  }
+  if (siteId) {
+    const siteMatch = defOverrides.find((o) => o.site_id === siteId && !o.equipment_id);
+    if (siteMatch) return siteMatch;
+  }
+  // Org-level: no site_id, no equipment_id
+  const orgMatch = defOverrides.find((o) => !o.site_id && !o.equipment_id);
+  return orgMatch || null;
+}
+
+function applyOverride(
+  def: AlertDefinition,
+  override: AlertOverride | null
+): AlertDefinition {
+  if (!override) return def;
+  return {
+    ...def,
+    threshold_value: override.threshold_override ?? def.threshold_value,
+    severity: override.severity_override ?? def.severity,
+    sustain_minutes: override.sustain_override_min ?? def.sustain_minutes,
+  };
 }
 
 // ─── Helper Functions ────────────────────────────────────────────────────────

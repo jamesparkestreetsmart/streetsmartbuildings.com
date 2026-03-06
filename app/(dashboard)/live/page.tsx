@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useOrg } from "@/context/OrgContext";
 import AlertRulesManager from "@/components/alerts/AlertRulesManager";
 import AlertSubscriptions from "@/components/alerts/AlertSubscriptions";
+import AlertBrowseView from "@/components/alerts/AlertBrowseView";
 
 type LiveAlert = {
   id: string;
@@ -77,6 +78,7 @@ export default function AlertsPage() {
   const [historySortColumn, setHistorySortColumn] = useState<keyof AlertHistoryRow>("start");
   const [historySortDirection, setHistorySortDirection] = useState<"asc" | "desc">("desc");
   const [historyGroupFilter, setHistoryGroupFilter] = useState<string>("all");
+  const [configView, setConfigView] = useState<"list" | "browse">("list");
 
   // Unique equipment groups from data
   const liveEquipmentGroups = [...new Set(liveRows.map((r) => r.equipment_group).filter(Boolean))] as string[];
@@ -728,8 +730,38 @@ export default function AlertsPage() {
         <>
           {selectedOrgId ? (
             <div className="space-y-6">
-              <AlertRulesManager orgId={selectedOrgId} />
-              <AlertSubscriptions orgId={selectedOrgId} />
+              {/* View toggle */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setConfigView("list")}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors border ${
+                    configView === "list"
+                      ? "bg-green-100 text-green-700 border-green-300"
+                      : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-150"
+                  }`}
+                >
+                  List View
+                </button>
+                <button
+                  onClick={() => setConfigView("browse")}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors border ${
+                    configView === "browse"
+                      ? "bg-green-100 text-green-700 border-green-300"
+                      : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-150"
+                  }`}
+                >
+                  Browse by Site & Equipment
+                </button>
+              </div>
+
+              {configView === "list" ? (
+                <>
+                  <AlertRulesManager orgId={selectedOrgId} />
+                  <AlertSubscriptions orgId={selectedOrgId} />
+                </>
+              ) : (
+                <AlertBrowseView orgId={selectedOrgId} />
+              )}
             </div>
           ) : (
             <div className="text-sm text-gray-400 py-8 text-center">

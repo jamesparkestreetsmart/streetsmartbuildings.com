@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +9,19 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+async function getCallerUserId(): Promise<string | null> {
+  try {
+    const cookieStore = await cookies();
+    const authClient = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
+    );
+    const { data: { user } } = await authClient.auth.getUser();
+    return user?.id || null;
+  } catch { return null; }
+}
 
 export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("org_id");
@@ -16,6 +31,103 @@ export async function GET(req: NextRequest) {
   const equipmentGroup = req.nextUrl.searchParams.get("equipment_group");
 
   if (!orgId) return NextResponse.json({ error: "org_id required" }, { status: 400 });
+
+  // ─── Level: browse (Site → Equipment → Alert Definitions) ─────────────
+  if (level === "browse") {
+    const userId = await getCallerUserId();
+
+    // Get all sites
+    const { data: sites } = await supabase
+      .from("a_sites")
+      .select("site_id, site_name")
+      .eq("org_id", orgId)
+      .order("site_name");
+
+    // Get all equipment with their groups
+    const { data: allEquipment } = await supabase
+      .from("a_equipments")
+      .select("equipment_id, equipment_name, equipment_group, site_id")
+      .eq("org_id", orgId)
+      .order("equipment_name");
+
+    // Get all enabled definitions
+    const { data: definitions } = await supabase
+      .from("b_alert_definitions")
+      .select("*")
+      .eq("org_id", orgId)
+      .eq("enabled", true);
+
+    // Get user subscriptions if authenticated
+    let userSubs: Record<string, any> = {};
+    if (userId && definitions?.length) {
+      const defIds = definitions.map((d: any) => d.id);
+      const { data: subs } = await supabase
+        .from("b_alert_subscriptions")
+        .select("*")
+        .eq("user_id", userId)
+        .in("alert_def_id", defIds);
+      for (const sub of subs || []) {
+        userSubs[sub.alert_def_id] = sub;
+      }
+    }
+
+    // Build hierarchy: site → equipment → matching definitions
+    const browse = (sites || []).map((site: any) => {
+      const siteEquipment = (allEquipment || []).filter((eq: any) => eq.site_id === site.site_id);
+
+      const equipmentWithDefs = siteEquipment.map((eq: any) => {
+        // Find definitions matching this equipment's type/group
+        const matchingDefs = (definitions || []).filter((def: any) => {
+          // Check if definition targets this equipment type
+          if (def.entity_type === "sensor" && def.equipment_type) {
+            if (def.equipment_type !== eq.equipment_group) return false;
+          } else if (def.entity_type === "sensor" && def.entity_id) {
+            // Specific sensor — we'd need to check if it belongs to this equipment
+            // Skip for now — these show up as org-level
+            return false;
+          } else if (def.entity_type === "derived" || def.entity_type === "anomaly") {
+            // Zone-based — match by site scope
+          }
+
+          // Check scope filtering
+          if (def.scope_mode === "include" && def.scope_ids?.length) {
+            if (def.scope_level === "site" && !def.scope_ids.includes(site.site_id)) return false;
+            if (def.scope_level === "equipment" && !def.scope_ids.includes(eq.equipment_id)) return false;
+          } else if (def.scope_mode === "exclude" && def.scope_ids?.length) {
+            if (def.scope_level === "site" && def.scope_ids.includes(site.site_id)) return false;
+            if (def.scope_level === "equipment" && def.scope_ids.includes(eq.equipment_id)) return false;
+          }
+
+          return true;
+        }).map((def: any) => ({
+          id: def.id,
+          name: def.name,
+          severity: def.severity,
+          entity_type: def.entity_type,
+          condition_type: def.condition_type,
+          threshold_value: def.threshold_value,
+          equipment_type: def.equipment_type,
+          sensor_role: def.sensor_role,
+          subscription: userSubs[def.id] || null,
+        }));
+
+        return {
+          equipment_id: eq.equipment_id,
+          equipment_name: eq.equipment_name,
+          equipment_group: eq.equipment_group,
+          definitions: matchingDefs,
+        };
+      }).filter((eq: any) => eq.definitions.length > 0);
+
+      return {
+        site_id: site.site_id,
+        site_name: site.site_name,
+        equipment: equipmentWithDefs,
+      };
+    }).filter((site: any) => site.equipment.length > 0);
+
+    return NextResponse.json({ browse });
+  }
 
   // ─── Level: sites ───────────────────────────────────────────────────────
   if (level === "sites") {

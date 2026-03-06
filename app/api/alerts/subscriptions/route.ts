@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
     delta_direction: d.delta_direction,
     window_minutes: d.window_minutes,
     sustain_minutes: d.sustain_minutes,
+    resolved_dead_time_minutes: d.resolved_dead_time_minutes ?? 0,
     equipment_type: d.equipment_type,
     sensor_role: d.sensor_role,
     anomaly_type: d.anomaly_type,

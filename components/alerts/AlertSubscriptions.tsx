@@ -17,6 +17,7 @@ interface SubscriptionDef {
   delta_direction: string | null;
   window_minutes: number | null;
   sustain_minutes: number | null;
+  resolved_dead_time_minutes: number;
   equipment_type: string | null;
   sensor_role: string | null;
   anomaly_type: string | null;
@@ -283,6 +284,11 @@ export default function AlertSubscriptions({ orgId }: { orgId: string }) {
                       >
                         Resolved
                       </button>
+                      {def.subscription.send_resolved && def.resolved_dead_time_minutes > 0 && (
+                        <span className="text-xs text-teal-600">
+                          ({def.resolved_dead_time_minutes}min dead time)
+                        </span>
+                      )}
                       <button
                         onClick={() =>
                           updateSubscription(def.id, { repeat_enabled: !def.subscription!.repeat_enabled })
