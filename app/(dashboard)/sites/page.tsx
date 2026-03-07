@@ -69,6 +69,8 @@ export default function SitesPage() {
   const [sortAsc, setSortAsc] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [siteScope, setSiteScope] = useState<"all" | string[] | null>(null);
+  const [scopeLoading, setScopeLoading] = useState(true);
   
   // Industry & Brand data
   const [industries, setIndustries] = useState<Industry[]>([]);
@@ -112,25 +114,39 @@ export default function SitesPage() {
     return cleaned;
   };
 
-  // ===== Fetch Sites (using view_sites_summary) =====
+  // ===== Fetch Sites (server-side scoped) =====
   const fetchSites = async () => {
     if (!selectedOrgId) {
       setSites([]);
+      setSiteScope(null);
+      setScopeLoading(false);
       return;
     }
+    setScopeLoading(true);
 
-    const { data, error } = await supabase
-      .from("view_sites_summary")
-      .select("*")
-      .eq("org_id", selectedOrgId)
-      .order("created_at", { ascending: false });
+    try {
+      // Fetch scope info and scoped sites in parallel
+      const [scopeRes, sitesRes] = await Promise.all([
+        fetch(`/api/user/site-scope?org_id=${selectedOrgId}`),
+        fetch(`/api/sites/list?org_id=${selectedOrgId}`),
+      ]);
 
-    if (error) {
-      console.error("❌ Error fetching sites:", error);
-    } else {
-      console.log("✅ Sites fetched:", data);
-      setSites((data as Site[]) || []);
+      const scopeData = await scopeRes.json();
+      setSiteScope(scopeData.scope);
+
+      if (sitesRes.ok) {
+        const sitesData = await sitesRes.json();
+        setSites(sitesData as Site[]);
+      } else {
+        console.error("Error fetching sites");
+        setSites([]);
+      }
+    } catch (err) {
+      console.error("Error fetching sites:", err);
+      setSiteScope("all");
+      setSites([]);
     }
+    setScopeLoading(false);
   };
 
   // ===== Retire Site =====
@@ -205,7 +221,7 @@ export default function SitesPage() {
     setLoadingBrands(false);
   };
 
-  // Re-fetch sites when org changes
+  // Re-fetch sites (server-side scoped) when org changes
   useEffect(() => {
     fetchSites();
   }, [selectedOrgId]);
@@ -401,6 +417,14 @@ export default function SitesPage() {
             </div>
             <div className="text-xs text-amber-500">View →</div>
           </a>
+        </div>
+      )}
+
+      {/* ===== Scope Empty State ===== */}
+      {!scopeLoading && Array.isArray(siteScope) && siteScope.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          <p className="text-lg font-medium">No sites assigned to your account yet.</p>
+          <p className="text-sm mt-1">Contact your administrator to be added to a region group.</p>
         </div>
       )}
 

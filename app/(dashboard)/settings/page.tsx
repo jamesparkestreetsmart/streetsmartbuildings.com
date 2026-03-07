@@ -93,6 +93,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Plus, Users, Building2, Pencil, Save, X, MapPin, User, Settings2, Mail, RefreshCw, Trash2 } from "lucide-react";
+import UserGroups from "@/components/settings/UserGroups";
 
 // Helper to format billing address for display
 const formatBillingAddress = (org: Organization): string => {
@@ -116,6 +117,7 @@ export default function SettingsPage() {
   // ── NEW: pending invites state ────────────────────────────────────────────
   const [pendingInvites, setPendingInvites] = useState<InviteRecord[]>([]);
   const [siteCounts, setSiteCounts] = useState<SiteCount[]>([]);
+  const [allSites, setAllSites] = useState<{ site_id: string; site_name: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [editingOrg, setEditingOrg] = useState(false);
@@ -193,7 +195,7 @@ export default function SettingsPage() {
 
     const { data: sitesData } = await supabase
       .from("a_sites")
-      .select("site_id, industry, brand")
+      .select("site_id, site_name, industry, brand")
       .eq("org_id", selectedOrgId);
     // Fetch lookup tables
     const { data: jobTitleData } = await supabase
@@ -267,6 +269,11 @@ export default function SettingsPage() {
     if (profileData) {
       setProfile(profileData);
       setProfileDraft(profileData);
+    }
+
+    // Store full sites list for UserGroups component
+    if (sitesData) {
+      setAllSites(sitesData.map((s: any) => ({ site_id: s.site_id, site_name: s.site_name || "" })));
     }
 
     // Compute site counts by industry + brand
@@ -1477,6 +1484,20 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ===== User Groups (Regions) ===== */}
+      {selectedOrgId && (
+        <UserGroups
+          orgId={selectedOrgId}
+          members={members.map((m) => ({
+            user_id: m.user_id,
+            email: m.email,
+            first_name: m.first_name,
+            last_name: m.last_name,
+          }))}
+          sites={allSites}
+        />
       )}
 
       {/* Shake Animation */}

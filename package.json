@@ -35,7 +35,8 @@
     "recharts": "^3.3.0",
     "resend": "^6.9.2",
     "tailwind-merge": "^2.5.3",
-    "twilio": "^5.12.2"
+    "twilio": "^5.12.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20",

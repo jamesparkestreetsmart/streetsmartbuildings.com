@@ -1,9 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import TabClientWrapper from "./tab-client-wrapper";
 import AddEquipmentButton from "@/components/equipment/AddEquipmentButton";
 import SiteInventoryPanel from "@/components/inventory/SiteInventoryPanel";
+import { getUserSiteScope } from "@/lib/user-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +85,16 @@ export default async function SitePage(props: any) {
   if (siteError || !site) {
     console.error("Site load error:", siteError);
     return <div className="p-6 text-red-600">Error loading site.</div>;
+  }
+
+  // Server-side scope check: verify user has access to this site
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  if (authUser && site.org_id) {
+    const scope = await getUserSiteScope(authUser.id, site.org_id);
+    if (scope !== "all" && !scope.includes(id)) {
+      console.log(`[scope] Access denied to site ${id} for user ${authUser.id}`);
+      redirect("/sites");
+    }
   }
 
   const isInventorySite = site.status === "inventory";

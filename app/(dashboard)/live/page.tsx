@@ -113,78 +113,70 @@ export default function AlertsPage() {
   const fetchLive = async () => {
     if (!selectedOrgId) return;
 
-    // Query 1: existing anomaly events from the view
-    const { data: anomalyData, error: anomalyError } = await supabase
-      .from("view_live_alerts")
-      .select("*")
-      .eq("org_id", selectedOrgId)
-      .order("start", { ascending: false });
+    try {
+      const res = await fetch(`/api/alerts/live?org_id=${selectedOrgId}`);
+      if (!res.ok) {
+        console.error("fetch live alerts failed", res.status);
+        return;
+      }
+      const { anomalies: anomalyData, instances: instanceData } = await res.json();
 
-    // Query 2: alert instances with definitions
-    const cutoff = new Date(Date.now() - 86400000).toISOString();
-    const { data: instanceData, error: instanceError } = await supabase
-      .from("b_alert_instances")
-      .select("*, b_alert_definitions(name, severity, sensor_role)")
-      .eq("org_id", selectedOrgId)
-      .or(`status.eq.active,fired_at.gte.${cutoff}`)
-      .order("fired_at", { ascending: false });
+      // Normalize anomaly events
+      const normalizedAnomalies: LiveAlert[] = (anomalyData ?? []).map((r: any) => ({
+        id: `anomaly-${r.alert_id}`,
+        source: "anomaly_event" as const,
+        site_id: r.site_id ?? null,
+        site_name: r.site_name,
+        equipment_name: r.equipment_name,
+        equipment_group: r.equipment_group ?? null,
+        space_name: r.space_name,
+        alert_type: r.alert_type,
+        alert_name: r.alert_name ? r.alert_name : formatAlertSlug(r.alert_type || ""),
+        notification_count: r.notification_count ?? 0,
+        trigger_value: r.trigger_value ?? null,
+        threshold_value: r.threshold_value ?? null,
+        threshold_unit: r.threshold_unit ?? null,
+        status: r.status,
+        start_time: r.start,
+        end_time: r.end ?? null,
+        duration: r.duration ?? null,
+        severity: "warning" as const,
+      }));
 
-    // Normalize anomaly events
-    const normalizedAnomalies: LiveAlert[] = (anomalyData ?? []).map((r: any) => ({
-      id: `anomaly-${r.alert_id}`,
-      source: "anomaly_event" as const,
-      site_id: r.site_id ?? null,
-      site_name: r.site_name,
-      equipment_name: r.equipment_name,
-      equipment_group: r.equipment_group ?? null,
-      space_name: r.space_name,
-      alert_type: r.alert_type,
-      alert_name: r.alert_name ? r.alert_name : formatAlertSlug(r.alert_type || ""),
-      notification_count: r.notification_count ?? 0,
-      trigger_value: r.trigger_value ?? null,
-      threshold_value: r.threshold_value ?? null,
-      threshold_unit: r.threshold_unit ?? null,
-      status: r.status,
-      start_time: r.start,
-      end_time: r.end ?? null,
-      duration: r.duration ?? null,
-      severity: "warning" as const,
-    }));
+      // Normalize alert instances
+      const normalizedInstances: LiveAlert[] = (instanceData ?? []).map((i: any) => ({
+        id: `instance-${i.id}`,
+        source: "alert_instance" as const,
+        site_id: i.context?.site_id ?? null,
+        site_name: i.context?.site_name ?? i.target_name ?? "--",
+        equipment_name: i.target_name ?? "--",
+        equipment_group: i.context?.equipment_group ?? null,
+        space_name: null,
+        alert_type: i.b_alert_definitions?.name ?? "Unknown Alert",
+        alert_name: i.b_alert_definitions?.name ?? "Unknown Alert",
+        notification_count: 0,
+        trigger_value: i.trigger_value ?? null,
+        threshold_value: null,
+        threshold_unit: null,
+        status: i.status === "active" ? "active" : "resolved",
+        start_time: i.fired_at,
+        end_time: i.resolved_at ?? null,
+        duration: i.duration_min != null ? i.duration_min / 60 : null,
+        severity: (i.b_alert_definitions?.severity as "critical" | "warning") ?? "warning",
+      }));
 
-    // Normalize alert instances
-    const normalizedInstances: LiveAlert[] = (instanceData ?? []).map((i: any) => ({
-      id: `instance-${i.id}`,
-      source: "alert_instance" as const,
-      site_id: i.context?.site_id ?? null,
-      site_name: i.context?.site_name ?? i.target_name ?? "--",
-      equipment_name: i.target_name ?? "--",
-      equipment_group: i.context?.equipment_group ?? null,
-      space_name: null,
-      alert_type: i.b_alert_definitions?.name ?? "Unknown Alert",
-      alert_name: i.b_alert_definitions?.name ?? "Unknown Alert",
-      notification_count: 0,
-      trigger_value: i.trigger_value ?? null,
-      threshold_value: null,
-      threshold_unit: null,
-      status: i.status === "active" ? "active" : "resolved",
-      start_time: i.fired_at,
-      end_time: i.resolved_at ?? null,
-      duration: i.duration_min != null ? i.duration_min / 60 : null,
-      severity: (i.b_alert_definitions?.severity as "critical" | "warning") ?? "warning",
-    }));
+      // Merge and sort: active first, then by start_time descending
+      const merged = [...normalizedAnomalies, ...normalizedInstances].sort((a, b) => {
+        if (a.status === "active" && b.status !== "active") return -1;
+        if (a.status !== "active" && b.status === "active") return 1;
+        return new Date(b.start_time).getTime() - new Date(a.start_time).getTime();
+      });
 
-    // Merge and sort: active first, then by start_time descending
-    const merged = [...normalizedAnomalies, ...normalizedInstances].sort((a, b) => {
-      if (a.status === "active" && b.status !== "active") return -1;
-      if (a.status !== "active" && b.status === "active") return 1;
-      return new Date(b.start_time).getTime() - new Date(a.start_time).getTime();
-    });
-
-    setLiveRows(merged);
-    setLiveLastUpdated(formatCST(new Date()));
-
-    if (anomalyError) console.error("fetch anomaly events failed", anomalyError);
-    if (instanceError) console.error("fetch alert instances failed", instanceError);
+      setLiveRows(merged);
+      setLiveLastUpdated(formatCST(new Date()));
+    } catch (err) {
+      console.error("fetch live alerts failed", err);
+    }
   };
 
   const formatDuration = (duration: string | number | null | undefined) => {
@@ -285,19 +277,19 @@ export default function AlertsPage() {
     const { start, end } = getDateRange();
     if (range === "custom" && (!start || !end)) return;
 
-    const { data, error } = await supabase
-      .from("view_alert_history")
-      .select("*")
-      .eq("org_id", selectedOrgId)
-      .gte("start", start)
-      .lte("start", end)
-      .order("start", { ascending: false });
-
-    if (!error && data) {
-      setHistoryLogs(data);
-      setHistoryLastUpdated(formatCST(new Date()));
-    } else {
-      console.error("Error fetching alert history:", error);
+    try {
+      const res = await fetch(
+        `/api/alerts/history?org_id=${selectedOrgId}&start=${encodeURIComponent(start!)}&end=${encodeURIComponent(end!)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryLogs(data);
+        setHistoryLastUpdated(formatCST(new Date()));
+      } else {
+        console.error("Error fetching alert history:", res.status);
+      }
+    } catch (err) {
+      console.error("Error fetching alert history:", err);
     }
   };
 

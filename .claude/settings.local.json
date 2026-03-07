@@ -6,7 +6,12 @@
       "Bash(curl:*)",
       "Bash(node:*)",
       "Bash(tail:)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)"
     ]
   }
 }
