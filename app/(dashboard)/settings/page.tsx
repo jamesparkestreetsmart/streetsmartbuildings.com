@@ -346,49 +346,18 @@ export default function SettingsPage() {
         (inv: any) => !memberEmails.has((inv.invite_email || "").toLowerCase())
       );
 
-      // ── Auto-recover: if invite user has a_users record but no membership, create it ──
+      // ── Auto-recover: if invite user signed up but membership wasn't created ──
       if (stillPending.length > 0) {
         const pendingEmails = stillPending.map((inv: any) => (inv.invite_email || "").toLowerCase());
-        const { data: existingUsers } = await supabase
-          .from("a_users")
-          .select("user_id, email")
-          .in("email", pendingEmails);
-
-        if (existingUsers && existingUsers.length > 0) {
-          const recoveredInviteIds: string[] = [];
-          for (const user of existingUsers) {
-            const inv = stillPending.find(
-              (i: any) => (i.invite_email || "").toLowerCase() === (user.email || "").toLowerCase()
-            );
-            if (!inv) continue;
-
-            // Create the missing membership
-            const { error: memErr } = await supabase
-              .from("a_orgs_users_memberships")
-              .insert({
-                user_id: user.user_id,
-                org_id: selectedOrgId,
-                role: inv.default_role ?? "viewer",
-                job_title: inv.default_job_title ?? null,
-                capability_preset: inv.default_capability_preset ?? "read_only",
-                status: "active",
-              });
-
-            if (!memErr || memErr.code === "23505") {
-              recoveredInviteIds.push(inv.invite_id);
-              // Fulfill the invite
-              await supabase
-                .from("a_org_invites")
-                .update({ status: "fulfilled" })
-                .eq("invite_id", inv.invite_id);
-            }
-          }
-          // Remove recovered invites from pending list
-          if (recoveredInviteIds.length > 0) {
-            stillPending = stillPending.filter(
-              (inv: any) => !recoveredInviteIds.includes(inv.invite_id)
-            );
-            // Refresh member list to show recovered users
+        try {
+          const recoverRes = await fetch("/api/org-users/recover", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ org_id: selectedOrgId, invite_emails: pendingEmails }),
+          });
+          const recoverData = await recoverRes.json();
+          if (recoverData.recovered > 0) {
+            // Refresh members and invites since some were recovered
             const { data: refreshedMembers } = await supabase
               .from("view_settings_users")
               .select("*")
@@ -402,8 +371,17 @@ export default function SettingsPage() {
                 visible = visible.filter((m: any) => !m.email?.endsWith("@streetsmartbuildings.com"));
               }
               setMembers(visible);
+              // Recalculate still-pending
+              const newMemberEmails = new Set(
+                refreshedMembers.map((m: any) => (m.email || "").toLowerCase()).filter(Boolean)
+              );
+              stillPending = stillPending.filter(
+                (inv: any) => !newMemberEmails.has((inv.invite_email || "").toLowerCase())
+              );
             }
           }
+        } catch (e) {
+          console.error("[settings] recover call failed:", e);
         }
       }
 
