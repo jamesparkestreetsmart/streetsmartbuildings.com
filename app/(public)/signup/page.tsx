@@ -1,10 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupForm />
+    </Suspense>
+  );
+}
+
+function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [form, setForm] = useState({
     first_name: "",
@@ -18,9 +27,42 @@ export default function SignupPage() {
     units: "imperial",
   });
 
+  // Track whether we arrived via invite link
+  const [inviteOrg, setInviteOrg] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+
+  // Read URL params on mount — uses both useSearchParams and window.location as fallback
+  useEffect(() => {
+    let org = searchParams.get("org") || "";
+    let email = searchParams.get("email") || "";
+
+    // Fallback: read directly from window.location if useSearchParams returned empty
+    if (!org && !email && typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      org = params.get("org") || "";
+      email = params.get("email") || "";
+    }
+
+    org = org.toUpperCase();
+    email = email.toLowerCase();
+
+    if (org || email) {
+      setInviteOrg(org);
+      setInviteEmail(email);
+      setForm((prev) => ({
+        ...prev,
+        ...(org && { org_code: org }),
+        ...(email && { email }),
+      }));
+    }
+  }, [searchParams]);
+
+  const isInvited = !!inviteOrg;
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showOrgCode, setShowOrgCode] = useState(false);
   const passwordMismatch = form.confirm_password.length > 0 && form.password !== form.confirm_password;
 
   const handleChange = (field: keyof typeof form, value: string) => {
@@ -150,11 +192,13 @@ export default function SignupPage() {
             </div>
 
             <input
-              className="border p-2 rounded w-full"
+              className={`border p-2 rounded w-full ${inviteEmail ? "bg-gray-50 text-gray-600" : ""}`}
               placeholder="E-mail"
               type="email"
               value={form.email}
               onChange={(e) => handleChange("email", e.target.value)}
+              readOnly={!!inviteEmail}
+              tabIndex={inviteEmail ? -1 : undefined}
               required
             />
 
@@ -192,14 +236,29 @@ export default function SignupPage() {
               )}
             </div>
 
-            <input
-              className="border p-2 rounded w-full tracking-[0.25em] uppercase"
-              placeholder="4-Letter Org Code"
-              value={form.org_code}
-              onChange={(e) => handleChange("org_code", e.target.value)}
-              maxLength={4}
-              required
-            />
+            {/* Org code: masked like a password with show/hide toggle */}
+            <div className="relative">
+              <input
+                type={showOrgCode ? "text" : "password"}
+                className={`border p-2 rounded w-full pr-10 ${showOrgCode ? "tracking-[0.25em] uppercase" : ""} ${isInvited ? "bg-gray-50 text-gray-600" : ""}`}
+                placeholder="4-Letter Org Code"
+                value={form.org_code}
+                onChange={(e) => handleChange("org_code", e.target.value)}
+                readOnly={isInvited}
+                tabIndex={isInvited ? -1 : undefined}
+                maxLength={4}
+                required
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={() => setShowOrgCode((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm select-none"
+                tabIndex={-1}
+              >
+                {showOrgCode ? "Hide" : "Show"}
+              </button>
+            </div>
 
             <div className="flex gap-3">
               <select
