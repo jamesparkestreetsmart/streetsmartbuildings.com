@@ -3,8 +3,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
-function createSupabaseServerClient() {
+// Anon client — used only for auth.signUp (respects auth layer)
+function createSupabaseAuthClient() {
   const cookieStorePromise = cookies();
 
   return createServerClient(
@@ -29,6 +31,12 @@ function createSupabaseServerClient() {
   );
 }
 
+// Service role client — bypasses RLS for data operations during signup
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -43,7 +51,7 @@ export async function POST(req: Request) {
     const units = String(body?.units ?? "imperial");
 
     const email = emailRaw.trim().toLowerCase();
-    const orgCode = orgCodeRaw.trim().toUpperCase();
+    const orgCode = orgCodeRaw.trim().replace(/\s+/g, "").toUpperCase();
 
     if (!first_name || !last_name || !email || !password || !orgCode) {
       return NextResponse.json(
@@ -59,21 +67,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabase = createSupabaseServerClient();
-
     // 1) Look up org by org_identifier (the 4-letter code)
-    const { data: org, error: orgError } = await supabase
+    console.log("[signup] Looking up org_identifier:", JSON.stringify(orgCode), "length:", orgCode.length);
+    const { data: org, error: orgError } = await supabaseAdmin
       .from("a_organizations")
       .select("org_id")
       .eq("org_identifier", orgCode)
       .single();
 
     if (orgError || !org) {
+      console.error("[signup] Org lookup failed for code:", JSON.stringify(orgCode), "error:", orgError?.message, "code:", orgError?.code);
       return NextResponse.json(
         { error: "Invalid organization code." },
         { status: 400 }
       );
     }
+    console.log("[signup] Found org:", org.org_id);
 
     const orgId = org.org_id;
 
@@ -81,7 +90,7 @@ export async function POST(req: Request) {
     const emailDomain = email.split("@")[1];
 
     // Try exact email match first
-    let { data: invite } = await supabase
+    let { data: invite } = await supabaseAdmin
       .from("a_org_invites")
       .select("*")
       .eq("status", "active")
@@ -95,7 +104,7 @@ export async function POST(req: Request) {
 
     // If no email match, try domain match
     if (!invite) {
-      const { data: domainInvite } = await supabase
+      const { data: domainInvite } = await supabaseAdmin
         .from("a_org_invites")
         .select("*")
         .eq("status", "active")
@@ -113,7 +122,7 @@ export async function POST(req: Request) {
 
     if (!invite) {
       // Check if there are any revoked/expired invites to give a better error message
-      const { data: anyInvite } = await supabase
+      const { data: anyInvite } = await supabaseAdmin
         .from("a_org_invites")
         .select("status")
         .eq("org_id", orgId)
@@ -145,8 +154,9 @@ export async function POST(req: Request) {
     const membershipJobTitle = isDomainInvite ? "analyst" : (invite.default_job_title ?? null);
     const membershipCapabilityPreset = isDomainInvite ? "read_only" : (invite.default_capability_preset ?? "read_only");
 
-    // 3) Create Supabase Auth user
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    // 3) Create Supabase Auth user (uses anon client for auth API)
+    const supabaseAuth = createSupabaseAuthClient();
+    const { data: authData, error: authError } = await supabaseAuth.auth.signUp({
       email,
       password,
     });
@@ -171,7 +181,7 @@ export async function POST(req: Request) {
     const authUserId = authData.user.id as string;
 
     // 4) Insert into a_users (user profile - no org-specific data)
-    const { error: userInsertError } = await supabase
+    const { error: userInsertError } = await supabaseAdmin
       .from("a_users")
       .insert({
         user_id: authUserId,
@@ -193,7 +203,7 @@ export async function POST(req: Request) {
     }
 
     // 5) Insert into a_orgs_users_memberships (org-specific role/access)
-    const { error: membershipError } = await supabase
+    const { error: membershipError } = await supabaseAdmin
       .from("a_orgs_users_memberships")
       .insert({
         user_id: authUserId,
@@ -216,7 +226,7 @@ export async function POST(req: Request) {
     // For email invites: mark as fulfilled (person joined)
     // For domain invites: update usage count (domain invites serve multiple people)
     if (!isDomainInvite) {
-      await supabase
+      await supabaseAdmin
         .from("a_org_invites")
         .update({
           used_count: (invite.used_count ?? 0) + 1,
@@ -225,7 +235,7 @@ export async function POST(req: Request) {
         .eq("invite_id", invite.invite_id);
     } else {
       // Domain invite stays active but bump usage count
-      await supabase
+      await supabaseAdmin
         .from("a_org_invites")
         .update({
           used_count: (invite.used_count ?? 0) + 1,
@@ -235,7 +245,7 @@ export async function POST(req: Request) {
 
     // Also fulfill any OTHER active email-specific invites for this user in this org
     // (e.g., if someone was invited by email AND matched a domain invite)
-    await supabase
+    await supabaseAdmin
       .from("a_org_invites")
       .update({ status: "fulfilled" })
       .eq("invite_email", email)
