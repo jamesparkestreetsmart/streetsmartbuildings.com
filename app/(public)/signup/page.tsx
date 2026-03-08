@@ -62,7 +62,6 @@ function SignupForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [showOrgCode, setShowOrgCode] = useState(false);
   const passwordMismatch = form.confirm_password.length > 0 && form.password !== form.confirm_password;
 
   const handleChange = (field: keyof typeof form, value: string) => {
@@ -236,29 +235,19 @@ function SignupForm() {
               )}
             </div>
 
-            {/* Org code: masked like a password with show/hide toggle */}
-            <div className="relative">
-              <input
-                type={showOrgCode ? "text" : "password"}
-                className={`border p-2 rounded w-full pr-10 ${showOrgCode ? "tracking-[0.25em] uppercase" : ""} ${isInvited ? "bg-gray-50 text-gray-600" : ""}`}
-                placeholder="4-Letter Org Code"
-                value={form.org_code}
-                onChange={(e) => handleChange("org_code", e.target.value)}
-                readOnly={isInvited}
-                tabIndex={isInvited ? -1 : undefined}
-                maxLength={4}
-                required
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                onClick={() => setShowOrgCode((v) => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm select-none"
-                tabIndex={-1}
-              >
-                {showOrgCode ? "Hide" : "Show"}
-              </button>
-            </div>
+            {/* Org code: always masked (dots), no reveal toggle */}
+            <input
+              type="password"
+              className={`border p-2 rounded w-full ${isInvited ? "bg-gray-50 text-gray-600" : ""}`}
+              placeholder="4-Letter Org Code"
+              value={form.org_code}
+              onChange={(e) => handleChange("org_code", e.target.value)}
+              readOnly={isInvited}
+              tabIndex={isInvited ? -1 : undefined}
+              maxLength={4}
+              required
+              autoComplete="off"
+            />
 
             <div className="flex gap-3">
               <select

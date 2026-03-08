@@ -191,15 +191,20 @@ export async function POST(req: Request) {
         phone_number,
         time_format,
         units,
-        preferences: "{}",
+        preferences: {},
       });
 
     if (userInsertError) {
-      console.error("a_users insert error:", userInsertError);
-      return NextResponse.json(
-        { error: "Failed to save user profile." },
-        { status: 500 }
-      );
+      console.error("[signup] a_users insert error:", JSON.stringify(userInsertError));
+      // If user already exists (from a previous partial signup), continue
+      if (userInsertError.code === "23505") {
+        console.log("[signup] a_users row already exists, continuing...");
+      } else {
+        return NextResponse.json(
+          { error: `Failed to save user profile: ${userInsertError.message}` },
+          { status: 500 }
+        );
+      }
     }
 
     // 5) Insert into a_orgs_users_memberships (org-specific role/access)
@@ -215,11 +220,15 @@ export async function POST(req: Request) {
       });
 
     if (membershipError) {
-      console.error("Membership insert error:", membershipError);
-      return NextResponse.json(
-        { error: "Account created, but failed to link organization." },
-        { status: 500 }
-      );
+      console.error("[signup] Membership insert error:", JSON.stringify(membershipError));
+      if (membershipError.code === "23505") {
+        console.log("[signup] Membership already exists, continuing...");
+      } else {
+        return NextResponse.json(
+          { error: `Account created, but failed to link organization: ${membershipError.message}` },
+          { status: 500 }
+        );
+      }
     }
 
     // 6) Fulfill the invite
