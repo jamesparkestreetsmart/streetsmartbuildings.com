@@ -310,13 +310,13 @@ export default function SettingsPage() {
       setOrg(orgData);
       setOrgDraft(orgData);
     }
+    const isSSBOrg = orgData?.org_identifier === "SSB1";
     if (memberData) {
       let visibleMembers = isServiceProvider
         ? memberData
         : memberData.filter((m: any) => m.visibility !== 'hidden');
 
       // Hide Street Smart Buildings platform operators from client org user lists.
-      const isSSBOrg = orgData?.org_identifier === "SSB1";
       if (!isSSBOrg) {
         visibleMembers = visibleMembers.filter(
           (m: any) => !m.email?.endsWith("@streetsmartbuildings.com")
@@ -342,9 +342,71 @@ export default function SettingsPage() {
           .eq("org_id", selectedOrgId)
           .in("invite_id", fulfillIds);
       }
-      const stillPending = inviteData.filter(
+      let stillPending = inviteData.filter(
         (inv: any) => !memberEmails.has((inv.invite_email || "").toLowerCase())
       );
+
+      // ── Auto-recover: if invite user has a_users record but no membership, create it ──
+      if (stillPending.length > 0) {
+        const pendingEmails = stillPending.map((inv: any) => (inv.invite_email || "").toLowerCase());
+        const { data: existingUsers } = await supabase
+          .from("a_users")
+          .select("user_id, email")
+          .in("email", pendingEmails);
+
+        if (existingUsers && existingUsers.length > 0) {
+          const recoveredInviteIds: string[] = [];
+          for (const user of existingUsers) {
+            const inv = stillPending.find(
+              (i: any) => (i.invite_email || "").toLowerCase() === (user.email || "").toLowerCase()
+            );
+            if (!inv) continue;
+
+            // Create the missing membership
+            const { error: memErr } = await supabase
+              .from("a_orgs_users_memberships")
+              .insert({
+                user_id: user.user_id,
+                org_id: selectedOrgId,
+                role: inv.default_role ?? "viewer",
+                job_title: inv.default_job_title ?? null,
+                capability_preset: inv.default_capability_preset ?? "read_only",
+                status: "active",
+              });
+
+            if (!memErr || memErr.code === "23505") {
+              recoveredInviteIds.push(inv.invite_id);
+              // Fulfill the invite
+              await supabase
+                .from("a_org_invites")
+                .update({ status: "fulfilled" })
+                .eq("invite_id", inv.invite_id);
+            }
+          }
+          // Remove recovered invites from pending list
+          if (recoveredInviteIds.length > 0) {
+            stillPending = stillPending.filter(
+              (inv: any) => !recoveredInviteIds.includes(inv.invite_id)
+            );
+            // Refresh member list to show recovered users
+            const { data: refreshedMembers } = await supabase
+              .from("view_settings_users")
+              .select("*")
+              .eq("org_id", orgData?.org_id)
+              .order("joined_at", { ascending: false });
+            if (refreshedMembers) {
+              let visible = isServiceProvider
+                ? refreshedMembers
+                : refreshedMembers.filter((m: any) => m.visibility !== "hidden");
+              if (!isSSBOrg) {
+                visible = visible.filter((m: any) => !m.email?.endsWith("@streetsmartbuildings.com"));
+              }
+              setMembers(visible);
+            }
+          }
+        }
+      }
+
       setPendingInvites(stillPending as InviteRecord[]);
     } else if (inviteData) {
       setPendingInvites(inviteData as InviteRecord[]);
@@ -1150,6 +1212,7 @@ export default function SettingsPage() {
               placeholder="Search users..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              autoComplete="off"
               className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-56 focus:ring-2 focus:ring-green-500"
             />
 
