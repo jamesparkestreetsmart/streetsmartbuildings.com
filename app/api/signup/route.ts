@@ -154,31 +154,41 @@ export async function POST(req: Request) {
     const membershipJobTitle = isDomainInvite ? "analyst" : (invite.default_job_title ?? null);
     const membershipCapabilityPreset = isDomainInvite ? "read_only" : (invite.default_capability_preset ?? "read_only");
 
-    // 3) Create Supabase Auth user (uses anon client for auth API)
+    // 3) Create Supabase Auth user
     const supabaseAuth = createSupabaseAuthClient();
     const { data: authData, error: authError } = await supabaseAuth.auth.signUp({
       email,
       password,
     });
 
-    if (authError) {
-      console.error("Auth signUp error:", authError);
-      return NextResponse.json(
-        { error: "Unable to create account. Email may already be in use." },
-        { status: 400 }
-      );
-    }
+    let authUserId: string;
 
-    // Supabase returns a user with empty identities (anti-enumeration) when email already exists
-    if (!authData?.user || (authData.user.identities && authData.user.identities.length === 0)) {
-      console.error("Auth signUp: email already exists (empty identities)");
-      return NextResponse.json(
-        { error: "An account with this email already exists. Please log in instead, or use a different email." },
-        { status: 400 }
-      );
-    }
+    const signUpFailed = authError
+      || !authData?.user
+      || (authData.user.identities && authData.user.identities.length === 0);
 
-    const authUserId = authData.user.id as string;
+    if (signUpFailed) {
+      // signUp failed — check if an orphaned auth user exists from a previous partial signup
+      console.log("[signup] signUp failed, checking for orphaned auth user...", authError?.message);
+      const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
+      const found = existingUser?.users?.find((u) => u.email === email);
+
+      if (found) {
+        console.log("[signup] Found orphaned auth user:", found.id, "— recovering signup");
+        authUserId = found.id;
+
+        // Update their password to the one they just entered
+        await supabaseAdmin.auth.admin.updateUserById(authUserId, { password });
+      } else {
+        console.error("[signup] Auth signUp failed and no existing user found:", authError);
+        return NextResponse.json(
+          { error: "Unable to create account. Email may already be in use." },
+          { status: 400 }
+        );
+      }
+    } else {
+      authUserId = authData.user!.id;
+    }
 
     // 4) Insert into a_users (user profile - no org-specific data)
     const { error: userInsertError } = await supabaseAdmin
