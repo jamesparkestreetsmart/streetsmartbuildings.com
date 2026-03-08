@@ -108,6 +108,93 @@ const formatBillingAddress = (org: Organization): string => {
   return parts.join(", ") || "-";
 };
 
+function ChangePasswordSection() {
+  const [open, setOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const mismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
+  const tooShort = newPassword.length > 0 && newPassword.length < 8;
+
+  const handleSave = async () => {
+    if (newPassword !== confirmPassword || newPassword.length < 8) return;
+    setSaving(true);
+    setMessage(null);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setSaving(false);
+    if (error) {
+      setMessage({ type: "error", text: error.message });
+    } else {
+      setMessage({ type: "success", text: "Password updated." });
+      setNewPassword("");
+      setConfirmPassword("");
+      setTimeout(() => { setOpen(false); setMessage(null); }, 1500);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="mt-4 pt-4 border-t">
+        <button
+          onClick={() => setOpen(true)}
+          className="text-sm text-green-700 hover:text-green-800 font-medium"
+        >
+          Change Password
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t">
+      <p className="text-sm font-medium text-gray-700 mb-2">Change Password</p>
+      <div className="flex items-start gap-3">
+        <div className="space-y-2">
+          <input
+            type="password"
+            placeholder="New password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className="border rounded-md px-2 py-1 text-sm w-48"
+            minLength={8}
+          />
+          <input
+            type="password"
+            placeholder="Confirm password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            className={`border rounded-md px-2 py-1 text-sm w-48 ${mismatch ? "border-red-400" : ""}`}
+          />
+          {mismatch && <p className="text-xs text-red-600">Passwords do not match</p>}
+          {tooShort && <p className="text-xs text-amber-600">Must be at least 8 characters</p>}
+        </div>
+        <div className="flex gap-2 pt-0.5">
+          <button
+            onClick={handleSave}
+            disabled={saving || mismatch || tooShort || newPassword.length === 0}
+            className="px-3 py-1 text-sm text-white rounded-md bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+          <button
+            onClick={() => { setOpen(false); setNewPassword(""); setConfirmPassword(""); setMessage(null); }}
+            className="px-3 py-1 text-sm rounded-md text-gray-600 border hover:bg-gray-100"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+      {message && (
+        <p className={`text-xs mt-2 ${message.type === "success" ? "text-emerald-600" : "text-red-600"}`}>
+          {message.text}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const { selectedOrgId, isServiceProvider } = useOrg();
@@ -943,6 +1030,7 @@ export default function SettingsPage() {
         </div>
 
         {profile ? (
+        <>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <p className="text-gray-500">First Name</p>
@@ -1033,6 +1121,10 @@ export default function SettingsPage() {
               )}
             </div>
           </div>
+
+          {/* Change Password */}
+          <ChangePasswordSection />
+        </>
         ) : (
           <p className="text-gray-500">Profile not loaded.</p>
         )}
