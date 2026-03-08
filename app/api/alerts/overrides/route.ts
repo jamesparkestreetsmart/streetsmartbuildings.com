@@ -1,22 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { requireAdminRole } from "@/lib/auth/requireAdminRole";
 
 export const dynamic = "force-dynamic";
-
-async function getCallerEmail(): Promise<string> {
-  try {
-    const cookieStore = await cookies();
-    const authClient = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
-    );
-    const { data: { user } } = await authClient.auth.getUser();
-    return user?.email || "system";
-  } catch { return "system"; }
-}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,6 +18,12 @@ export async function GET(req: NextRequest) {
   if (!alertDefId && !orgId) {
     return NextResponse.json({ error: "alert_def_id or org_id required" }, { status: 400 });
   }
+
+  // Require admin for override management
+  const resolvedOrgId = orgId || (alertDefId ? (await supabase.from("b_alert_definitions").select("org_id").eq("id", alertDefId).single()).data?.org_id : null);
+  if (!resolvedOrgId) return NextResponse.json({ error: "Could not determine org" }, { status: 400 });
+  const auth = await requireAdminRole(resolvedOrgId);
+  if (auth instanceof NextResponse) return auth;
 
   let query = supabase
     .from("b_alert_overrides")
@@ -84,7 +76,6 @@ export async function GET(req: NextRequest) {
 
 // POST: Create a new override
 export async function POST(req: NextRequest) {
-  const callerEmail = await getCallerEmail();
   const body = await req.json();
 
   const {
@@ -96,6 +87,9 @@ export async function POST(req: NextRequest) {
   if (!org_id || !alert_def_id) {
     return NextResponse.json({ error: "org_id and alert_def_id required" }, { status: 400 });
   }
+
+  const auth = await requireAdminRole(org_id);
+  if (auth instanceof NextResponse) return auth;
 
   if (enabled === false && !silence_reason) {
     return NextResponse.json({ error: "silence_reason required when disabling" }, { status: 400 });
@@ -114,7 +108,7 @@ export async function POST(req: NextRequest) {
       sustain_override_min: sustain_override_min ?? null,
       enabled: enabled ?? true,
       silence_reason: silence_reason || null,
-      created_by: callerEmail,
+      created_by: auth.email,
     })
     .select()
     .single();
@@ -135,6 +129,12 @@ export async function PATCH(req: NextRequest) {
   const { override_id, ...updates } = body;
 
   if (!override_id) return NextResponse.json({ error: "override_id required" }, { status: 400 });
+
+  // Look up org_id from the override and require admin
+  const { data: existing } = await supabase.from("b_alert_overrides").select("org_id").eq("override_id", override_id).single();
+  if (!existing) return NextResponse.json({ error: "Override not found" }, { status: 404 });
+  const auth = await requireAdminRole(existing.org_id);
+  if (auth instanceof NextResponse) return auth;
 
   if (updates.enabled === false && !updates.silence_reason) {
     return NextResponse.json({ error: "silence_reason required when disabling" }, { status: 400 });
@@ -165,6 +165,12 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const overrideId = req.nextUrl.searchParams.get("override_id");
   if (!overrideId) return NextResponse.json({ error: "override_id required" }, { status: 400 });
+
+  // Look up org_id and require admin
+  const { data: existing } = await supabase.from("b_alert_overrides").select("org_id").eq("override_id", overrideId).single();
+  if (!existing) return NextResponse.json({ error: "Override not found" }, { status: 404 });
+  const auth = await requireAdminRole(existing.org_id);
+  if (auth instanceof NextResponse) return auth;
 
   const { error } = await supabase
     .from("b_alert_overrides")

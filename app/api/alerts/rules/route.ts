@@ -1,22 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { requireAdminRole, getAuthUser } from "@/lib/auth/requireAdminRole";
 
 export const dynamic = "force-dynamic";
-
-async function getCallerInfo(): Promise<{ email: string; userId: string | null }> {
-  try {
-    const cookieStore = await cookies();
-    const authClient = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
-    );
-    const { data: { user } } = await authClient.auth.getUser();
-    return { email: user?.email || "system", userId: user?.id || null };
-  } catch { return { email: "system", userId: null }; }
-}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,10 +12,13 @@ const supabase = createClient(
 // GET: List alert definitions for org, with active instance counts,
 // org-wide subscriber counts, and current user's subscription status
 export async function GET(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   const orgId = req.nextUrl.searchParams.get("org_id");
   if (!orgId) return NextResponse.json({ error: "org_id required" }, { status: 400 });
 
-  const { userId } = await getCallerInfo();
+  const userId = auth.userId;
 
   const { data: definitions, error } = await supabase
     .from("b_alert_definitions")
@@ -99,7 +88,6 @@ export async function GET(req: NextRequest) {
 
 // POST: Create new alert definition
 export async function POST(req: NextRequest) {
-  const { email: callerEmail } = await getCallerInfo();
   const body = await req.json();
 
   const {
@@ -116,6 +104,9 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  const auth = await requireAdminRole(org_id);
+  if (auth instanceof NextResponse) return auth;
 
   const { data: definition, error } = await supabase
     .from("b_alert_definitions")
@@ -144,7 +135,7 @@ export async function POST(req: NextRequest) {
       eval_path: eval_path || "auto",
       equipment_type: equipment_type || null,
       sensor_role: sensor_role || null,
-      created_by: callerEmail,
+      created_by: auth.email,
     })
     .select()
     .single();
@@ -159,7 +150,7 @@ export async function POST(req: NextRequest) {
     org_id,
     event_type: "alert_definition_created",
     message: `Alert definition created: ${name}`,
-    created_by: callerEmail,
+    created_by: auth.email,
     details: { definition_id: definition?.id, entity_type, condition_type, severity },
   });
 
@@ -172,6 +163,12 @@ export async function PATCH(req: NextRequest) {
   const { id, ...updates } = body;
 
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  // Look up org_id and require admin
+  const { data: existing } = await supabase.from("b_alert_definitions").select("org_id").eq("id", id).single();
+  if (!existing) return NextResponse.json({ error: "Definition not found" }, { status: 404 });
+  const auth = await requireAdminRole(existing.org_id);
+  if (auth instanceof NextResponse) return auth;
 
   const allowed = [
     "name", "description", "severity", "entity_type", "entity_id",
@@ -200,6 +197,12 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  // Look up org_id and require admin
+  const { data: existing } = await supabase.from("b_alert_definitions").select("org_id").eq("id", id).single();
+  if (!existing) return NextResponse.json({ error: "Definition not found" }, { status: 404 });
+  const auth = await requireAdminRole(existing.org_id);
+  if (auth instanceof NextResponse) return auth;
 
   const { error } = await supabase.from("b_alert_definitions").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

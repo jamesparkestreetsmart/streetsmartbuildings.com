@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,9 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ siteId: string }> }
 ) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   const { siteId } = await context.params;
   const mode = (req.nextUrl.searchParams.get("mode") || "latest") as RangeKey;
 

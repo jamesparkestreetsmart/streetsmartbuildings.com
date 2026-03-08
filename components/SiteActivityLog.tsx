@@ -62,10 +62,16 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
       // Extract distinct event types and users
       const types = [...new Set(allRecords.map((r) => r.event_type))].sort();
       setAllEventTypes(types);
-      // Default: all types except thermostat_push
+      // Default: exclude noisy event types
+      const NOISY_EVENT_TYPES = new Set([
+        "occupancy_change",
+        "manifest_found",
+        "manifest_fallback",
+        "thermostat_push_attempt",
+      ]);
       setSelectedTypes((prev) => {
         if (prev.size === 0) {
-          return new Set(types.filter((t) => t !== "thermostat_push"));
+          return new Set(types.filter((t) => !NOISY_EVENT_TYPES.has(t)));
         }
         return prev;
       });

@@ -173,7 +173,48 @@ export async function evaluateCron(
 
         // Get current value for this target
         const currentValue = await getCurrentValue(supabase, effectiveDef, target);
-        if (currentValue === null && effectiveDef.condition_type !== "stale") continue;
+        if (currentValue === null && effectiveDef.condition_type !== "stale") {
+          console.warn(
+            `[alert-eval] Null sensor value for non-stale alert "${def.name}" (${def.id}), ` +
+            `target=${target.id} (${target.level}), condition=${effectiveDef.condition_type} — skipping evaluation`
+          );
+
+          // Write structured record unless a stale alert already covers this target
+          try {
+            const { data: existingStale } = await supabase
+              .from("b_alert_instances")
+              .select("instance_id")
+              .eq("target_level", target.level)
+              .eq("target_id", target.id)
+              .eq("status", "active")
+              .limit(1)
+              .maybeSingle();
+
+            // Only if no active alert instance already flags this target
+            if (!existingStale) {
+              await supabase.from("b_records_log").insert({
+                org_id: def.org_id,
+                site_id: target.site_id || null,
+                event_type: "sensor_eval_skipped",
+                event_date: new Date().toISOString().split("T")[0],
+                message: `Sensor value unavailable for alert "${def.name}" — evaluation skipped`,
+                source: "alert_evaluator",
+                created_by: "system",
+                details: {
+                  alert_def_id: def.id,
+                  target_level: target.level,
+                  target_id: target.id,
+                  condition_type: effectiveDef.condition_type,
+                  entity_type: def.entity_type,
+                },
+              });
+            }
+          } catch (logErr) {
+            console.error("[alert-eval] Failed to log sensor_eval_skipped:", logErr);
+          }
+
+          continue;
+        }
 
         // Get eval state
         const evalState = await getOrCreateEvalState(

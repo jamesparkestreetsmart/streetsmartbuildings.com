@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
     memberUserIds.length > 0
       ? supabase.from("a_users").select("user_id, email").in("user_id", memberUserIds)
       : Promise.resolve({ data: [] }),
-    supabase.from("a_sites").select("site_id, site_name, customer_identifier").eq("org_id", orgId),
+    supabase.from("a_sites").select("site_id, site_name, customer_identifier_number").eq("org_id", orgId),
   ]);
 
   const userByEmail = new Map<string, string>();
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
   const siteByCode = new Map<string, string>();
   const siteByName = new Map<string, string>();
   (orgSites || []).forEach((s: any) => {
-    if (s.customer_identifier) siteByCode.set(String(s.customer_identifier).trim().toUpperCase(), s.site_id);
+    if (s.customer_identifier_number) siteByCode.set(String(s.customer_identifier_number).trim().toUpperCase(), s.site_id);
     if (s.site_name) siteByName.set(s.site_name.trim().toLowerCase(), s.site_id);
   });
 

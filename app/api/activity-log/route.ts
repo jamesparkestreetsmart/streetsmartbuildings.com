@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,6 +35,9 @@ function localDateToUtcRange(dateStr: string, tz: string): { gte: string; lt: st
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   const site_id = req.nextUrl.searchParams.get("site_id");
   const date = req.nextUrl.searchParams.get("date");
 

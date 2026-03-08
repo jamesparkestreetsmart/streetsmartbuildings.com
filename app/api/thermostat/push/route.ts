@@ -3,22 +3,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
 import { executePushForSite } from "@/lib/ha-push";
-
-async function getCallerEmail(): Promise<string> {
-  try {
-    const cookieStore = await cookies();
-    const authClient = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
-    );
-    const { data: { user } } = await authClient.auth.getUser();
-    return user?.email || "system";
-  } catch { return "system"; }
-}
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
+import { getUserSiteScope } from "@/lib/user-scope";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,13 +13,24 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
-    const callerEmail = await getCallerEmail();
     const body = await req.json();
     const { site_id, hvac_zone_id, trigger = "manual" } = body;
 
     if (!site_id) {
       return NextResponse.json({ error: "site_id required" }, { status: 400 });
+    }
+
+    // Verify user has access to this site
+    const { data: siteInfo } = await supabase.from("a_sites").select("org_id").eq("site_id", site_id).single();
+    if (siteInfo?.org_id) {
+      const scope = await getUserSiteScope(auth.userId, siteInfo.org_id);
+      if (scope !== "all" && !scope.includes(site_id)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
 
     // Validate HA connection is configured
@@ -46,9 +44,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log(`[thermostat/push] Starting push for site ${site_id}, trigger: ${trigger}, caller: ${callerEmail}`);
+    console.log(`[thermostat/push] Starting push for site ${site_id}, trigger: ${trigger}, caller: ${auth.email}`);
 
-    const results = await executePushForSite(supabase, site_id, trigger, undefined, callerEmail);
+    const results = await executePushForSite(supabase, site_id, trigger, undefined, auth.email);
 
     if (!results.ha_connected) {
       return NextResponse.json(

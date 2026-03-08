@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,6 +36,9 @@ function timeToMinutes(timeStr: string | null): number | null {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   const siteId = req.nextUrl.searchParams.get("site_id");
   if (!siteId) {
     return NextResponse.json({ error: "site_id required" }, { status: 400 });

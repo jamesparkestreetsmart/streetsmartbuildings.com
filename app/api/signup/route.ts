@@ -112,6 +112,23 @@ export async function POST(req: Request) {
     }
 
     if (!invite) {
+      // Check if there are any revoked/expired invites to give a better error message
+      const { data: anyInvite } = await supabase
+        .from("a_org_invites")
+        .select("status")
+        .eq("org_id", orgId)
+        .eq("invite_email", email)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (anyInvite && (anyInvite.status === "revoked" || anyInvite.status === "expired")) {
+        return NextResponse.json(
+          { error: "This invite link has expired or been revoked. Please contact your administrator for a new invitation." },
+          { status: 400 }
+        );
+      }
+
       return NextResponse.json(
         {
           error:
@@ -134,10 +151,19 @@ export async function POST(req: Request) {
       password,
     });
 
-    if (authError || !authData?.user) {
+    if (authError) {
       console.error("Auth signUp error:", authError);
       return NextResponse.json(
         { error: "Unable to create account. Email may already be in use." },
+        { status: 400 }
+      );
+    }
+
+    // Supabase returns a user with empty identities (anti-enumeration) when email already exists
+    if (!authData?.user || (authData.user.identities && authData.user.identities.length === 0)) {
+      console.error("Auth signUp: email already exists (empty identities)");
+      return NextResponse.json(
+        { error: "An account with this email already exists. Please log in instead, or use a different email." },
         { status: 400 }
       );
     }

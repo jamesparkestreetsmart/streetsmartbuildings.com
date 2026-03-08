@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,6 +8,9 @@ const supabase = createClient(
 );
 
 export async function PATCH(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const body = await req.json();
     const { hvac_zone_id } = body;

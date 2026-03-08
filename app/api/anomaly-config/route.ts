@@ -1,22 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
 
 export const dynamic = "force-dynamic";
-
-async function getCallerEmail(): Promise<string> {
-  try {
-    const cookieStore = await cookies();
-    const authClient = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
-    );
-    const { data: { user } } = await authClient.auth.getUser();
-    return user?.email || "system";
-  } catch { return "system"; }
-}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -87,6 +73,9 @@ const THRESHOLD_LABELS: Record<string, { label: string; unit: string; descriptio
 
 // GET: Fetch all managed HVAC zones with their anomaly thresholds
 export async function GET(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const orgId = req.nextUrl.searchParams.get("org_id");
     if (!orgId) return NextResponse.json({ error: "org_id required" }, { status: 400 });
@@ -135,8 +124,10 @@ export async function GET(req: NextRequest) {
 
 // PATCH: Bulk update thresholds for selected zones
 export async function PATCH(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
-    const callerEmail = await getCallerEmail();
     const body = await req.json();
     const { org_id, zone_ids, thresholds } = body;
 
@@ -211,7 +202,7 @@ export async function PATCH(req: NextRequest) {
         site_id: zoneInfo.site_id,
         event_type: "anomaly_config",
         message: `Anomaly thresholds updated: ${Object.keys(thresholds).join(", ")} pushed to ${zone_ids.length} zone(s)`,
-        created_by: callerEmail,
+        created_by: auth.email,
         details: {
           changed_keys: Object.keys(thresholds),
           new_values: thresholds,

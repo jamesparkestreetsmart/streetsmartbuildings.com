@@ -2,8 +2,13 @@
 
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
+import { getUserSiteScope } from "@/lib/user-scope";
 
 export async function POST(req: Request) {
+    const auth = await getAuthUser();
+    if (auth instanceof NextResponse) return auth;
+
     console.log("Store hours API version: 2025-12-16-org-fix")
     try {
     const body = await req.json();
@@ -56,6 +61,12 @@ export async function POST(req: Request) {
     }
 
     const org_id = site.org_id;
+
+    // Verify user has access to this site
+    const scope = await getUserSiteScope(auth.userId, org_id);
+    if (scope !== "all" && !scope.includes(site_id)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     // Get site timezone for date logging
     const { data: siteInfo } = await supabase

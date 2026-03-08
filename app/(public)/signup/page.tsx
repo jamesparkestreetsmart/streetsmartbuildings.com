@@ -12,6 +12,7 @@ export default function SignupPage() {
     email: "",
     phone_number: "",
     password: "",
+    confirm_password: "",
     org_code: "",
     time_format: "12h",
     units: "imperial",
@@ -20,6 +21,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const passwordMismatch = form.confirm_password.length > 0 && form.password !== form.confirm_password;
 
   const handleChange = (field: keyof typeof form, value: string) => {
     setForm((prev) => ({
@@ -33,6 +35,12 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
     setSuccessMessage(null);
+
+    if (form.password !== form.confirm_password) {
+      setError("Passwords do not match.");
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await fetch("/api/signup", {
@@ -169,6 +177,21 @@ export default function SignupPage() {
               minLength={8}
             />
 
+            <div>
+              <input
+                type="password"
+                className={`border p-2 rounded w-full ${passwordMismatch ? "border-red-400" : ""}`}
+                placeholder="Confirm Password"
+                value={form.confirm_password}
+                onChange={(e) => handleChange("confirm_password", e.target.value)}
+                required
+                minLength={8}
+              />
+              {passwordMismatch && (
+                <p className="text-xs text-red-600 mt-1">Passwords do not match</p>
+              )}
+            </div>
+
             <input
               className="border p-2 rounded w-full tracking-[0.25em] uppercase"
               placeholder="4-Letter Org Code"
@@ -200,7 +223,7 @@ export default function SignupPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || passwordMismatch}
               className="w-full bg-green-700 hover:bg-green-800 text-white py-2 rounded font-semibold disabled:opacity-50"
             >
               {loading ? "Creating account..." : "Create Account"}

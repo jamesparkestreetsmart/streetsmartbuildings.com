@@ -178,6 +178,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
   const [spaceMap, setSpaceMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string>("unknown");
 
   const [expandedEquipment, setExpandedEquipment] = useState<Set<string>>(new Set());
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -248,6 +249,10 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
     if (eqs && eqs.length > 0 && expandedEquipment.size === 0) {
       setExpandedEquipment(new Set(eqs.map((e: any) => e.equipment_id)));
     }
+
+    // Get current user email for audit logging
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (authUser?.email) setUserEmail(authUser.email);
 
     setLoading(false);
   }, [siteid]);
@@ -513,6 +518,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
       source: "gateways_page",
       message,
       metadata: { action, sensor_role: sensorRole, entity_id: entityId, old_entity_id: oldEntityId || null },
+      created_by: userEmail,
       event_date: new Date().toISOString().split("T")[0],
     });
   };
@@ -682,6 +688,7 @@ export default function GatewayClientPage({ siteid }: { siteid: string }) {
         source: "gateways_page",
         message: `CT inverted for ${sensorRole} on ${entity.ha_device_name || dev.device_id}: ${newVal}`,
         metadata: { sensor_role: sensorRole, entity_id: entityId, ct_inverted: newVal },
+        created_by: userEmail,
         event_date: new Date().toISOString().split("T")[0],
       });
 

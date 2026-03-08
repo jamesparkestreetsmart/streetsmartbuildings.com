@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import TierBadge, { Tier } from "@/components/ui/TierBadge";
 import { useOrg } from "@/context/OrgContext";
+import { supabase } from "@/lib/supabaseClient";
 
 interface Profile {
   profile_id: string;
@@ -441,6 +442,19 @@ export default function ProfileManager({ orgId }: Props) {
   const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM });
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Push modal state
+  const [pushModal, setPushModal] = useState<{
+    step: "filter" | "confirm";
+    profileId: string;
+    profileName: string;
+  } | null>(null);
+  const [zoneTypeOptions, setZoneTypeOptions] = useState<string[]>([]);
+  const [selectedZoneTypes, setSelectedZoneTypes] = useState<Set<string>>(new Set());
+  const [allZoneTypesChecked, setAllZoneTypesChecked] = useState(true);
+  const [filteredZoneCount, setFilteredZoneCount] = useState(0);
+  const [filteredSiteCount, setFilteredSiteCount] = useState(0);
+  const [pushZoneData, setPushZoneData] = useState<{ zone_type: string; site_id: string }[]>([]);
+
   // Show SSB templates for: service providers OR client orgs (have a parent)
   const showSSBTemplates = isServiceProvider || selectedOrg?.parent_org_id !== null;
 
@@ -507,15 +521,37 @@ export default function ProfileManager({ orgId }: Props) {
   const handlePush = async (profileId: string) => {
     const profile = profiles.find((p) => p.profile_id === profileId);
     if (!profile) return;
-    const msg = `Push "${profile.profile_name}" setpoints to ${profile.zone_count} zone(s) across ${profile.site_count} site(s)?`;
-    if (!confirm(msg)) return;
 
+    // Fetch zone types for this profile
+    const { data: zoneData } = await supabase
+      .from("a_hvac_zones")
+      .select("zone_type, site_id")
+      .eq("profile_id", profileId);
+
+    const zones = zoneData || [];
+    setPushZoneData(zones);
+    const types = [...new Set(zones.map((z) => z.zone_type))].filter(Boolean).sort();
+    setZoneTypeOptions(types);
+    setSelectedZoneTypes(new Set(types));
+    setAllZoneTypesChecked(true);
+    setFilteredZoneCount(zones.length);
+    setFilteredSiteCount(new Set(zones.map((z) => z.site_id)).size);
+    setPushModal({ step: "filter", profileId, profileName: profile.profile_name });
+  };
+
+  const executePush = async () => {
+    if (!pushModal) return;
+    const { profileId } = pushModal;
+
+    const zoneTypesParam = allZoneTypesChecked ? undefined : [...selectedZoneTypes];
+
+    setPushModal(null);
     setPushingId(profileId);
     setPushResult(null);
     const res = await fetch("/api/thermostat/global-push", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile_id: profileId, org_id: orgId }),
+      body: JSON.stringify({ profile_id: profileId, org_id: orgId, zone_types: zoneTypesParam }),
     });
     const data = await res.json();
     setPushingId(null);
@@ -773,6 +809,92 @@ export default function ProfileManager({ orgId }: Props) {
               onCancel={() => { setShowNewModal(false); setForm({ ...DEFAULT_FORM }); }}
               saveLabel="Create Profile"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Push Zone Type Filter / Confirm Modal */}
+      {pushModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            {pushModal.step === "filter" ? (
+              <>
+                <h3 className="text-lg font-semibold mb-1">Push &ldquo;{pushModal.profileName}&rdquo;</h3>
+                <p className="text-sm text-gray-500 mb-4">Select which zone types to include:</p>
+                <label className="flex items-center gap-2 mb-2 pb-2 border-b">
+                  <input
+                    type="checkbox"
+                    checked={allZoneTypesChecked}
+                    onChange={() => {
+                      const next = !allZoneTypesChecked;
+                      setAllZoneTypesChecked(next);
+                      if (next) {
+                        setSelectedZoneTypes(new Set(zoneTypeOptions));
+                        setFilteredZoneCount(pushZoneData.length);
+                        setFilteredSiteCount(new Set(pushZoneData.map((z) => z.site_id)).size);
+                      }
+                    }}
+                    className="rounded border-gray-300 text-green-600"
+                  />
+                  <span className="text-sm font-medium">All zone types</span>
+                </label>
+                <div className="space-y-1 mb-4">
+                  {zoneTypeOptions.map((t) => (
+                    <label key={t} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedZoneTypes.has(t)}
+                        disabled={allZoneTypesChecked}
+                        onChange={() => {
+                          const next = new Set(selectedZoneTypes);
+                          if (next.has(t)) next.delete(t); else next.add(t);
+                          setSelectedZoneTypes(next);
+                          const filtered = pushZoneData.filter((z) => next.has(z.zone_type));
+                          setFilteredZoneCount(filtered.length);
+                          setFilteredSiteCount(new Set(filtered.map((z) => z.site_id)).size);
+                        }}
+                        className="rounded border-gray-300 text-green-600"
+                      />
+                      <span className={`text-sm ${allZoneTypesChecked ? "text-gray-400" : "text-gray-700"}`}>{t}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => setPushModal(null)} className="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm">Cancel</button>
+                  <button
+                    disabled={!allZoneTypesChecked && selectedZoneTypes.size === 0}
+                    onClick={() => {
+                      if (!allZoneTypesChecked) {
+                        const filtered = pushZoneData.filter((z) => selectedZoneTypes.has(z.zone_type));
+                        setFilteredZoneCount(filtered.length);
+                        setFilteredSiteCount(new Set(filtered.map((z) => z.site_id)).size);
+                      }
+                      setPushModal({ ...pushModal, step: "confirm" });
+                    }}
+                    className="px-4 py-2 bg-[#12723A] text-white rounded-lg hover:bg-[#0e5c2e] disabled:bg-gray-300 text-sm"
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-semibold mb-2">Confirm Push</h3>
+                <p className="text-sm text-gray-600 mb-6">
+                  Push &ldquo;{pushModal.profileName}&rdquo; setpoints to {filteredZoneCount} zone(s)
+                  {!allZoneTypesChecked && ` (${[...selectedZoneTypes].join(", ")})`} across {filteredSiteCount} site(s)?
+                </p>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => setPushModal(null)} className="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm">Cancel</button>
+                  <button
+                    onClick={executePush}
+                    className="px-4 py-2 bg-[#12723A] text-white rounded-lg hover:bg-[#0e5c2e] text-sm"
+                  >
+                    Push
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

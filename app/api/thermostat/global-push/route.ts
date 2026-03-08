@@ -1,21 +1,7 @@
 // app/api/thermostat/global-push/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
-
-async function getCallerEmail(): Promise<string> {
-  try {
-    const cookieStore = await cookies();
-    const authClient = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
-    );
-    const { data: { user } } = await authClient.auth.getUser();
-    return user?.email || "system";
-  } catch { return "system"; }
-}
+import { requireAdminRole } from "@/lib/auth/requireAdminRole";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,9 +10,8 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    const callerEmail = await getCallerEmail();
     const body = await req.json();
-    const { profile_id, org_id } = body;
+    const { profile_id, org_id, zone_types } = body;
 
     if (!profile_id || !org_id) {
       return NextResponse.json(
@@ -34,6 +19,10 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Require owner or admin for org-wide push
+    const auth = await requireAdminRole(org_id);
+    if (auth instanceof NextResponse) return auth;
 
     // 1. Fetch the profile
     const { data: profile, error: profileErr } = await supabase
@@ -53,7 +42,7 @@ export async function POST(req: NextRequest) {
     // 2. Find all zones linked to this profile
     const { data: zones, error: zonesErr } = await supabase
       .from("a_hvac_zones")
-      .select("hvac_zone_id, name, site_id, thermostat_device_id")
+      .select("hvac_zone_id, name, site_id, thermostat_device_id, zone_type")
       .eq("profile_id", profile_id);
 
     if (zonesErr) {
@@ -69,10 +58,30 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Filter by zone types if specified
+    const filteredZones = Array.isArray(zone_types) && zone_types.length > 0
+      ? zones.filter((z: any) => zone_types.includes(z.zone_type))
+      : zones;
+
+    if (filteredZones.length === 0) {
+      return NextResponse.json({
+        zones_updated: 0,
+        sites_affected: 0,
+        directives_generated: 0,
+      });
+    }
+
+    // Build zone_type breakdown for response
+    const zoneTypeBreakdown: Record<string, number> = {};
+    for (const z of filteredZones) {
+      const zt = (z as any).zone_type || "unknown";
+      zoneTypeBreakdown[zt] = (zoneTypeBreakdown[zt] || 0) + 1;
+    }
+
     let directivesGenerated = 0;
     const siteSet = new Set<string>();
 
-    for (const zone of zones) {
+    for (const zone of filteredZones) {
       siteSet.add(zone.site_id);
 
       // Update zone's setpoint columns to match profile (all fields)
@@ -133,18 +142,19 @@ export async function POST(req: NextRequest) {
         site_id: null,
         event_type: "global_push",
         event_date: new Date().toISOString().split("T")[0],
-        message: `Global push: profile "${profile.name}" applied to ${zones.length} zones across ${siteSet.size} sites`,
+        message: `Global push: profile "${profile.name}" applied to ${filteredZones.length} zones across ${siteSet.size} sites`,
         source: "global_push",
-        created_by: callerEmail,
+        created_by: auth.email,
       });
     } catch (logErr) {
       console.error("[global-push] POST log error:", logErr);
     }
 
     return NextResponse.json({
-      zones_updated: zones.length,
+      zones_updated: filteredZones.length,
       sites_affected: siteSet.size,
       directives_generated: directivesGenerated,
+      zone_type_breakdown: zoneTypeBreakdown,
     });
   } catch (err: any) {
     console.error("[global-push] POST uncaught:", err);

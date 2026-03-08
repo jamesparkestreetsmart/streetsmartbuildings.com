@@ -432,7 +432,7 @@ export async function executePushForSite(
         event_date: localDate,
         message: `HA push failed: Home Assistant unreachable (trigger: ${trigger})`,
         source: "ha_push",
-        created_by: triggeredBy || "eagle_eyes",
+        created_by: triggeredBy || "system",
       });
     } catch (logErr) {
       console.error("[ha-push] Failed to log HA unreachable:", logErr);
@@ -506,7 +506,7 @@ export async function executePushForSite(
           event_date: targetDate,
           message: `No manifest for ${targetDate}, used same weekday last week (${lastWeekDate})`,
           source: "ha_push",
-          created_by: triggeredBy || "eagle_eyes",
+          created_by: triggeredBy || "system",
         });
       } catch { /* best-effort logging */ }
     }
@@ -540,22 +540,43 @@ export async function executePushForSite(
         event_date: targetDate,
         message: `No manifest for ${targetDate} or last week, fell back to ${baseHours ? "b_store_hours" : "no hours found"}`,
         source: "ha_push",
-        created_by: triggeredBy || "eagle_eyes",
+        created_by: triggeredBy || "system",
       });
     } catch { /* best-effort logging */ }
   }
 
-  // Log which source resolved
+  // Log which source resolved (deduplicated via metadata comparison)
   try {
-    await supabase.from("b_records_log").insert({
-      site_id: siteId,
-      org_id: site?.org_id || null,
-      event_type: "manifest_found",
-      event_date: targetDate,
-      message: `Hours source: ${hoursSource} (open: ${openTime}, close: ${closeTime}, closed: ${isClosed})`,
-      source: "ha_push",
-      created_by: triggeredBy || "eagle_eyes",
-    });
+    const manifestMeta = { hours_source: hoursSource, open_time: openTime, close_time: closeTime, is_closed: isClosed };
+
+    const { data: lastManifest } = await supabase
+      .from("b_records_log")
+      .select("metadata")
+      .eq("site_id", siteId)
+      .eq("event_type", "manifest_found")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const lastMeta = lastManifest?.metadata;
+    const manifestChanged = !lastMeta
+      || lastMeta.hours_source !== manifestMeta.hours_source
+      || lastMeta.open_time !== manifestMeta.open_time
+      || lastMeta.close_time !== manifestMeta.close_time
+      || lastMeta.is_closed !== manifestMeta.is_closed;
+
+    if (manifestChanged) {
+      await supabase.from("b_records_log").insert({
+        site_id: siteId,
+        org_id: site?.org_id || null,
+        event_type: "manifest_found",
+        event_date: targetDate,
+        message: `Hours source: ${hoursSource} (open: ${openTime}, close: ${closeTime}, closed: ${isClosed})`,
+        source: "ha_push",
+        created_by: triggeredBy || "system",
+        metadata: manifestMeta,
+      });
+    }
   } catch { /* best-effort logging */ }
 
   const openMins = timeToMinutes(openTime);
@@ -570,21 +591,18 @@ export async function executePushForSite(
   const phase = isOccupied ? "occupied" : "unoccupied";
   console.log(`[ha-push] Phase: ${phase} (time: ${currentMins}min, open: ${openMins}, close: ${closeMins}, closed: ${isClosed}, source: ${hoursSource})`);
 
-  // Log occupancy state changes (check last recorded phase for this site today)
+  // Log occupancy state changes (deduplicated via metadata, cross-midnight safe)
   try {
     const { data: lastOccLog } = await supabase
       .from("b_records_log")
-      .select("message")
+      .select("metadata")
       .eq("site_id", siteId)
       .eq("event_type", "occupancy_change")
-      .eq("event_date", targetDate)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const lastPhase = lastOccLog?.message?.includes("occupied →") ? "occupied"
-      : lastOccLog?.message?.includes("unoccupied →") ? "unoccupied"
-      : null;
+    const lastPhase = lastOccLog?.metadata?.phase || null;
 
     if (lastPhase !== phase) {
       await supabase.from("b_records_log").insert({
@@ -594,7 +612,8 @@ export async function executePushForSite(
         event_date: targetDate,
         message: `${lastPhase || "unknown"} → ${phase} (open: ${openTime}, close: ${closeTime}, source: ${hoursSource})`,
         source: "ha_push",
-        created_by: triggeredBy || "eagle_eyes",
+        created_by: triggeredBy || "system",
+        metadata: { phase, previous_phase: lastPhase || "unknown", open_time: openTime, close_time: closeTime, hours_source: hoursSource },
       });
     }
   } catch { /* best-effort logging */ }
@@ -804,19 +823,24 @@ export async function executePushForSite(
         continue;
       }
     } else if (thermoState?.last_pushed_heat_f != null) {
-      // Check for NEW manager override: compare HA actual vs what we last pushed
+      // Check for NEW manager override: compare HA actual vs what we last pushed (heat AND cool)
       const haActualHeat = thermoState.target_temp_low_f ?? thermoState.current_setpoint_f;
       const lastPushedHeat = thermoState.last_pushed_heat_f;
+      const haActualCool = thermoState.target_temp_high_f ?? null;
+      const lastPushedCool = thermoState.last_pushed_cool_f ?? null;
 
-      if (haActualHeat != null && Math.abs(haActualHeat - lastPushedHeat) >= 1.0) {
-        // Manager changed the thermostat at the wall
-        let haActualCool = thermoState.target_temp_high_f ?? null;
-        const managerAdj = Math.round((haActualHeat - lastPushedHeat) * 10) / 10;
+      const heatDrift = haActualHeat != null ? Math.abs(haActualHeat - lastPushedHeat) : 0;
+      const coolDrift = (haActualCool != null && lastPushedCool != null) ? Math.abs(haActualCool - lastPushedCool) : 0;
+
+      if (heatDrift >= 1.0 || coolDrift >= 1.0) {
+        // Manager changed the thermostat at the wall (heat and/or cool side)
+        const managerAdj = haActualHeat != null ? Math.round((haActualHeat - lastPushedHeat) * 10) / 10 : 0;
         // During occupied hours, use profile guardrails. During unoccupied, allow ±15°F.
         const maxRaise = isOccupied ? (resolved.manager_offset_up_f ?? 4) : 15;
         const maxLower = isOccupied ? (resolved.manager_offset_down_f ?? 4) : 15;
 
-        console.log(`[ha-push] Zone "${zone.name}": Manager override detected! HA actual=${haActualHeat}°F vs last pushed=${lastPushedHeat}°F (adj=${managerAdj > 0 ? "+" : ""}${managerAdj}°F, guardrails: +${maxRaise}/-${maxLower})`);
+        const coolAdj = (haActualCool != null && lastPushedCool != null) ? Math.round((haActualCool - lastPushedCool) * 10) / 10 : 0;
+        console.log(`[ha-push] Zone "${zone.name}": Manager override detected! HA heat=${haActualHeat}°F vs pushed=${lastPushedHeat}°F (adj=${managerAdj > 0 ? "+" : ""}${managerAdj}°F), cool=${haActualCool}°F vs pushed=${lastPushedCool}°F (adj=${coolAdj > 0 ? "+" : ""}${coolAdj}°F), guardrails: +${maxRaise}/-${maxLower})`);
 
         // ── Guardrail enforcement ──
         let finalHeat = haActualHeat;
@@ -834,13 +858,13 @@ export async function executePushForSite(
         }
 
         // Also check cool side
-        if (finalCool != null && thermoState.last_pushed_cool_f != null) {
-          const coolAdj = finalCool - thermoState.last_pushed_cool_f;
-          if (coolAdj > maxRaise) {
-            finalCool = thermoState.last_pushed_cool_f + maxRaise;
+        if (finalCool != null && lastPushedCool != null) {
+          const coolSideAdj = finalCool - lastPushedCool;
+          if (coolSideAdj > maxRaise) {
+            finalCool = lastPushedCool + maxRaise;
             bounced = true;
-          } else if (coolAdj < -maxLower) {
-            finalCool = thermoState.last_pushed_cool_f - maxLower;
+          } else if (coolSideAdj < -maxLower) {
+            finalCool = lastPushedCool - maxLower;
             bounced = true;
           }
         }
@@ -912,7 +936,7 @@ export async function executePushForSite(
                 clamped: finalHeat,
                 manager_adj: managerAdj,
               },
-              created_by: triggeredBy || "eagle_eyes",
+              created_by: triggeredBy || "system",
             });
           } catch (logErr) {
             console.error("[ha-push] Failed to log override rejection:", logErr);
@@ -935,7 +959,7 @@ export async function executePushForSite(
                 manager_adj: managerAdj,
                 reset_minutes: overrideResetMinutes,
               },
-              created_by: triggeredBy || "eagle_eyes",
+              created_by: triggeredBy || "system",
             });
           } catch (logErr) {
             console.error("[ha-push] Failed to log override acceptance:", logErr);
@@ -999,10 +1023,10 @@ export async function executePushForSite(
             event_type: "thermostat_push_attempt",
             event_date: targetDate,
             source: "ha_push",
-            message: `${zone.name}: Base ${lastPushedHeat}/${thermoState.last_pushed_cool_f ?? "?"} (${phase}) → Manager override ${managerAdj > 0 ? "+" : ""}${managerAdj} → Final ${finalHeat}/${finalCool ?? "?"} → ${bounced ? "bounced" : "accepted"}`,
+            message: `${zone.name}: Base ${lastPushedHeat}/${lastPushedCool ?? "?"} (${phase}) → Manager override heat ${managerAdj > 0 ? "+" : ""}${managerAdj}, cool ${coolAdj > 0 ? "+" : ""}${coolAdj} → Final ${finalHeat}/${finalCool ?? "?"} → ${bounced ? "bounced" : "accepted"}`,
             metadata: {
               base_heat: lastPushedHeat,
-              base_cool: thermoState.last_pushed_cool_f ?? null,
+              base_cool: lastPushedCool,
               phase,
               feels_like_adj: 0,
               smart_start_adj: 0,
@@ -1020,7 +1044,7 @@ export async function executePushForSite(
               entity_id: climateEntityId,
               trigger,
             },
-            created_by: triggeredBy || "eagle_eyes",
+            created_by: triggeredBy || "system",
           });
         } catch (logErr) {
           console.error("[ha-push] Failed to log manager override push_attempt:", logErr);
@@ -1192,12 +1216,18 @@ export async function executePushForSite(
         directive_generated_at: new Date().toISOString(),
       };
 
-      // Track what we actually pushed (effective values after guardrails) so we can detect manager overrides next cycle
+      // Track desired values so we can detect manager overrides next cycle.
+      // Always save both heat AND cool, even when push is skipped ("Already at target"),
+      // so that last_pushed_cool_f is never null/? in subsequent logs.
       if (pushResult.pushed) {
         const effective = pushResult.desired_state;
         stateUpdate.last_pushed_heat_f = effective.heat_setpoint_f;
         stateUpdate.last_pushed_cool_f = effective.cool_setpoint_f;
         stateUpdate.last_pushed_at = new Date().toISOString();
+      } else {
+        // Even when skipped, record what we wanted — these are the enforcement targets
+        stateUpdate.last_pushed_heat_f = desired.heat_setpoint_f;
+        stateUpdate.last_pushed_cool_f = desired.cool_setpoint_f;
       }
 
       await supabase
@@ -1249,7 +1279,7 @@ export async function executePushForSite(
           profile: resolved.profile_name || resolved.source,
           trigger,
         },
-        created_by: triggeredBy || "eagle_eyes",
+        created_by: triggeredBy || "system",
       });
     } catch (logErr) {
       console.error("[ha-push] Failed to log thermostat_push_attempt:", logErr);
@@ -1283,7 +1313,7 @@ export async function executePushForSite(
           push_result: pushResult,
           entity_id: climateEntityId,
         },
-        created_by: triggeredBy || "eagle_eyes",
+        created_by: triggeredBy || "system",
       });
     } catch (logErr) {
       console.error("[ha-push] Failed to log to b_records_log:", logErr);

@@ -191,6 +191,9 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
   const [editingZone, setEditingZone] = useState<HvacZone | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [savedZoneId, setSavedZoneId] = useState<string | null>(null);
+  const [pendingProfileChange, setPendingProfileChange] = useState<{
+    zoneId: string; profileId: string; zoneName: string; profileName: string;
+  } | null>(null);
 
   // Expanded inline space-config rows
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
@@ -697,12 +700,14 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
       });
       if (assignRes.ok) { flashSaved(zoneId); fetchProfiles(); fetchZones(); }
     } else {
-      const res = await fetch("/api/thermostat/zone-setpoints", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: profileId }),
+      const zone = zones.find((z) => z.hvac_zone_id === zoneId);
+      const profile = profiles.find((p) => p.profile_id === profileId);
+      setPendingProfileChange({
+        zoneId,
+        profileId,
+        zoneName: zone?.zone_name || "Zone",
+        profileName: profile?.profile_name || "Profile",
       });
-      if (res.ok) { flashSaved(zoneId); fetchZones(); }
     }
   };
 
@@ -1711,6 +1716,41 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => { setShowAddModal(false); setEditingZone(null); resetForm(); }} className="px-4 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
               <button onClick={editingZone ? handleUpdateZone : handleAddZone} disabled={!formData.zone_name} className="px-4 py-2 bg-[#12723A] text-white rounded-lg hover:bg-[#0e5c2e] disabled:bg-gray-300">{editingZone ? "Save Changes" : "Add Zone"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Profile change confirmation modal */}
+      {pendingProfileChange && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold mb-2">Apply Profile?</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Apply &lsquo;{pendingProfileChange.profileName}&rsquo; to {pendingProfileChange.zoneName}?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setPendingProfileChange(null)}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const { zoneId, profileId } = pendingProfileChange;
+                  setPendingProfileChange(null);
+                  const res = await fetch("/api/thermostat/zone-setpoints", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: profileId }),
+                  });
+                  if (res.ok) { flashSaved(zoneId); fetchZones(); }
+                }}
+                className="px-4 py-2 bg-[#12723A] text-white rounded-lg hover:bg-[#0e5c2e] text-sm"
+              >
+                Apply
+              </button>
             </div>
           </div>
         </div>

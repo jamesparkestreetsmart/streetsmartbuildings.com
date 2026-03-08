@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
+import { getUserSiteScope } from "@/lib/user-scope";
 
 export async function POST(req: NextRequest) {
   let body: {
@@ -37,6 +39,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Auth + site scope check
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
+  if (site_id && org_id) {
+    const scope = await getUserSiteScope(auth.userId, org_id);
+    if (scope !== "all" && !scope.includes(site_id)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
+
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -51,6 +64,10 @@ export async function POST(req: NextRequest) {
     }
   );
 
+  // Get authenticated user's email for created_by
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  const callerEmail = authUser?.email || "unknown";
+
   const insertData = {
     org_id,
     site_id,
@@ -62,7 +79,7 @@ export async function POST(req: NextRequest) {
     metadata: {
       note: note.trim(),
     },
-    created_by: "ui",
+    created_by: callerEmail,
     event_date: event_date || new Date().toISOString().split("T")[0],
   };
 

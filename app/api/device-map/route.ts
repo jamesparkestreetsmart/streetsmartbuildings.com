@@ -3,8 +3,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
 
 export async function POST(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   let body;
   try {
     body = await req.json();

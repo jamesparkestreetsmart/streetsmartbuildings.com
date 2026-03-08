@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,9 @@ async function getCallerUserId(): Promise<string | null> {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   const orgId = req.nextUrl.searchParams.get("org_id");
   const level = req.nextUrl.searchParams.get("level") || "sites";
   const siteId = req.nextUrl.searchParams.get("site_id");

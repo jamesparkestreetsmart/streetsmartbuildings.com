@@ -47,7 +47,7 @@ interface UserGroupsProps {
 export default function UserGroups({ orgId, members, sites }: UserGroupsProps) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -82,7 +82,9 @@ export default function UserGroups({ orgId, members, sites }: UserGroupsProps) {
     try {
       const res = await fetch(`/api/groups?org_id=${orgId}`);
       if (res.ok) {
-        setGroups(await res.json());
+        const data = await res.json();
+        setGroups(data);
+        setExpandedIds(new Set(data.map((g: Group) => g.group_id)));
       }
     } catch (err) {
       console.error("Failed to fetch groups:", err);
@@ -320,14 +322,19 @@ export default function UserGroups({ orgId, members, sites }: UserGroupsProps) {
             </thead>
             <tbody>
               {groups.map((group) => {
-                const isExpanded = expandedGroupId === group.group_id;
+                const isExpanded = expandedIds.has(group.group_id);
                 return (
                   <Fragment key={group.group_id}>
                     <tr className="border-t hover:bg-gray-50">
                       <td className="py-2 px-3">
                         <button
                           onClick={() =>
-                            setExpandedGroupId(isExpanded ? null : group.group_id)
+                            setExpandedIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(group.group_id)) next.delete(group.group_id);
+                              else next.add(group.group_id);
+                              return next;
+                            })
                           }
                           className="text-gray-400 hover:text-gray-600"
                         >
@@ -421,8 +428,14 @@ export default function UserGroups({ orgId, members, sites }: UserGroupsProps) {
 
       {/* ===== Create/Edit Modal ===== */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-lg font-semibold mb-4">
               {editingGroup ? "Edit Group" : "Create Group"}
             </h3>
@@ -532,8 +545,14 @@ export default function UserGroups({ orgId, members, sites }: UserGroupsProps) {
 
       {/* ===== Upload Modal ===== */}
       {showUpload && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={resetUpload}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-lg font-semibold mb-2">Upload Region File</h3>
 
             <div className="flex items-start gap-2 mb-4 px-3 py-2 bg-blue-50 rounded text-xs text-blue-700">
@@ -552,6 +571,14 @@ export default function UserGroups({ orgId, members, sites }: UserGroupsProps) {
                   onChange={handleFileSelect}
                   className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                 />
+                <div className="flex justify-end pt-3 mt-3 border-t">
+                  <button
+                    onClick={resetUpload}
+                    className="px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 

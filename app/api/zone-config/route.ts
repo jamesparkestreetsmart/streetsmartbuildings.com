@@ -1,20 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
-
-async function getCallerEmail(): Promise<string> {
-  try {
-    const cookieStore = await cookies();
-    const authClient = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
-    );
-    const { data: { user } } = await authClient.auth.getUser();
-    return user?.email || "system";
-  } catch { return "system"; }
-}
+import { getAuthUser } from "@/lib/auth/requireAdminRole";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,6 +9,9 @@ const supabase = createClient(
 
 // GET — full zone config with nested spaces, sensors, thermostat data, computed temps
 export async function GET(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   const site_id = req.nextUrl.searchParams.get("site_id");
   if (!site_id) return NextResponse.json({ error: "site_id required" }, { status: 400 });
 
@@ -321,8 +310,10 @@ export async function GET(req: NextRequest) {
 
 // PATCH — save zone config (sensor assignments, weights)
 export async function PATCH(req: NextRequest) {
+  const auth = await getAuthUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
-    const callerEmail = await getCallerEmail();
     const body = await req.json();
     const { site_id, hvac_zone_id, spaces: spaceEdits } = body;
 
@@ -425,7 +416,7 @@ export async function PATCH(req: NextRequest) {
         event_date: localDate,
         message: `${zoneInfo?.name || hvac_zone_id}: sensor config updated (${spaceEdits.length} spaces)`,
         source: "zone_config",
-        created_by: callerEmail,
+        created_by: auth.email,
       });
     } catch (logErr) {
       console.error("[zone-config] PATCH log error:", logErr);
