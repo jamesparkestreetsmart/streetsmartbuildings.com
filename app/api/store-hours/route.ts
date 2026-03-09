@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getAuthUser } from "@/lib/auth/requireAdminRole";
 import { getUserSiteScope } from "@/lib/user-scope";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 export async function POST(req: Request) {
     const auth = await getAuthUser();
@@ -173,7 +174,7 @@ export async function POST(req: Request) {
 
       // Activity log entry
       const userEmail = authUser.user.email || "system";
-      const localDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+      const localDate = siteLocalDate(new Date(), tz);
       await supabase.from("b_records_log").insert({
         site_id,
         org_id,

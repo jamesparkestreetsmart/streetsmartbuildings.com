@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { evaluateRealtime } from "@/lib/alert-evaluator";
 import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -715,7 +716,7 @@ export async function POST(req: NextRequest) {
           const overrideNow = new Date().toLocaleString("en-US", { timeZone: overrideTz });
           const overrideDate = new Date(overrideNow);
           const overrideMins = overrideDate.getHours() * 60 + overrideDate.getMinutes();
-          const overrideDateStr = new Date().toLocaleDateString("en-CA", { timeZone: overrideTz });
+          const overrideDateStr = siteLocalDate(new Date(), overrideTz);
           const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
           const [oy, om, od] = overrideDateStr.split("-").map(Number);
           const overrideDow = dayNames[new Date(oy, om - 1, od).getDay()];
@@ -820,7 +821,7 @@ export async function POST(req: NextRequest) {
                 org_id: siteInfo?.org_id || org_id,
                 equipment_id: zone.equipment_id || null,
                 event_type: "guardrail_clamp",
-                event_date: new Date().toLocaleDateString("en-CA", { timeZone: siteInfo?.timezone || "America/Chicago" }),
+                event_date: siteLocalDate(new Date(), siteInfo?.timezone || "America/Chicago"),
                 message: `Manager override clamped: requested ${preclampHeat}°F, clamped to ${finalHeat}°F (guardrail ${hardMin}–${hardMax}°F)`,
                 source: "entity_sync",
                 created_by: "system",

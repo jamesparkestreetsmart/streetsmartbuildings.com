@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { executePushForSite, HAConfig } from "@/lib/ha-push";
 import { updateDailyHealth } from "@/lib/daily-health";
 import { logZoneSetpointSnapshot } from "@/lib/zone-setpoint-logger";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -118,7 +119,7 @@ export async function GET(req: NextRequest) {
     for (const site of uniqueSites.values()) {
       try {
         const tz = site.timezone || "America/Chicago";
-        const localDate = new Date().toLocaleDateString("en-CA", { timeZone: tz }); // YYYY-MM-DD
+        const localDate = siteLocalDate(new Date(), tz); // YYYY-MM-DD
 
         // Only push setpoints to sites that have managed zones
         let pushedCount = 0;
@@ -249,7 +250,7 @@ export async function GET(req: NextRequest) {
         // Write failed health update (active sites only)
         if (site.status === "Active") {
           const tz = site.timezone || "America/Chicago";
-          const localDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+          const localDate = siteLocalDate(new Date(), tz);
           try {
             await updateDailyHealth(supabase, {
               site_id: site.site_id,

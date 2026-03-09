@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 export interface EffectiveState {
   operating_status: "open" | "closed_exception" | "closed_regular";
@@ -35,7 +36,7 @@ export async function resolveEffectiveState(
   _nowOverride?: { localDate: string; currentMins: number }
 ): Promise<EffectiveState> {
   const localDate = _nowOverride?.localDate
-    ?? new Date().toLocaleDateString("en-CA", { timeZone: tz });
+    ?? siteLocalDate(new Date(), tz);
   const currentMins = _nowOverride?.currentMins ?? (() => {
     const nowInTz = new Date().toLocaleString("en-US", { timeZone: tz });
     const nowDate = new Date(nowInTz);
@@ -53,6 +54,8 @@ export async function resolveEffectiveState(
   let exceptionName: string | null = null;
   let warning: string | null = null;
 
+  console.log(`[resolveEffectiveState] site=${siteId} tz=${tz} localDate=${localDate} dayOfWeek=${dayOfWeek} currentMins=${currentMins}`);
+
   // ── STEP A: Check for exception events on today's date ──
   const { data: events } = await supabase
     .from("b_store_hours_events")
@@ -61,6 +64,8 @@ export async function resolveEffectiveState(
     .eq("event_date", localDate)
     .order("updated_at", { ascending: false })
     .order("created_at", { ascending: false });
+
+  console.log(`[resolveEffectiveState] events found: ${events?.length ?? 0}`);
 
   if (events && events.length > 0) {
     if (events.length > 1) {
@@ -174,7 +179,7 @@ export async function resolveEffectiveState(
     }
   }
 
-  return {
+  const result = {
     operating_status: operatingStatus,
     control_phase: controlPhase,
     source,
@@ -185,4 +190,6 @@ export async function resolveEffectiveState(
     exception_name: exceptionName,
     warning,
   };
+  console.log(`[resolveEffectiveState] result: status=${result.operating_status} phase=${result.control_phase} source=${result.source} exception=${result.exception_name}`);
+  return result;
 }

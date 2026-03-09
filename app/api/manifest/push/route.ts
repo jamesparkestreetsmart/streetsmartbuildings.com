@@ -22,6 +22,7 @@ import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
 import { executePushForSite } from "@/lib/ha-push";
 import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
 import { resolveEffectiveState } from "@/lib/store-hours/resolveEffectiveState";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 async function getCallerEmail(): Promise<string> {
   try {
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest) {
 
     const targetDate =
       date ||
-      new Date().toLocaleDateString("en-CA", { timeZone: tz });
+      siteLocalDate(new Date(), tz);
 
     // 2. Resolve effective store hours via canonical resolver
     const [y, m, d] = targetDate.split("-").map(Number);

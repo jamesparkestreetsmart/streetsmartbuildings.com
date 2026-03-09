@@ -3,6 +3,7 @@
 
 import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
+import { siteLocalDate } from "@/lib/utils/site-date";
 import { getZoneSensorReading, getOccupancyReading } from "@/lib/zone-setpoint-logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -466,7 +467,7 @@ export async function executePushForSite(
   const nowDate = new Date(nowInTz);
   const currentMins = nowDate.getHours() * 60 + nowDate.getMinutes();
 
-  const targetDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+  const targetDate = siteLocalDate(new Date(), tz);
 
   let openTime: string | null = null;
   let closeTime: string | null = null;
@@ -629,7 +630,7 @@ export async function executePushForSite(
   } catch { /* best-effort logging */ }
 
   // Fetch smart start offsets for today
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+  const today = siteLocalDate(new Date(), tz);
   const { data: ssLogs } = await supabase
     .from("b_smart_start_log")
     .select("zone_id, offset_used_minutes")

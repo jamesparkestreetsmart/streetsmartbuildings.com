@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -146,7 +147,7 @@ async function logDeletion(
       .single();
 
     const siteTz = site?.timezone || "America/Chicago";
-    const localDate = new Date().toLocaleDateString("en-CA", { timeZone: siteTz });
+    const localDate = siteLocalDate(new Date(), siteTz);
 
     const message =
       mode === "full"

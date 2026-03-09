@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   const tz = site?.timezone || "America/Chicago";
   const targetDate =
-    date || new Date().toLocaleDateString("en-CA", { timeZone: tz });
+    date || siteLocalDate(new Date(), tz);
 
   const { data: manifest, error } = await supabase
     .from("b_store_hours_manifests")

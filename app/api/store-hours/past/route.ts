@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 function getSupabase() {
   return createServerClient(
@@ -19,16 +20,26 @@ export async function GET(req: NextRequest) {
 
   const supabase = getSupabase();
 
-  // Calculate date boundaries
-  const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
-  const lastYearStart = new Date(today.getFullYear() - 1, 0, 1); // Jan 1 of last year
-  const lastYearStartStr = lastYearStart.toISOString().split("T")[0];
+  // Look up site timezone so date boundaries use site-local date, not UTC
+  const { data: siteInfo } = await supabase
+    .from("a_sites")
+    .select("timezone")
+    .eq("site_id", site_id)
+    .single();
+  const tz = siteInfo?.timezone || "America/Chicago";
+
+  // Calculate date boundaries in site-local time
+  const todayStr = siteLocalDate(new Date(), tz);
+  const [ty, tm, td] = todayStr.split("-").map(Number);
+  const todayLocal = new Date(ty, tm - 1, td);
+
+  const lastYearStart = new Date(ty - 1, 0, 1); // Jan 1 of last year
+  const lastYearStartStr = siteLocalDate(lastYearStart, tz);
 
   // 7 days ago for base hours cutoff
-  const sevenDaysAgo = new Date(today);
+  const sevenDaysAgo = new Date(todayLocal);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
+  const sevenDaysAgoStr = siteLocalDate(sevenDaysAgo, tz);
 
   // Fetch all past events from this year and last year
   const { data, error } = await supabase

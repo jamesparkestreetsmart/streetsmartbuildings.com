@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
 
     for (const site of sites) {
       const tz = site.timezone || "America/Chicago";
-      const localToday = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+      const localToday = siteLocalDate(new Date(), tz);
 
       try {
         // Check if manifest already exists for today

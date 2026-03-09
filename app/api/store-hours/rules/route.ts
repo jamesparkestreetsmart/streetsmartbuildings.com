@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 function getSupabase() {
   return createServerClient(
@@ -182,7 +183,7 @@ export async function POST(req: NextRequest) {
         .single();
 
       const siteTz = siteData?.timezone || "America/Chicago";
-      const localDate = new Date().toLocaleDateString("en-CA", { timeZone: siteTz });
+      const localDate = siteLocalDate(new Date(), siteTz);
 
       const isEdit = body.is_edit === true;
       const verb = isEdit ? "updated" : "created";

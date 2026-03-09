@@ -8,6 +8,7 @@ import { evaluateCron } from "@/lib/alert-evaluator";
 import { processDeliveryQueue } from "@/lib/alert-delivery";
 import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
 import { resolveEffectiveState, EffectiveState } from "@/lib/store-hours/resolveEffectiveState";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1149,7 +1150,7 @@ export async function logZoneSetpointSnapshot(
     }
 
     // 7. Check smart start log for today
-    const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+    const today = siteLocalDate(new Date(), tz);
     const { data: ssLogs } = await supabase
       .from("b_smart_start_log")
       .select("zone_id, offset_used_minutes")

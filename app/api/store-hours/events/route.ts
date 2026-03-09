@@ -1,6 +1,7 @@
 // app/api/store-hours/events/route.ts
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { siteLocalDate } from "@/lib/utils/site-date";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
     .single();
 
   const tz = site?.timezone || "America/Chicago";
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+  const today = siteLocalDate(new Date(), tz);
   const currentYear = parseInt(today.slice(0, 4));
   const endOfNextYear = `${currentYear + 1}-12-31`;
 
