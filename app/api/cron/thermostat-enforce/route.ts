@@ -19,6 +19,7 @@ function verifyCronSecret(req: NextRequest): boolean {
 
 const LOCK_NAME = "thermostat-enforce";
 const MAX_LOCK_AGE_MS = 4 * 60 * 1000; // 4 minutes — safely under the 5-min cron interval
+const SOFT_TIMEOUT_MS = 50_000; // 50s — release lock before Vercel's 60s hard kill
 
 export async function GET(req: NextRequest) {
   const startMs = Date.now();
@@ -84,6 +85,10 @@ export async function GET(req: NextRequest) {
     console.log("[cron/thermostat-enforce] Lock created and acquired");
   }
 
+  // ─── Soft timeout: release the lock before Vercel's hard 60s kill ────────
+  let softTimedOut = false;
+  const softTimer = setTimeout(() => { softTimedOut = true; }, SOFT_TIMEOUT_MS);
+
   try {
     // Fetch all sites that have at least one HVAC zone with a thermostat
     // (includes both managed and open zones — open zones get snapshots but no setpoint push)
@@ -146,6 +151,11 @@ export async function GET(req: NextRequest) {
     const errors: { site_id: string; error: string }[] = [];
 
     for (const site of uniqueSites.values()) {
+      if (softTimedOut) {
+        console.warn(`[cron/thermostat-enforce] Soft timeout reached (${SOFT_TIMEOUT_MS}ms) — aborting remaining sites to release lock before Vercel kills the function`);
+        errors.push({ site_id: site.site_id, error: "soft_timeout" });
+        break;
+      }
       try {
         const tz = site.timezone || "America/Chicago";
         const localDate = siteLocalDate(new Date(), tz); // YYYY-MM-DD
@@ -302,6 +312,7 @@ export async function GET(req: NextRequest) {
       sites_pushed: sitesPushed,
       total_zones_pushed: totalZonesPushed,
       errors,
+      soft_timed_out: softTimedOut,
       duration_ms: Date.now() - startMs,
     });
   } catch (err: any) {
@@ -311,10 +322,16 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   } finally {
-    // Release the lock and record finish time
-    await supabase
+    clearTimeout(softTimer);
+    // Release the lock and record finish time — ALWAYS, even on error/timeout
+    const { error: releaseErr } = await supabase
       .from("b_cron_locks")
       .update({ locked_at: null, last_finished_at: new Date().toISOString() })
       .eq("cron_name", LOCK_NAME);
+    if (releaseErr) {
+      console.error("[cron/thermostat-enforce] FAILED to release lock:", releaseErr.message);
+    } else {
+      console.log("[cron/thermostat-enforce] lock released");
+    }
   }
 }
