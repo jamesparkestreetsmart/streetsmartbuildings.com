@@ -24,11 +24,6 @@ const LOCK_NAME = "thermostat-enforce";
 export async function POST(req: NextRequest) {
   const startMs = Date.now();
 
-  // Env guard: only allow in development or when explicitly enabled
-  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEBUG_ENDPOINTS !== "true") {
-    return NextResponse.json({ error: "Debug endpoints disabled in production" }, { status: 403 });
-  }
-
   const siteIdFilter = req.nextUrl.searchParams.get("site_id");
 
   // Step 1: Inspect current lock state
