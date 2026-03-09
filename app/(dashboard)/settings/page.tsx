@@ -475,21 +475,27 @@ export default function SettingsPage() {
       time_format: profileDraft.time_format,
       units: profileDraft.units,
     };
-    console.log("[settings] saveProfile payload:", JSON.stringify(payload), "user_id:", profile.user_id);
 
-    const { error } = await supabase
-      .from("a_users")
-      .update(payload)
-      .eq("user_id", profile.user_id);
+    try {
+      const res = await fetch("/api/user/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
 
-    if (error) {
-      console.error("[settings] saveProfile error:", JSON.stringify(error));
-      alert(`Failed to update profile: ${error.message}`);
-    } else {
-      console.log("[settings] saveProfile success");
+      if (!res.ok) {
+        alert(`Failed to update profile: ${data.error || "Unknown error"}`);
+        return;
+      }
+
       setProfile({ ...profile, ...profileDraft } as UserProfile);
       setEditingProfile(false);
+      setMemberSaveMessage("Profile updated successfully.");
+      setTimeout(() => setMemberSaveMessage(null), 3000);
       await fetchData();
+    } catch {
+      alert("Failed to update profile. Please try again.");
     }
   };
 
