@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
 
   // ─── Overlap protection ──────────────────────────────────────────────────
   // Atomic lock acquisition: UPDATE only matches rows where locked_at IS NULL
-  // or the lock is stale (older than TTL). If zero rows affected, another
-  // instance holds the lock — skip this run.
+  // or the lock is stale (older than TTL). If zero rows affected, either the
+  // row doesn't exist yet or another instance holds a fresh lock.
   const now = new Date().toISOString();
   const staleThreshold = new Date(Date.now() - LOCK_TTL_MINUTES * 60000).toISOString();
   const { data: lockRows } = await supabase
@@ -40,8 +40,18 @@ export async function GET(req: NextRequest) {
     .select("cron_name");
 
   if (!lockRows || lockRows.length === 0) {
-    console.log("[cron/thermostat-enforce] Skipping — already running (lock held)");
-    return NextResponse.json({ skipped: true, reason: "already_running" });
+    // No row was updated — either the row doesn't exist yet, or a fresh lock is held.
+    // Try to insert a new row; if it conflicts (row exists), another instance holds the lock.
+    const { error: insertErr } = await supabase
+      .from("b_cron_locks")
+      .insert({ cron_name: LOCK_NAME, locked_at: now, last_started_at: now });
+
+    if (insertErr) {
+      // Row already exists with a fresh lock — another instance is running
+      console.log("[cron/thermostat-enforce] Skipping — already running (lock held)");
+      return NextResponse.json({ skipped: true, reason: "already_running" });
+    }
+    // else: successfully created the lock row — proceed
   }
 
   try {
