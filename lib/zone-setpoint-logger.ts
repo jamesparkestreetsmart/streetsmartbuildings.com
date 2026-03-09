@@ -1125,7 +1125,11 @@ export async function logZoneSetpointSnapshot(
       .not("thermostat_device_id", "is", null)
       .not("equipment_id", "is", null);
 
-    if (!zones || zones.length === 0) return;
+    if (!zones || zones.length === 0) {
+      console.log(`[zone-setpoint-logger] No zones found for site ${siteId} (query requires thermostat_device_id AND equipment_id)`);
+      return;
+    }
+    console.log(`[zone-setpoint-logger] Found ${zones.length} zones for site ${siteId}`);
 
     // 4. Batch-fetch profiles
     const profileIds = [...new Set(zones.filter((z: any) => z.profile_id).map((z: any) => z.profile_id))];

@@ -154,7 +154,9 @@ export async function GET(req: NextRequest) {
 
         // Log zone setpoint snapshots for time series (for ALL zones/sites including open & non-active)
         try {
+          console.log(`[cron/thermostat-enforce] Calling logZoneSetpointSnapshot for site ${site.site_id}`);
           await logZoneSetpointSnapshot(supabase, site.site_id);
+          console.log(`[cron/thermostat-enforce] logZoneSetpointSnapshot completed for site ${site.site_id}`);
         } catch (logErr: any) {
           console.error(`[cron/thermostat-enforce] Setpoint log failed for ${site.site_id}:`, logErr.message);
         }
