@@ -1490,7 +1490,7 @@ export async function logZoneSetpointSnapshot(
         evaporator_coil_out_f: equipSensors.evaporator_coil_out_f,
       });
      } catch (zoneErr: any) {
-      console.error(`[zone-setpoint-logger] Zone ${zone.hvac_zone_id} processing error:`, zoneErr.message);
+      console.error(`[zone-setpoint-logger] PER-ZONE ERROR zone=${zone.hvac_zone_id}:`, zoneErr.message, zoneErr.stack);
       // Continue to next zone — don't let one zone failure block all inserts
      }
     }
@@ -1498,14 +1498,13 @@ export async function logZoneSetpointSnapshot(
     // 9. Batch insert
     console.log(`[zone-setpoint-logger] PRE-INSERT: site=${siteId}, zones_fetched=${zones.length}, rows_built=${rows.length}`);
     if (rows.length > 0) {
-      console.log(`[zone-setpoint-logger] INSERT: attempting ${rows.length} rows for site ${siteId}, first zone=${rows[0].hvac_zone_id}`);
-      const { error } = await supabase.from("b_zone_setpoint_log").insert(rows);
-      if (error) {
-        console.error("[zone-setpoint-logger] INSERT FAILED:", error.message, error.details, error.hint, error.code);
-        // Log a sample row to help diagnose schema mismatches
+      console.log(`[zone-setpoint-logger] Row built successfully, attempting insert`);
+      const { data: insertData, error: insertError } = await supabase.from("b_zone_setpoint_log").insert(rows).select("id");
+      if (insertError) {
+        console.error("[zone-setpoint-logger] INSERT FAILED:", insertError.message, insertError.details, insertError.hint, insertError.code);
         console.error("[zone-setpoint-logger] Sample row keys:", Object.keys(rows[0]).join(", "));
       } else {
-        console.log(`[zone-setpoint-logger] INSERT OK: ${rows.length} rows for site ${siteId}`);
+        console.log(`[zone-setpoint-logger] INSERT OK: ${rows.length} rows for site ${siteId}, result: ${JSON.stringify(insertData?.length ?? 0)} rows inserted`);
       }
     } else {
       console.log(`[zone-setpoint-logger] NO ROWS: site ${siteId} had ${zones.length} zones but 0 rows built — all zones errored during processing`);
