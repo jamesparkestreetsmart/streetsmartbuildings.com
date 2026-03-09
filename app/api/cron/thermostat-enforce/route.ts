@@ -17,7 +17,7 @@ function verifyCronSecret(req: NextRequest): boolean {
 }
 
 const LOCK_NAME = "thermostat-enforce";
-const LOCK_TTL_MINUTES = 180;
+const LOCK_TTL_MINUTES = 5;
 
 export async function GET(req: NextRequest) {
   const startMs = Date.now();
