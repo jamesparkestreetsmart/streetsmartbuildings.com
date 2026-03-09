@@ -89,6 +89,33 @@ export async function GET(req: NextRequest) {
   let softTimedOut = false;
   const softTimer = setTimeout(() => { softTimedOut = true; }, SOFT_TIMEOUT_MS);
 
+  // Helper: release the lock with a timeout guard so it can't hang forever
+  async function releaseLock() {
+    try {
+      const releasePromise = supabase
+        .from("b_cron_locks")
+        .update({ locked_at: null, last_finished_at: new Date().toISOString() })
+        .eq("cron_name", LOCK_NAME);
+
+      // Race the lock release against a 5s timeout — if supabase hangs
+      // (e.g. Vercel is shutting down), we still log the failure cleanly
+      const result = await Promise.race([
+        releasePromise,
+        new Promise<{ error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ error: { message: "lock release timed out after 5s" } }), 5000)
+        ),
+      ]);
+      if (result.error) {
+        console.error("[cron/thermostat-enforce] FAILED to release lock:", result.error.message);
+      } else {
+        console.log("[cron/thermostat-enforce] lock released");
+      }
+    } catch (releaseEx: any) {
+      // Catch absolutely everything — the lock release must never throw
+      console.error("[cron/thermostat-enforce] lock release threw:", releaseEx?.message ?? releaseEx);
+    }
+  }
+
   try {
     // Fetch all sites that have at least one HVAC zone with a thermostat
     // (includes both managed and open zones — open zones get snapshots but no setpoint push)
@@ -277,14 +304,14 @@ export async function GET(req: NextRequest) {
         }
 
         console.log(
-          `[cron/thermostat-enforce] Site ${site.site_id}: ${pushedCount} zones pushed, has_managed=${site.has_managed}`
+          `[cron/thermostat-enforce] site ${site.site_id} OK: ${pushedCount} zones pushed, has_managed=${site.has_managed}`
         );
       } catch (err: any) {
         console.error(
-          `[cron/thermostat-enforce] Site ${site.site_id} failed:`,
-          err.message
+          `[cron/thermostat-enforce] site ${site.site_id} failed:`,
+          err?.message ?? err
         );
-        errors.push({ site_id: site.site_id, error: err.message });
+        errors.push({ site_id: site.site_id, error: err?.message ?? String(err) });
 
         // Write failed health update (active sites only)
         if (site.status === "Active") {
@@ -307,6 +334,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    console.log(`[cron/thermostat-enforce] All sites processed (${errors.length} errors), releasing lock`);
+
     return NextResponse.json({
       sites_checked: uniqueSites.size,
       sites_pushed: sitesPushed,
@@ -316,22 +345,13 @@ export async function GET(req: NextRequest) {
       duration_ms: Date.now() - startMs,
     });
   } catch (err: any) {
-    console.error("[cron/thermostat-enforce] Uncaught error:", err);
+    console.error("[cron/thermostat-enforce] Uncaught error:", err?.message ?? err, err?.stack);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { error: err?.message || "Internal server error" },
       { status: 500 }
     );
   } finally {
     clearTimeout(softTimer);
-    // Release the lock and record finish time — ALWAYS, even on error/timeout
-    const { error: releaseErr } = await supabase
-      .from("b_cron_locks")
-      .update({ locked_at: null, last_finished_at: new Date().toISOString() })
-      .eq("cron_name", LOCK_NAME);
-    if (releaseErr) {
-      console.error("[cron/thermostat-enforce] FAILED to release lock:", releaseErr.message);
-    } else {
-      console.log("[cron/thermostat-enforce] lock released");
-    }
+    await releaseLock();
   }
 }
