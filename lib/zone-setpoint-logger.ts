@@ -1153,6 +1153,7 @@ export async function logZoneSetpointSnapshot(
           .in("device_id", deviceIds)
       : { data: [] as any[] };
 
+    console.log(`[zone-setpoint-logger] Fetched ${(devices || []).length} device rows`);
     const deviceToHa: Record<string, string> = {};
     const deviceSsEnabled: Record<string, boolean> = {};
     for (const dev of devices || []) {
@@ -1168,6 +1169,7 @@ export async function logZoneSetpointSnapshot(
       )
       .eq("site_id", siteId);
 
+    console.log(`[zone-setpoint-logger] Fetched ${(tStates || []).length} thermostat state rows`);
     const stateByHaDevice: Record<string, any> = {};
     const stateByEntityId: Record<string, any> = {};
     for (const ts of tStates || []) {
@@ -1185,6 +1187,7 @@ export async function logZoneSetpointSnapshot(
         .eq("site_id", siteId)
         .eq("domain", "climate")
         .in("ha_device_id", haDeviceIds);
+      console.log(`[zone-setpoint-logger] Fetched ${(climateEntities || []).length} entity sync rows`);
       for (const ce of climateEntities || []) {
         if (ce.ha_device_id && ce.entity_id) {
           climateEntityByHaDevice[normalizeHaDeviceId(ce.ha_device_id) || ce.ha_device_id] = ce.entity_id;
@@ -1208,6 +1211,7 @@ export async function logZoneSetpointSnapshot(
     }
 
     // 8. Process each zone
+    console.log(`[zone-setpoint-logger] Starting per-zone loop for ${zones.length} zones`);
     const rows: any[] = [];
 
     for (const zone of zones) {
@@ -1530,6 +1534,6 @@ export async function logZoneSetpointSnapshot(
       console.error("[CRON] Delivery worker error:", deliveryErr);
     }
   } catch (err: any) {
-    console.error("[zone-setpoint-logger] Error:", err.message);
+    console.error("[zone-setpoint-logger] OUTER CATCH ERROR:", err.message, err.stack);
   }
 }
