@@ -16,11 +16,32 @@ function verifyCronSecret(req: NextRequest): boolean {
   return authHeader === `Bearer ${cronSecret}`;
 }
 
+const LOCK_NAME = "thermostat-enforce";
+const LOCK_TTL_MINUTES = 180;
+
 export async function GET(req: NextRequest) {
   const startMs = Date.now();
 
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // ─── Overlap protection ──────────────────────────────────────────────────
+  // Atomic lock acquisition: UPDATE only matches rows where locked_at IS NULL
+  // or the lock is stale (older than TTL). If zero rows affected, another
+  // instance holds the lock — skip this run.
+  const now = new Date().toISOString();
+  const staleThreshold = new Date(Date.now() - LOCK_TTL_MINUTES * 60000).toISOString();
+  const { data: lockRows } = await supabase
+    .from("b_cron_locks")
+    .update({ locked_at: now, last_started_at: now })
+    .eq("cron_name", LOCK_NAME)
+    .or(`locked_at.is.null,locked_at.lt.${staleThreshold}`)
+    .select("cron_name");
+
+  if (!lockRows || lockRows.length === 0) {
+    console.log("[cron/thermostat-enforce] Skipping — already running (lock held)");
+    return NextResponse.json({ skipped: true, reason: "already_running" });
   }
 
   try {
@@ -76,6 +97,9 @@ export async function GET(req: NextRequest) {
         existing.has_managed = true;
       }
     }
+
+    const managedCount = [...uniqueSites.values()].filter((s) => s.has_managed).length;
+    console.log(`[cron/thermostat-enforce] Processing ${uniqueSites.size} sites (${managedCount} with managed zones)`);
 
     let sitesPushed = 0;
     let totalZonesPushed = 0;
@@ -244,5 +268,11 @@ export async function GET(req: NextRequest) {
       { error: err.message || "Internal server error" },
       { status: 500 }
     );
+  } finally {
+    // Release the lock and record finish time
+    await supabase
+      .from("b_cron_locks")
+      .update({ locked_at: null, last_finished_at: new Date().toISOString() })
+      .eq("cron_name", LOCK_NAME);
   }
 }

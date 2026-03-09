@@ -408,22 +408,56 @@ export async function POST(req: NextRequest) {
     }
 
     // Batch insert state changes
+    // Best-effort duplicate suppression — not race-proof. Two near-simultaneous
+    // webhooks could still insert the same transition if they both read before
+    // either writes. This catches the common case of identical retried payloads.
     if (stateChangeRows.length > 0) {
-      const { error: scError } = await supabase
+      const changeEntityIds = [...new Set(stateChangeRows.map((r: any) => r.entity_id))];
+      const { data: recentChanges } = await supabase
         .from("b_state_change_log")
-        .insert(stateChangeRows);
+        .select("entity_id, previous_state, new_state")
+        .in("entity_id", changeEntityIds)
+        .eq("site_id", site_id)
+        .order("changed_at", { ascending: false });
 
-      if (scError) {
-        console.error("[entity-sync] State change log error:", scError.message);
-        // Don't fail the whole sync — this is supplementary logging
-      } else {
-        stateChangesLogged = stateChangeRows.length;
-        console.log(`[entity-sync] Logged ${stateChangeRows.length} state transitions`);
+      // Build map: entity_id → most recent transition
+      const lastTransition = new Map<string, { previous_state: string; new_state: string }>();
+      for (const rc of recentChanges || []) {
+        if (!lastTransition.has(rc.entity_id)) {
+          lastTransition.set(rc.entity_id, { previous_state: rc.previous_state, new_state: rc.new_state });
+        }
+      }
+
+      // Filter out rows that exactly match the last logged transition
+      const dedupedRows = stateChangeRows.filter((row: any) => {
+        const last = lastTransition.get(row.entity_id);
+        if (last && last.previous_state === row.previous_state && last.new_state === row.new_state) {
+          return false;
+        }
+        return true;
+      });
+
+      if (dedupedRows.length < stateChangeRows.length) {
+        console.log(`[entity-sync] Suppressed ${stateChangeRows.length - dedupedRows.length} duplicate state change(s)`);
+      }
+
+      if (dedupedRows.length > 0) {
+        const { error: scError } = await supabase
+          .from("b_state_change_log")
+          .insert(dedupedRows);
+
+        if (scError) {
+          console.error("[entity-sync] State change log error:", scError.message);
+          // Don't fail the whole sync — this is supplementary logging
+        } else {
+          stateChangesLogged = dedupedRows.length;
+          console.log(`[entity-sync] Logged ${dedupedRows.length} state transitions`);
+        }
       }
 
       // ─── Alert Evaluation (realtime) ──────────────────────────────────────
-      // Evaluate each changed entity against alert definitions
-      for (const sc of stateChangeRows) {
+      // Evaluate each changed entity against alert definitions (only deduped rows)
+      for (const sc of dedupedRows) {
         try {
           await evaluateRealtime(
             supabase,

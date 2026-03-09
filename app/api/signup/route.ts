@@ -45,7 +45,18 @@ export async function POST(req: Request) {
     const last_name = String(body?.last_name ?? "").trim();
     const emailRaw = String(body?.email ?? "");
     const password = String(body?.password ?? "");
-    const phone_number = String(body?.phone_number ?? "").trim() || null;
+    let phone_number = String(body?.phone_number ?? "").trim() || null;
+    // Normalize phone to E.164: if digits only, prepend +1 (US default)
+    if (phone_number) {
+      phone_number = phone_number.replace(/[\s\-\(\)\.]/g, "");
+      if (/^\d{10}$/.test(phone_number)) {
+        phone_number = `+1${phone_number}`;
+      } else if (/^\d{11}$/.test(phone_number) && phone_number.startsWith("1")) {
+        phone_number = `+${phone_number}`;
+      } else if (!phone_number.startsWith("+")) {
+        phone_number = `+${phone_number}`;
+      }
+    }
     const orgCodeRaw = String(body?.org_code ?? "");
     const time_format = String(body?.time_format ?? "12h");
     const units = String(body?.units ?? "imperial");
@@ -188,7 +199,10 @@ export async function POST(req: Request) {
       }
     } else {
       authUserId = authData.user!.id;
+      console.log("[signup] Auth user created successfully:", authUserId);
     }
+
+    console.log("[signup] Proceeding with authUserId:", authUserId, "email:", email, "phone:", phone_number);
 
     // 4) Insert into a_users (user profile - no org-specific data)
     const { error: userInsertError } = await supabaseAdmin
@@ -215,6 +229,8 @@ export async function POST(req: Request) {
           { status: 500 }
         );
       }
+    } else {
+      console.log("[signup] a_users insert SUCCESS for:", email, "user_id:", authUserId);
     }
 
     // 5) Insert into a_orgs_users_memberships (org-specific role/access)
@@ -239,6 +255,8 @@ export async function POST(req: Request) {
           { status: 500 }
         );
       }
+    } else {
+      console.log("[signup] Membership insert SUCCESS for:", email, "org_id:", orgId, "role:", membershipRole);
     }
 
     // 6) Fulfill the invite
@@ -271,7 +289,7 @@ export async function POST(req: Request) {
       .eq("org_id", orgId)
       .eq("status", "active");
 
-    // Note: The membership INSERT trigger automatically logs the "user_joined" event
+    console.log("[signup] Invite fulfilled. Signup complete for:", email, "org:", orgId);
 
     return NextResponse.json({
       success: true,

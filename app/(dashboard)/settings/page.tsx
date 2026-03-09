@@ -499,8 +499,6 @@ export default function SettingsPage() {
         role: memberDraft.role,
         capability_preset: memberDraft.capability_preset,
         status: memberDraft.status,
-        last_updated_at: new Date().toISOString(),
-        last_updated_by: profile?.user_id,
       })
       .eq("membership_id", editingMember.membership_id);
 

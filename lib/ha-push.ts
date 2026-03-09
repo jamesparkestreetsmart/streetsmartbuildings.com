@@ -59,6 +59,9 @@ export interface PushResults {
   trigger: string;
 }
 
+// Zone types that support thermostat push control
+const PUSHABLE_ZONE_TYPES = ["customer", "employee"];
+
 // ─── ha_device_id normalizer ─────────────────────────────────────────────────
 // HA addons sometimes send ha_device_id as a 32-char hex string without dashes.
 // Normalize to standard UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -175,12 +178,14 @@ export async function pushThermostatState(
   config: HAConfig,
   desired: DesiredState,
   current: CurrentState,
-  guardrails: Guardrails
+  guardrails: Guardrails,
+  context?: { zone_id?: string; zone_name?: string }
 ): Promise<PushResult> {
   const actions: string[] = [];
   const previous_state: Partial<CurrentState> = { ...current };
   let effectiveDesired = { ...desired };
   let guardrail_triggered = false;
+  const ctxTag = context?.zone_name ? `[${context.zone_name}/${context.zone_id}]` : `[${desired.entity_id}]`;
 
   console.log("[ha-push] Current state:", JSON.stringify(current));
   console.log("[ha-push] Desired state:", JSON.stringify(desired));
@@ -277,12 +282,15 @@ export async function pushThermostatState(
       );
       let resBody: string | null = null;
       try { resBody = await res.text(); } catch { /* ignore */ }
-      actions.push(`set_hvac_mode:${effectiveDesired.hvac_mode}`);
-      console.log(
-        `[ha-push] set_hvac_mode → ${effectiveDesired.hvac_mode} (status: ${res.status}, body: ${resBody?.substring(0, 500)})`
-      );
+      if (!res.ok) {
+        console.error(`[ha-push] ${ctxTag} set_hvac_mode HTTP ${res.status}: ${resBody?.substring(0, 200)}`);
+        actions.push(`set_hvac_mode:${effectiveDesired.hvac_mode}:FAILED`);
+      } else {
+        actions.push(`set_hvac_mode:${effectiveDesired.hvac_mode}`);
+        console.log(`[ha-push] ${ctxTag} set_hvac_mode → ${effectiveDesired.hvac_mode} (${res.status})`);
+      }
     } catch (err) {
-      console.error("[ha-push] set_hvac_mode failed:", err);
+      console.error(`[ha-push] ${ctxTag} set_hvac_mode exception:`, err);
       actions.push(`set_hvac_mode:${effectiveDesired.hvac_mode}:FAILED`);
     }
 
@@ -329,11 +337,16 @@ export async function pushThermostatState(
       );
       let resBody: string | null = null;
       try { resBody = await res.text(); } catch { /* ignore */ }
-      actions.push(tempLabel);
-      console.log(`[ha-push] ${tempLabel} (status: ${res.status}, body: ${resBody?.substring(0, 500)})`);
+      if (!res.ok) {
+        console.error(`[ha-push] ${ctxTag} set_temperature HTTP ${res.status}: ${resBody?.substring(0, 200)}`);
+        actions.push(`${tempLabel}:FAILED`);
+      } else {
+        actions.push(tempLabel);
+        console.log(`[ha-push] ${ctxTag} ${tempLabel} (${res.status})`);
+      }
     }
   } catch (err) {
-    console.error("[ha-push] set_temperature failed:", err);
+    console.error(`[ha-push] ${ctxTag} set_temperature exception:`, err);
     actions.push("set_temperature:FAILED");
   }
 
@@ -354,12 +367,17 @@ export async function pushThermostatState(
           }),
         }
       );
-      actions.push(`set_fan_mode:${effectiveDesired.fan_mode}`);
-      console.log(
-        `[ha-push] set_fan_mode → ${effectiveDesired.fan_mode} (status: ${res.status})`
-      );
+      let fanResBody: string | null = null;
+      try { fanResBody = await res.text(); } catch { /* ignore */ }
+      if (!res.ok) {
+        console.error(`[ha-push] ${ctxTag} set_fan_mode HTTP ${res.status}: ${fanResBody?.substring(0, 200)}`);
+        actions.push(`set_fan_mode:${effectiveDesired.fan_mode}:FAILED`);
+      } else {
+        actions.push(`set_fan_mode:${effectiveDesired.fan_mode}`);
+        console.log(`[ha-push] ${ctxTag} set_fan_mode → ${effectiveDesired.fan_mode} (${res.status})`);
+      }
     } catch (err) {
-      console.error("[ha-push] set_fan_mode failed:", err);
+      console.error(`[ha-push] ${ctxTag} set_fan_mode exception:`, err);
       actions.push(`set_fan_mode:${effectiveDesired.fan_mode}:FAILED`);
     }
   }
@@ -666,6 +684,20 @@ export async function executePushForSite(
 
   for (const zone of zones) {
     if (!zone.thermostat_device_id) continue;
+
+    // Skip zone types that don't support thermostat push
+    if (zone.zone_type && !PUSHABLE_ZONE_TYPES.includes(zone.zone_type)) {
+      console.log(`[ha-push] Skipping zone "${zone.name}" (${zone.hvac_zone_id}): zone_type "${zone.zone_type}" not pushable`);
+      results.push({
+        zone_name: zone.name,
+        hvac_zone_id: zone.hvac_zone_id,
+        entity_id: "",
+        pushed: false,
+        reason: `Zone type "${zone.zone_type}" not pushable`,
+        actions: [],
+      });
+      continue;
+    }
 
     // Get thermostat device info
     const { data: device } = await supabase
@@ -1168,7 +1200,7 @@ export async function executePushForSite(
       `[ha-push] Zone "${zone.name}" (${climateEntityId}): ${phase} → base=${baseHeat}/${baseCool}, final=${desired.heat_setpoint_f}/${desired.cool_setpoint_f}, mode=${desired.hvac_mode}, fan=${desired.fan_mode}`
     );
 
-    const pushResult = await pushThermostatState(config, desired, current, guardrails);
+    const pushResult = await pushThermostatState(config, desired, current, guardrails, { zone_id: zone.hvac_zone_id, zone_name: zone.name });
 
     // Update b_thermostat_state with directive — always recalculate from current state
     const zoneTemp = thermoState?.current_temperature_f ?? current.current_temperature_f;
