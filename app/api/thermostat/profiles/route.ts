@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { autoLinkProfile } from "@/lib/thermostat/auto-link-profile";
 
 async function getCallerEmail(): Promise<string> {
   try {
@@ -242,6 +243,7 @@ export async function POST(req: NextRequest) {
       occupancy_max_adj_f: fields.occupancy_max_adj_f ?? 1,
       feels_like_enabled: fields.feels_like_enabled ?? true,
       feels_like_max_adj_f: fields.feels_like_max_adj_f ?? 2,
+      target_zone_types: fields.target_zone_types ?? [],
     };
 
     let { data, error } = await supabase
@@ -280,7 +282,24 @@ export async function POST(req: NextRequest) {
       console.error("[thermostat/profiles] POST log error:", logErr);
     }
 
-    return NextResponse.json(mapProfileOut(data));
+    // Auto-link zones if target_zone_types specified
+    const targetZoneTypes: string[] = fields.target_zone_types ?? [];
+    let autoLink = null;
+    if (targetZoneTypes.length > 0 && data) {
+      autoLink = await autoLinkProfile(
+        supabase,
+        data.profile_id,
+        org_id,
+        row.scope,
+        siteId,
+        targetZoneTypes,
+        isGlobal
+      );
+    }
+
+    const result: any = mapProfileOut(data);
+    if (autoLink) result.auto_link = autoLink;
+    return NextResponse.json(result);
   } catch (err: any) {
     console.error("[thermostat/profiles] POST uncaught:", err);
     return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
@@ -375,7 +394,24 @@ export async function PATCH(req: NextRequest) {
       console.error("[thermostat/profiles] PATCH log error:", logErr);
     }
 
-    return NextResponse.json(mapProfileOut(data));
+    // Auto-link zones if target_zone_types is present and non-empty
+    const targetZoneTypes: string[] = data.target_zone_types ?? [];
+    let autoLink = null;
+    if (dbFields.target_zone_types !== undefined && targetZoneTypes.length > 0) {
+      autoLink = await autoLinkProfile(
+        supabase,
+        profile_id,
+        data.org_id,
+        data.scope || "org",
+        data.site_id || null,
+        targetZoneTypes,
+        data.is_global || false
+      );
+    }
+
+    const result: any = mapProfileOut(data);
+    if (autoLink) result.auto_link = autoLink;
+    return NextResponse.json(result);
   } catch (err: any) {
     console.error("[thermostat/profiles] PATCH uncaught:", err);
     return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });

@@ -28,6 +28,7 @@ interface ThermostatProfile {
   occupied_cool_f: number;
   unoccupied_heat_f: number;
   unoccupied_cool_f: number;
+  target_zone_types?: string[];
   zone_count: number;
   site_count: number;
 }
@@ -119,6 +120,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [copyingThermostatId, setCopyingThermostatId] = useState<string | null>(null);
   const [copiedThermostatId, setCopiedThermostatId] = useState<string | null>(null);
+  const [reapplyingThermostatId, setReapplyingThermostatId] = useState<string | null>(null);
+  const [reapplyThermostatResult, setReapplyThermostatResult] = useState<string | null>(null);
 
   // ─── Store Hours Template State ───────────────────────────────────────────
   const [hoursTemplates, setHoursTemplates] = useState<StoreHoursTemplate[]>([]);
@@ -544,6 +547,31 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
       console.error("Failed to copy SSB thermostat profile");
     } finally {
       setCopyingThermostatId(null);
+    }
+  };
+
+  // ─── Thermostat: Re-apply auto-link ───────────────────────────────────────
+  const handleReapplyThermostat = async (profileId: string) => {
+    setReapplyingThermostatId(profileId);
+    setReapplyThermostatResult(null);
+    try {
+      const res = await fetch("/api/thermostat/profiles/re-apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile_id: profileId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setReapplyThermostatResult(`Re-applied: ${data.linked} zone(s) linked, ${data.skipped} skipped.`);
+        setTimeout(() => setReapplyThermostatResult(null), 5000);
+        fetchProfiles();
+      } else {
+        setReapplyThermostatResult(`Error: ${data.error}`);
+      }
+    } catch {
+      setReapplyThermostatResult("Error: Failed to re-apply.");
+    } finally {
+      setReapplyingThermostatId(null);
     }
   };
 
@@ -1130,6 +1158,12 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
               )}
             </div>
 
+            {reapplyThermostatResult && (
+              <div className="mb-3 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-800">
+                {reapplyThermostatResult}
+              </div>
+            )}
+
             {/* ── Your Profiles (org-owned) ──────────────────────────── */}
             <div className="mb-3">
               <div className="flex items-center gap-2 mb-2">
@@ -1146,14 +1180,14 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
               <div className="space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {profiles.filter((p) => !p.is_global).map((profile) => (
-                    <button
+                    <div
                       key={profile.profile_id}
-                      onClick={() => setSelectedProfileId(profile.profile_id)}
-                      className={`p-3 rounded-lg border text-left transition-colors ${
+                      className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
                         selectedProfileId === profile.profile_id
                           ? "border-indigo-300 bg-indigo-50"
                           : "border-gray-200 bg-gray-50 hover:bg-gray-100"
                       }`}
+                      onClick={() => setSelectedProfileId(profile.profile_id)}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -1164,13 +1198,36 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                           {profile.zone_count} zone(s)
                         </span>
                       </div>
+                      {/* Zone type badges */}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(profile.target_zone_types ?? []).length > 0 ? (
+                          (profile.target_zone_types ?? []).map((zt) => (
+                            <span key={zt} className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-100 text-teal-700">
+                              {zt}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-gray-400 italic">Manual linking</span>
+                        )}
+                      </div>
                       <div className="mt-1 grid grid-cols-2 gap-x-3 text-xs text-gray-500">
                         <div>Occ Heat: {profile.occupied_heat_f}{"\u00B0"}F</div>
                         <div>Occ Cool: {profile.occupied_cool_f}{"\u00B0"}F</div>
                         <div>Unocc Heat: {profile.unoccupied_heat_f}{"\u00B0"}F</div>
                         <div>Unocc Cool: {profile.unoccupied_cool_f}{"\u00B0"}F</div>
                       </div>
-                    </button>
+                      {(profile.target_zone_types ?? []).length > 0 && (
+                        <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleReapplyThermostat(profile.profile_id)}
+                            disabled={reapplyingThermostatId === profile.profile_id}
+                            className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                          >
+                            {reapplyingThermostatId === profile.profile_id ? "..." : "Re-apply"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
                 <div className="flex justify-end pt-3 border-t border-gray-200">

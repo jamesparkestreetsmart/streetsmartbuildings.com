@@ -30,6 +30,7 @@ interface Profile {
   occupancy_max_adj_f: number;
   feels_like_enabled: boolean;
   feels_like_max_adj_f: number;
+  target_zone_types: string[];
   zone_count: number;
   site_count: number;
 }
@@ -55,6 +56,7 @@ export interface FormState {
   occupancy_max_adj_f: number;
   feels_like_enabled: boolean;
   feels_like_max_adj_f: number;
+  target_zone_types: string[];
 }
 
 export const DEFAULT_FORM: FormState = {
@@ -78,6 +80,7 @@ export const DEFAULT_FORM: FormState = {
   occupancy_max_adj_f: 1,
   feels_like_enabled: true,
   feels_like_max_adj_f: 2,
+  target_zone_types: [],
 };
 
 const THERMOSTAT_MODE_OPTIONS = [
@@ -108,15 +111,22 @@ const RESET_OPTIONS = [
   { label: "Never", minutes: 0 },
 ];
 
+const WELL_KNOWN_ZONE_TYPES = [
+  "employee", "customer", "kitchen", "storage", "server", "office", "common_area",
+];
+
 // Extracted as a top-level component so parent re-renders don't destroy/recreate inputs
-export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, saveLabel }: {
+export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, saveLabel, availableZoneTypes }: {
   form: FormState;
   setForm: (f: FormState) => void;
   onSave: () => void;
   onSaveAndPush?: () => void;
   onCancel: () => void;
   saveLabel: string;
+  availableZoneTypes?: string[];
 }) {
+  const zoneTypeOptions = [...new Set([...WELL_KNOWN_ZONE_TYPES, ...(availableZoneTypes || [])])].sort();
+
   return (
     <div className="space-y-4">
       {/* Name */}
@@ -129,6 +139,35 @@ export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, sa
           placeholder="e.g., Wendy's Standard"
           className="w-full border rounded-lg px-3 py-2 text-sm"
         />
+      </div>
+
+      {/* Auto-link Zone Types */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Auto-link to zone types</label>
+        <div className="flex flex-wrap gap-2">
+          {zoneTypeOptions.map((zt) => {
+            const checked = form.target_zone_types.includes(zt);
+            return (
+              <label key={zt} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => {
+                    const next = checked
+                      ? form.target_zone_types.filter((t) => t !== zt)
+                      : [...form.target_zone_types, zt];
+                    setForm({ ...form, target_zone_types: next });
+                  }}
+                  className="rounded border-gray-300 text-green-600"
+                />
+                <span className="text-sm text-gray-700">{zt}</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="text-xs text-gray-400 mt-1">
+          This profile will be automatically assigned to all unassigned zones of these types within scope.
+        </p>
       </div>
 
       {/* THERMOSTAT MODE */}
@@ -441,6 +480,9 @@ export default function ProfileManager({ orgId }: Props) {
   const [pushResult, setPushResult] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM });
   const [formError, setFormError] = useState<string | null>(null);
+  const [reapplyingId, setReapplyingId] = useState<string | null>(null);
+  const [reapplyResult, setReapplyResult] = useState<string | null>(null);
+  const [availableZoneTypes, setAvailableZoneTypes] = useState<string[]>([]);
 
   // Push modal state
   const [pushModal, setPushModal] = useState<{
@@ -475,9 +517,23 @@ export default function ProfileManager({ orgId }: Props) {
     setLoading(false);
   }, [orgId]);
 
+  // Fetch distinct zone types for the org
+  const fetchAvailableZoneTypes = useCallback(async () => {
+    if (!orgId) return;
+    const { data } = await supabase
+      .from("a_hvac_zones")
+      .select("zone_type, a_sites!inner(org_id)")
+      .eq("a_sites.org_id", orgId);
+    if (data) {
+      const types = [...new Set((data as any[]).map((z) => z.zone_type).filter(Boolean))].sort();
+      setAvailableZoneTypes(types);
+    }
+  }, [orgId]);
+
   useEffect(() => {
     fetchProfiles();
-  }, [fetchProfiles]);
+    fetchAvailableZoneTypes();
+  }, [fetchProfiles, fetchAvailableZoneTypes]);
 
   const handleCreate = async () => {
     setFormError(null);
@@ -487,9 +543,14 @@ export default function ProfileManager({ orgId }: Props) {
       body: JSON.stringify({ org_id: orgId, scope: "site", ...form }),
     });
     if (res.ok) {
+      const data = await res.json();
       setShowNewModal(false);
       setForm({ ...DEFAULT_FORM });
       fetchProfiles();
+      if (data.auto_link) {
+        setPushResult(`Profile saved. Auto-linked to ${data.auto_link.linked} zone(s). ${data.auto_link.skipped} skipped.`);
+        setTimeout(() => setPushResult(null), 5000);
+      }
     } else {
       const data = await res.json();
       setFormError(data.error || "Failed to create profile.");
@@ -504,9 +565,14 @@ export default function ProfileManager({ orgId }: Props) {
       body: JSON.stringify({ profile_id: profileId, ...form }),
     });
     if (res.ok) {
+      const data = await res.json();
       setEditingId(null);
       setForm({ ...DEFAULT_FORM });
       fetchProfiles();
+      if (data.auto_link) {
+        setPushResult(`Profile saved. Auto-linked to ${data.auto_link.linked} zone(s). ${data.auto_link.skipped} skipped.`);
+        setTimeout(() => setPushResult(null), 5000);
+      }
     } else {
       const data = await res.json();
       setFormError(data.error || "Failed to update profile.");
@@ -532,8 +598,19 @@ export default function ProfileManager({ orgId }: Props) {
     setPushZoneData(zones);
     const types = [...new Set(zones.map((z) => z.zone_type))].filter(Boolean).sort();
     setZoneTypeOptions(types);
-    setSelectedZoneTypes(new Set(types));
-    setAllZoneTypesChecked(true);
+    // Pre-populate from profile's target_zone_types if non-empty
+    const profileTargetTypes = profile.target_zone_types ?? [];
+    if (profileTargetTypes.length > 0) {
+      const preSelected = new Set(types.filter((t) => profileTargetTypes.includes(t)));
+      setSelectedZoneTypes(preSelected);
+      setAllZoneTypesChecked(false);
+      const filtered = zones.filter((z) => preSelected.has(z.zone_type));
+      setFilteredZoneCount(filtered.length);
+      setFilteredSiteCount(new Set(filtered.map((z) => z.site_id)).size);
+    } else {
+      setSelectedZoneTypes(new Set(types));
+      setAllZoneTypesChecked(true);
+    }
     setFilteredZoneCount(zones.length);
     setFilteredSiteCount(new Set(zones.map((z) => z.site_id)).size);
     setPushModal({ step: "filter", profileId, profileName: profile.profile_name });
@@ -571,6 +648,30 @@ export default function ProfileManager({ orgId }: Props) {
     } else {
       const data = await res.json();
       alert(data.error);
+    }
+  };
+
+  const handleReapply = async (profileId: string) => {
+    setReapplyingId(profileId);
+    setReapplyResult(null);
+    try {
+      const res = await fetch("/api/thermostat/profiles/re-apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile_id: profileId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setReapplyResult(`Re-applied: ${data.linked} zone(s) linked, ${data.skipped} skipped.`);
+        setTimeout(() => setReapplyResult(null), 5000);
+        fetchProfiles();
+      } else {
+        setReapplyResult(`Error: ${data.error}`);
+      }
+    } catch {
+      setReapplyResult("Error: Failed to re-apply.");
+    } finally {
+      setReapplyingId(null);
     }
   };
 
@@ -612,6 +713,7 @@ export default function ProfileManager({ orgId }: Props) {
       occupancy_max_adj_f: p.occupancy_max_adj_f ?? 1,
       feels_like_enabled: p.feels_like_enabled ?? true,
       feels_like_max_adj_f: p.feels_like_max_adj_f ?? 2,
+      target_zone_types: p.target_zone_types ?? [],
     });
   };
 
@@ -661,6 +763,12 @@ export default function ProfileManager({ orgId }: Props) {
         </div>
       )}
 
+      {reapplyResult && (
+        <div className="mb-3 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-800">
+          {reapplyResult}
+        </div>
+      )}
+
       {formError && (
         <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
           {formError}
@@ -685,6 +793,7 @@ export default function ProfileManager({ orgId }: Props) {
                   onSaveAndPush={() => handleSaveAndPush(profile.profile_id)}
                   onCancel={() => { setEditingId(null); setForm({ ...DEFAULT_FORM }); }}
                   saveLabel="Save"
+                  availableZoneTypes={availableZoneTypes}
                 />
               </div>
             );
@@ -732,6 +841,18 @@ export default function ProfileManager({ orgId }: Props) {
                       Manager: &plusmn;{profile.manager_offset_up_f ?? 4}&deg;F / {formatResetLabel(profile.manager_override_reset_minutes ?? 120)} reset
                     </p>
                   </div>
+                  {/* Zone type badges */}
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {(profile.target_zone_types ?? []).length > 0 ? (
+                      (profile.target_zone_types ?? []).map((zt) => (
+                        <span key={zt} className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-100 text-teal-700">
+                          {zt}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-[10px] text-gray-400 italic">Manual linking only</span>
+                    )}
+                  </div>
                   <p className="text-xs text-gray-400 mt-1">
                     Used by: {profile.zone_count} zone{profile.zone_count !== 1 ? "s" : ""} across{" "}
                     {profile.site_count} site{profile.site_count !== 1 ? "s" : ""}
@@ -740,6 +861,15 @@ export default function ProfileManager({ orgId }: Props) {
                 {!readOnly && (
                   <div className="flex gap-1 shrink-0 ml-4">
                     <button onClick={() => startEdit(profile)} className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1">Edit</button>
+                    {(profile.target_zone_types ?? []).length > 0 && (
+                      <button
+                        onClick={() => handleReapply(profile.profile_id)}
+                        disabled={reapplyingId === profile.profile_id}
+                        className="text-xs text-indigo-600 hover:text-indigo-800 px-2 py-1 disabled:opacity-50"
+                      >
+                        {reapplyingId === profile.profile_id ? "..." : "Re-apply"}
+                      </button>
+                    )}
                     <button
                       onClick={() => handlePush(profile.profile_id)}
                       disabled={pushingId === profile.profile_id}
@@ -808,6 +938,7 @@ export default function ProfileManager({ orgId }: Props) {
               onSave={handleCreate}
               onCancel={() => { setShowNewModal(false); setForm({ ...DEFAULT_FORM }); }}
               saveLabel="Create Profile"
+              availableZoneTypes={availableZoneTypes}
             />
           </div>
         </div>

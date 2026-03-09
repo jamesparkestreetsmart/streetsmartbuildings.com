@@ -68,6 +68,8 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
         "manifest_found",
         "manifest_fallback",
         "thermostat_push_attempt",
+        "profile_auto_linked",
+        "thermostat_push",
       ]);
       setSelectedTypes((prev) => {
         if (prev.size === 0) {
