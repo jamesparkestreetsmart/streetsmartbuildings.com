@@ -1440,6 +1440,7 @@ export async function logZoneSetpointSnapshot(
       ];
 
       rows.push({
+        recorded_at: new Date().toISOString(),
         site_id: siteId,
         hvac_zone_id: zone.hvac_zone_id,
         phase: phaseInfo.phase,
