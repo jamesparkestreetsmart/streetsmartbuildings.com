@@ -250,6 +250,7 @@ export default function SettingsPage() {
     capability_preset: string | null;
     status: string;
   }>({ job_title: null, role: "", capability_preset: null, status: "active" });
+  const [memberSaveMessage, setMemberSaveMessage] = useState<string | null>(null);
 
   // =================== FETCH DATA ===================
   const fetchData = async () => {
@@ -467,21 +468,25 @@ export default function SettingsPage() {
   const saveProfile = async () => {
     if (!profile) return;
 
+    const payload = {
+      first_name: profileDraft.first_name,
+      last_name: profileDraft.last_name,
+      phone_number: profileDraft.phone_number,
+      time_format: profileDraft.time_format,
+      units: profileDraft.units,
+    };
+    console.log("[settings] saveProfile payload:", JSON.stringify(payload), "user_id:", profile.user_id);
+
     const { error } = await supabase
       .from("a_users")
-      .update({
-        first_name: profileDraft.first_name,
-        last_name: profileDraft.last_name,
-        phone_number: profileDraft.phone_number,
-        time_format: profileDraft.time_format,
-        units: profileDraft.units,
-      })
+      .update(payload)
       .eq("user_id", profile.user_id);
 
     if (error) {
-      alert("Failed to update profile.");
-      console.error(error);
+      console.error("[settings] saveProfile error:", JSON.stringify(error));
+      alert(`Failed to update profile: ${error.message}`);
     } else {
+      console.log("[settings] saveProfile success");
       setProfile({ ...profile, ...profileDraft } as UserProfile);
       setEditingProfile(false);
       await fetchData();
@@ -492,21 +497,27 @@ export default function SettingsPage() {
   const saveMember = async () => {
     if (!editingMember || !org) return;
 
+    const payload = {
+      job_title: memberDraft.job_title,
+      role: memberDraft.role,
+      capability_preset: memberDraft.capability_preset,
+      status: memberDraft.status,
+    };
+    console.log("[settings] saveMember payload:", JSON.stringify(payload), "membership_id:", editingMember.membership_id);
+
     const { error } = await supabase
       .from("a_orgs_users_memberships")
-      .update({
-        job_title: memberDraft.job_title,
-        role: memberDraft.role,
-        capability_preset: memberDraft.capability_preset,
-        status: memberDraft.status,
-      })
+      .update(payload)
       .eq("membership_id", editingMember.membership_id);
 
     if (error) {
-      alert("Failed to update member.");
-      console.error(error);
+      console.error("[settings] saveMember error:", JSON.stringify(error));
+      alert(`Failed to update member: ${error.message}`);
     } else {
+      console.log("[settings] saveMember success");
       setEditingMember(null);
+      setMemberSaveMessage("Member updated successfully.");
+      setTimeout(() => setMemberSaveMessage(null), 3000);
       await fetchData();
     }
   };
@@ -1184,11 +1195,12 @@ export default function SettingsPage() {
 
           <div className="flex gap-3 items-center">
             <input
-              type="text"
+              type="search"
               placeholder="Search users..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               autoComplete="off"
+              name="user-search-nofill"
               className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-56 focus:ring-2 focus:ring-green-500"
             />
 
@@ -1201,6 +1213,12 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
+
+        {memberSaveMessage && (
+          <div className="mb-2 rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">
+            {memberSaveMessage}
+          </div>
+        )}
 
         {/* USER TABLE */}
         <table className="w-full text-sm border-t border-gray-200">
@@ -1225,6 +1243,7 @@ export default function SettingsPage() {
                   {sortKey === col.key ? (sortOrder === "asc" ? " ▲" : " ▼") : ""}
                 </th>
               ))}
+              <th className="p-3 w-16" />
             </tr>
           </thead>
 
@@ -1259,6 +1278,7 @@ export default function SettingsPage() {
                 <td className="p-3 text-gray-500">
                   {new Date(inv.created_at).toLocaleDateString()}
                 </td>
+                <td className="p-3" />
               </tr>
             ))}
 
@@ -1290,11 +1310,20 @@ export default function SettingsPage() {
                   <td className="p-3">
                     {new Date(m.joined_at).toLocaleDateString()}
                   </td>
+                  <td className="p-3 text-center">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openEditMember(m); }}
+                      className="text-gray-400 hover:text-green-600 transition"
+                      title="Edit member"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               ))
             ) : filteredInvites.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center text-gray-500 p-4">
+                <td colSpan={9} className="text-center text-gray-500 p-4">
                   No users found.
                 </td>
               </tr>
