@@ -44,9 +44,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log(`[thermostat/push] Starting push for site ${site_id}, trigger: ${trigger}, caller: ${auth.email}`);
+    console.log(`[thermostat/push] Starting push for site ${site_id}${hvac_zone_id ? ` zone ${hvac_zone_id}` : ""}, trigger: ${trigger}, caller: ${auth.email}`);
 
-    const results = await executePushForSite(supabase, site_id, trigger, undefined, auth.email);
+    const results = await executePushForSite(supabase, site_id, trigger, undefined, auth.email, hvac_zone_id || undefined);
 
     if (!results.ha_connected) {
       return NextResponse.json(

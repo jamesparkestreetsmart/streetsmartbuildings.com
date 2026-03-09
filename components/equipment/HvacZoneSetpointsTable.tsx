@@ -195,6 +195,9 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
     zoneId: string; profileId: string; zoneName: string; profileName: string;
   } | null>(null);
 
+  // Zone push status: "pushing" | "applied" | "failed" per zone
+  const [zonePushStatus, setZonePushStatus] = useState<Record<string, "pushing" | "applied" | "failed">>({});
+
   // Expanded inline space-config rows
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
 
@@ -698,7 +701,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: newProfile.profile_id }),
       });
-      if (assignRes.ok) { flashSaved(zoneId); fetchProfiles(); fetchZones(); }
+      if (assignRes.ok) { flashSaved(zoneId); fetchProfiles(); fetchZones(); triggerZonePush(zoneId); }
     } else {
       const zone = zones.find((z) => z.hvac_zone_id === zoneId);
       const profile = profiles.find((p) => p.profile_id === profileId);
@@ -725,13 +728,44 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hvac_zone_id: zoneId, [apiField]: value }),
     });
-    if (res.ok) { flashSaved(zoneId); fetchZones(); }
+    if (res.ok) {
+      flashSaved(zoneId);
+      fetchZones();
+      triggerZonePush(zoneId);
+    }
     setInlineEdit(null);
   };
 
   const flashSaved = (zoneId: string) => {
     setSavedZoneId(zoneId);
     setTimeout(() => setSavedZoneId(null), 1200);
+  };
+
+  const triggerZonePush = async (zoneId: string) => {
+    setZonePushStatus((prev) => ({ ...prev, [zoneId]: "pushing" }));
+    try {
+      const res = await fetch("/api/thermostat/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site_id: siteId, hvac_zone_id: zoneId, trigger: "zone_save" }),
+      });
+      const data = await res.json();
+      const zoneResult = data.results?.find((r: any) => r.hvac_zone_id === zoneId);
+      if (zoneResult?.pushed || data.ha_configured === false) {
+        setZonePushStatus((prev) => ({ ...prev, [zoneId]: "applied" }));
+      } else {
+        setZonePushStatus((prev) => ({ ...prev, [zoneId]: "failed" }));
+      }
+    } catch {
+      setZonePushStatus((prev) => ({ ...prev, [zoneId]: "failed" }));
+    }
+    setTimeout(() => {
+      setZonePushStatus((prev) => {
+        const next = { ...prev };
+        delete next[zoneId];
+        return next;
+      });
+    }, 3000);
   };
 
   const startInlineEdit = (zone: HvacZone, field: string, currentValue: number) => {
@@ -1319,8 +1353,19 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                       </td>
                       {/* Actions */}
                       <td className="py-3 px-2">
-                        <button onClick={() => openEditModal(zone)} className="text-blue-600 hover:text-blue-800 mr-2">Edit</button>
-                        <button onClick={() => handleDeleteZone(zone.hvac_zone_id)} className="text-red-600 hover:text-red-800">Delete</button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openEditModal(zone)} className="text-blue-600 hover:text-blue-800">Edit</button>
+                          <button onClick={() => handleDeleteZone(zone.hvac_zone_id)} className="text-red-600 hover:text-red-800">Delete</button>
+                          {zonePushStatus[zone.hvac_zone_id] === "pushing" && (
+                            <span className="text-[10px] text-amber-600 animate-pulse whitespace-nowrap">Pushing...</span>
+                          )}
+                          {zonePushStatus[zone.hvac_zone_id] === "applied" && (
+                            <span className="text-[10px] text-green-600 whitespace-nowrap">Applied</span>
+                          )}
+                          {zonePushStatus[zone.hvac_zone_id] === "failed" && (
+                            <span className="text-[10px] text-red-500 whitespace-nowrap">Push failed</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
 
@@ -1745,7 +1790,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: profileId }),
                   });
-                  if (res.ok) { flashSaved(zoneId); fetchZones(); }
+                  if (res.ok) { flashSaved(zoneId); fetchZones(); triggerZonePush(zoneId); }
                 }}
                 className="px-4 py-2 bg-[#12723A] text-white rounded-lg hover:bg-[#0e5c2e] text-sm"
               >

@@ -419,7 +419,8 @@ export async function executePushForSite(
   siteId: string,
   trigger: string,
   haConfig?: HAConfig,
-  triggeredBy?: string
+  triggeredBy?: string,
+  filterZoneId?: string
 ): Promise<PushResults> {
   const haUrl = haConfig?.haUrl || process.env.HA_URL;
   const haToken = haConfig?.haToken || process.env.HA_LONG_LIVED_TOKEN;
@@ -663,6 +664,17 @@ export async function executePushForSite(
   if (!zones || zones.length === 0) {
     console.log("[ha-push] No HVAC zones found for site");
     return { results: [], ha_connected: true, trigger };
+  }
+
+  // If filtering to a single zone, narrow down the list
+  if (filterZoneId) {
+    const filtered = zones.filter((z: any) => z.hvac_zone_id === filterZoneId);
+    if (filtered.length === 0) {
+      console.log(`[ha-push] Zone ${filterZoneId} not found or not managed`);
+      return { results: [], ha_connected: true, trigger };
+    }
+    zones.length = 0;
+    zones.push(...filtered);
   }
 
   // Batch-fetch profiles

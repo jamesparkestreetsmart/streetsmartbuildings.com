@@ -790,7 +790,7 @@ export default function ProfileManager({ orgId }: Props) {
                   form={form}
                   setForm={setForm}
                   onSave={() => handleSave(profile.profile_id)}
-                  onSaveAndPush={() => handleSaveAndPush(profile.profile_id)}
+                  onSaveAndPush={profile.scope !== "site" ? () => handleSaveAndPush(profile.profile_id) : undefined}
                   onCancel={() => { setEditingId(null); setForm({ ...DEFAULT_FORM }); }}
                   saveLabel="Save"
                   availableZoneTypes={availableZoneTypes}
@@ -870,13 +870,15 @@ export default function ProfileManager({ orgId }: Props) {
                         {reapplyingId === profile.profile_id ? "..." : "Re-apply"}
                       </button>
                     )}
-                    <button
-                      onClick={() => handlePush(profile.profile_id)}
-                      disabled={pushingId === profile.profile_id}
-                      className="text-xs text-white bg-[#12723A] hover:bg-[#0e5c2e] px-2 py-1 rounded disabled:opacity-50"
-                    >
-                      {pushingId === profile.profile_id ? "Pushing..." : "Push All"}
-                    </button>
+                    {profile.scope !== "site" && (
+                      <button
+                        onClick={() => handlePush(profile.profile_id)}
+                        disabled={pushingId === profile.profile_id}
+                        className="text-xs text-white bg-[#12723A] hover:bg-[#0e5c2e] px-2 py-1 rounded disabled:opacity-50"
+                      >
+                        {pushingId === profile.profile_id ? "Pushing..." : "Push All"}
+                      </button>
+                    )}
                     <button onClick={() => handleDelete(profile.profile_id)} className="text-xs text-red-500 hover:text-red-700 px-2 py-1">Delete</button>
                   </div>
                 )}
