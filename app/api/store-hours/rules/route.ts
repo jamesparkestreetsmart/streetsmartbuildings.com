@@ -185,13 +185,12 @@ export async function POST(req: NextRequest) {
       const localDate = new Date().toLocaleDateString("en-CA", { timeZone: siteTz });
 
       const isEdit = body.is_edit === true;
-      const verb = isEdit ? "Edited" : "Added";
+      const verb = isEdit ? "updated" : "created";
       const eventTypeLog = isEdit ? "store_hours_rule_edited" : "store_hours_rule_created";
 
       const isClosed = rule_type === "date_range_daily" ? false : is_closed;
-      const logMessage = isClosed
-        ? `${verb} '${name}' on ${effective_from_date} (Closed)`
-        : `${verb} '${name}' on ${effective_from_date} (${open_time || start_day_open || ""}–${close_time || end_day_close || ""})`;
+      const hoursDetail = isClosed ? "Store closed" : `${open_time || start_day_open || ""} – ${close_time || end_day_close || ""}`;
+      const logMessage = `Exception ${verb} for ${effective_from_date}: ${hoursDetail}`;
 
       await supabase.from("b_records_log").insert({
         org_id: siteData?.org_id,

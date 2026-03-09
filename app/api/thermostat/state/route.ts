@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
 import { getAuthUser } from "@/lib/auth/requireAdminRole";
 import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
+import { resolveEffectiveState } from "@/lib/store-hours/resolveEffectiveState";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -113,74 +114,9 @@ export async function GET(req: NextRequest) {
     .single();
 
   const tz = siteInfo?.timezone || "America/Chicago";
-  const nowInTz = new Date().toLocaleString("en-US", { timeZone: tz });
-  const nowDate = new Date(nowInTz);
-  const currentMins = nowDate.getHours() * 60 + nowDate.getMinutes();
-
-  const targetDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
-  const [y, m, d] = targetDate.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  const dayOfWeek = DAY_NAMES[dt.getDay()];
-
-  const { data: baseHours } = await supabase
-    .from("b_store_hours")
-    .select("open_time, close_time, is_closed")
-    .eq("site_id", siteId)
-    .eq("day_of_week", dayOfWeek)
-    .single();
-
-  let openTime: string | null = baseHours?.open_time || null;
-  let closeTime: string | null = baseHours?.close_time || null;
-  let isClosed: boolean = baseHours?.is_closed || false;
-
-  // Check exception events
-  const { data: events } = await supabase
-    .from("b_store_hours_events")
-    .select("event_id, rule_id, event_date")
-    .eq("site_id", siteId)
-    .eq("event_date", targetDate);
-
-  if (events && events.length > 0) {
-    const ruleId = events[0].rule_id;
-    const { data: rule } = await supabase
-      .from("b_store_hours_exception_rules")
-      .select("*")
-      .eq("rule_id", ruleId)
-      .single();
-
-    if (rule) {
-      if (rule.rule_type === "date_range_daily") {
-        if (targetDate === rule.effective_from_date) {
-          openTime = rule.start_day_open;
-          closeTime = rule.start_day_close;
-          isClosed = false;
-        } else if (targetDate === rule.effective_to_date) {
-          openTime = rule.end_day_open;
-          closeTime = rule.end_day_close;
-          isClosed = false;
-        } else {
-          openTime = rule.middle_days_open;
-          closeTime = rule.middle_days_close;
-          isClosed = rule.middle_days_closed || false;
-        }
-      } else {
-        isClosed = rule.is_closed ?? isClosed;
-        openTime = rule.is_closed ? null : (rule.open_time ?? openTime);
-        closeTime = rule.is_closed ? null : (rule.close_time ?? closeTime);
-      }
-    }
-  }
-
-  const openMins = timeToMinutes(openTime);
-  const closeMins = timeToMinutes(closeTime);
-  const isOccupied =
-    !isClosed &&
-    openMins !== null &&
-    closeMins !== null &&
-    currentMins >= openMins &&
-    currentMins < closeMins;
-
-  const currentPhase = isOccupied ? "occupied" : "unoccupied";
+  const es = await resolveEffectiveState(supabase, siteId, tz);
+  const currentPhase = es.control_phase;
+  const operatingStatus = es.operating_status;
 
   // 5. Batch-fetch profiles for zones
   const profileIds = [
@@ -294,5 +230,7 @@ export async function GET(req: NextRequest) {
     thermostat_states: enriched,
     equipment_sensors: equipmentSensors,
     current_phase: currentPhase,
+    operating_status: operatingStatus,
+    exception_name: es.exception_name,
   });
 }

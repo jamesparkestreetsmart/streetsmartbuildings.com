@@ -21,6 +21,7 @@ import {
 import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
 import { executePushForSite } from "@/lib/ha-push";
 import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
+import { resolveEffectiveState } from "@/lib/store-hours/resolveEffectiveState";
 
 async function getCallerEmail(): Promise<string> {
   try {
@@ -132,68 +133,16 @@ export async function POST(req: NextRequest) {
       date ||
       new Date().toLocaleDateString("en-CA", { timeZone: tz });
 
-    // 2. Determine day of week
+    // 2. Resolve effective store hours via canonical resolver
     const [y, m, d] = targetDate.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
-    const dayOfWeek = DAY_NAMES[dt.getDay()];
 
-    console.log("[manifest/push] Step 2 - targetDate:", targetDate, "dayOfWeek:", dayOfWeek);
+    const es = await resolveEffectiveState(supabase, site_id, tz);
+    const isClosed = es.operating_status !== "open";
+    const openTime = es.effective_open_time;
+    const closeTime = es.effective_close_time;
 
-    // 3. Get base store hours for this day of week
-    const { data: baseHours, error: baseErr } = await supabase
-      .from("b_store_hours")
-      .select("open_time, close_time, is_closed")
-      .eq("site_id", site_id)
-      .eq("day_of_week", dayOfWeek)
-      .single();
-
-    console.log("[manifest/push] Step 3 - baseHours:", baseHours, "error:", baseErr);
-
-    let openTime: string | null = baseHours?.open_time || null;
-    let closeTime: string | null = baseHours?.close_time || null;
-    let isClosed: boolean = baseHours?.is_closed || false;
-
-    // 4. Check for exception events on this date (overrides base hours)
-    const { data: events, error: eventsErr } = await supabase
-      .from("b_store_hours_events")
-      .select("event_id, rule_id, event_date")
-      .eq("site_id", site_id)
-      .eq("event_date", targetDate);
-
-    console.log("[manifest/push] Step 4 - events:", events?.length, "error:", eventsErr);
-
-    if (events && events.length > 0) {
-      const ruleId = events[0].rule_id;
-      const { data: rule } = await supabase
-        .from("b_store_hours_exception_rules")
-        .select("*")
-        .eq("rule_id", ruleId)
-        .single();
-
-      if (rule) {
-        if (rule.rule_type === "date_range_daily") {
-          if (targetDate === rule.effective_from_date) {
-            openTime = rule.start_day_open;
-            closeTime = rule.start_day_close;
-            isClosed = false;
-          } else if (targetDate === rule.effective_to_date) {
-            openTime = rule.end_day_open;
-            closeTime = rule.end_day_close;
-            isClosed = false;
-          } else {
-            openTime = rule.middle_days_open;
-            closeTime = rule.middle_days_close;
-            isClosed = rule.middle_days_closed || false;
-          }
-        } else {
-          isClosed = rule.is_closed ?? isClosed;
-          openTime = rule.is_closed ? null : (rule.open_time ?? openTime);
-          closeTime = rule.is_closed ? null : (rule.close_time ?? closeTime);
-        }
-      }
-    }
-
-    console.log("[manifest/push] Resolved hours - open:", openTime, "close:", closeTime, "closed:", isClosed);
+    console.log("[manifest/push] Resolved hours - open:", openTime, "close:", closeTime, "closed:", isClosed, "status:", es.operating_status);
 
     // 4b. Compute sun times if we have coordinates
     let sunTimesData: {

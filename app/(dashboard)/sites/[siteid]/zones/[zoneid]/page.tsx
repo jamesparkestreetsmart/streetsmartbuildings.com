@@ -144,7 +144,10 @@ function friendlyMode(mode: string): string {
   }
 }
 
-function ActionBadge({ action }: { action: string | null }) {
+function ActionBadge({ action, phase }: { action: string | null; phase?: string | null }) {
+  if (phase === "closed") {
+    return <span className="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-medium">Store closed today</span>;
+  }
   if (!action || action === "idle") {
     return <span className="text-xs px-1.5 py-0.5 rounded bg-gray-50 text-gray-500">idle</span>;
   }
@@ -679,7 +682,7 @@ function TimelineTable({
                     </span>
                   </td>
                   {/* G1: Thermostat Commands */}
-                  <td className={TD}><ActionBadge action={log.hvac_action} /></td>
+                  <td className={TD}><ActionBadge action={log.hvac_action} phase={log.phase} /></td>
                   <td className={TD}><span className="text-gray-600">{friendlyFan(log.fan_mode)}</span></td>
                   <td className={TD}>
                     {log.supply_temp_f != null ? <span className="text-gray-600">{log.supply_temp_f}{"\u00B0"}F</span> : <Dash />}
@@ -766,7 +769,7 @@ function TimelineTable({
                     {log.profile_heat_f != null && log.profile_cool_f != null ? (
                       <span className="text-gray-600">
                         {log.profile_heat_f}{"\u00B0"}{"\u2013"}{log.profile_cool_f}{"\u00B0"}F
-                        <span className="text-gray-400 ml-1">({log.phase === "occupied" ? "occ" : "unocc"})</span>
+                        <span className="text-gray-400 ml-1">({log.phase === "occupied" ? "occ" : log.phase === "closed" ? "closed" : "unocc"})</span>
                       </span>
                     ) : <Dash />}
                   </td>

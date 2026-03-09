@@ -119,17 +119,31 @@ function formatTime(isoStr: string): string {
 }
 
 /** HVAC action badge */
-function ActionBadge({ action }: { action: string | null }) {
+function DirectiveBadge({ phase }: { phase: string | null }) {
+  if (phase === "closed") {
+    return (
+      <span className="text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-medium" title="Closed by schedule exception">
+        Store closed today
+      </span>
+    );
+  }
+  if (phase === "occupied") {
+    return <span className="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-700 font-medium">Occupied</span>;
+  }
+  return <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Unoccupied</span>;
+}
+
+function HvacActionBadge({ action }: { action: string | null }) {
   if (!action || action === "idle") {
-    return <span className="text-xs px-1.5 py-0.5 rounded bg-gray-50 text-gray-500">idle</span>;
+    return <span className="text-[10px] text-gray-400">idle</span>;
   }
   if (action === "heating") {
-    return <span className="text-xs px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 font-medium">heating</span>;
+    return <span className="text-[10px] text-orange-600 font-medium">heating</span>;
   }
   if (action === "cooling") {
-    return <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">cooling</span>;
+    return <span className="text-[10px] text-blue-600 font-medium">cooling</span>;
   }
-  return <span className="text-xs px-1.5 py-0.5 rounded bg-gray-50 text-gray-600">{action}</span>;
+  return <span className="text-[10px] text-gray-500">{action}</span>;
 }
 
 /** Adjustment score badge */
@@ -632,7 +646,10 @@ export default function SpaceHvacTable({ siteId }: Props) {
 
                       {/* G1: Eagle Eye Directive */}
                       <td className={TD}>
-                        <ActionBadge action={log.hvac_action} />
+                        <div className="flex flex-col gap-0.5">
+                          <DirectiveBadge phase={log.phase} />
+                          <HvacActionBadge action={log.hvac_action} />
+                        </div>
                       </td>
 
                       {/* G1: Fan */}
@@ -841,7 +858,6 @@ export default function SpaceHvacTable({ siteId }: Props) {
                         {log.profile_heat_f != null && log.profile_cool_f != null ? (
                           <span className="text-gray-600">
                             {log.profile_heat_f}°–{log.profile_cool_f}°F
-                            <span className="text-gray-400 ml-1">({log.phase === "occupied" ? "occ" : "unocc"})</span>
                           </span>
                         ) : (
                           <span className="text-gray-400">—</span>

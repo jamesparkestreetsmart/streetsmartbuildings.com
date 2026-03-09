@@ -7,6 +7,7 @@ import { resolveZoneSetpointsSync, ResolvedSetpoints } from "@/lib/setpoint-reso
 import { evaluateCron } from "@/lib/alert-evaluator";
 import { processDeliveryQueue } from "@/lib/alert-delivery";
 import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
+import { resolveEffectiveState, EffectiveState } from "@/lib/store-hours/resolveEffectiveState";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,13 +42,14 @@ export function computeFeelsLike(tempF: number, humidity: number): number {
   return Math.round(hi);
 }
 
-// ─── Phase Resolver ───────────────────────────────────────────────────────────
+// ─── Phase Resolver (delegates to canonical resolveEffectiveState) ────────────
 
 interface PhaseInfo {
-  phase: "occupied" | "unoccupied";
+  phase: "occupied" | "unoccupied" | "closed";
   openMins: number | null;
   closeMins: number | null;
   currentMins: number;
+  effectiveState: EffectiveState;
 }
 
 async function resolvePhase(
@@ -55,79 +57,25 @@ async function resolvePhase(
   siteId: string,
   tz: string
 ): Promise<PhaseInfo> {
+  const es = await resolveEffectiveState(supabase, siteId, tz);
+
   const nowInTz = new Date().toLocaleString("en-US", { timeZone: tz });
   const nowDate = new Date(nowInTz);
   const currentMins = nowDate.getHours() * 60 + nowDate.getMinutes();
 
-  const targetDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
-  const [y, m, d] = targetDate.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  const dayOfWeek = DAY_NAMES[dt.getDay()];
-
-  const { data: baseHours } = await supabase
-    .from("b_store_hours")
-    .select("open_time, close_time, is_closed")
-    .eq("site_id", siteId)
-    .eq("day_of_week", dayOfWeek)
-    .single();
-
-  let openTime: string | null = baseHours?.open_time || null;
-  let closeTime: string | null = baseHours?.close_time || null;
-  let isClosed: boolean = baseHours?.is_closed || false;
-
-  // Check exception events
-  const { data: events } = await supabase
-    .from("b_store_hours_events")
-    .select("event_id, rule_id, event_date")
-    .eq("site_id", siteId)
-    .eq("event_date", targetDate);
-
-  if (events && events.length > 0) {
-    const ruleId = events[0].rule_id;
-    const { data: rule } = await supabase
-      .from("b_store_hours_exception_rules")
-      .select("*")
-      .eq("rule_id", ruleId)
-      .single();
-
-    if (rule) {
-      if (rule.rule_type === "date_range_daily") {
-        if (targetDate === rule.effective_from_date) {
-          openTime = rule.start_day_open;
-          closeTime = rule.start_day_close;
-          isClosed = false;
-        } else if (targetDate === rule.effective_to_date) {
-          openTime = rule.end_day_open;
-          closeTime = rule.end_day_close;
-          isClosed = false;
-        } else {
-          openTime = rule.middle_days_open;
-          closeTime = rule.middle_days_close;
-          isClosed = rule.middle_days_closed || false;
-        }
-      } else {
-        isClosed = rule.is_closed ?? isClosed;
-        openTime = rule.is_closed ? null : (rule.open_time ?? openTime);
-        closeTime = rule.is_closed ? null : (rule.close_time ?? closeTime);
-      }
-    }
+  let phase: "occupied" | "unoccupied" | "closed";
+  if (es.operating_status === "closed_exception") {
+    phase = "closed";
+  } else if (es.control_phase === "occupied") {
+    phase = "occupied";
+  } else {
+    phase = "unoccupied";
   }
 
-  const openMins = timeToMinutes(openTime);
-  const closeMins = timeToMinutes(closeTime);
-  const isOccupied =
-    !isClosed &&
-    openMins !== null &&
-    closeMins !== null &&
-    currentMins >= openMins &&
-    currentMins < closeMins;
+  const openMins = es.effective_open_time ? timeToMinutes(es.effective_open_time) : null;
+  const closeMins = es.effective_close_time ? timeToMinutes(es.effective_close_time) : null;
 
-  return {
-    phase: isOccupied ? "occupied" : "unoccupied",
-    openMins,
-    closeMins,
-    currentMins,
-  };
+  return { phase, openMins, closeMins, currentMins, effectiveState: es };
 }
 
 // ─── Sensor Reading ───────────────────────────────────────────────────────────

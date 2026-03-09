@@ -179,7 +179,7 @@ export async function POST(req: Request) {
         org_id,
         event_type: "store_hours_updated",
         event_date: localDate,
-        message: `${day_of_week} ${is_closed ? "set to Closed" : `updated: ${open_time} – ${close_time}`}`,
+        message: `Base schedule updated: ${day_of_week} ${is_closed ? "Closed" : `${open_time} – ${close_time}`}`,
         source: "store_hours",
         created_by: userEmail,
       });

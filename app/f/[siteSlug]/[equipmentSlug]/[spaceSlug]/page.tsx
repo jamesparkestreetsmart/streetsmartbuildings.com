@@ -315,7 +315,7 @@ export default function ComfortFeedbackPage() {
                   <div style={{ fontSize: 17, fontWeight: 800, color: '#94A3B8', letterSpacing: '-0.02em' }}>
                     {snap.profile_heat_f ?? '\u2014'}{'\u00B0'} {'\u2013'} {snap.profile_cool_f ?? '\u2014'}{'\u00B0'}F
                     <span style={{ fontSize: 10, marginLeft: 4, color: '#CBD5E1' }}>
-                      ({snap.phase === 'occupied' ? 'occ' : 'unocc'})
+                      ({snap.phase === 'occupied' ? 'occ' : snap.phase === 'closed' ? 'closed' : 'unocc'})
                     </span>
                   </div>
                 </div>

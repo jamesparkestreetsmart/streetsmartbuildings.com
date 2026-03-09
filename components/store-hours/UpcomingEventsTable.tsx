@@ -3,10 +3,25 @@
 import React from "react";
 import type { FutureException } from "./useFutureExceptions";
 
-function formatHours(e: FutureException) {
-  if (e.is_closed) return "Closed";
-  if (e.open_time && e.close_time) return `${e.open_time} – ${e.close_time}`;
-  return "Hours unchanged";
+function formatTime12(t: string | null): string {
+  if (!t) return "";
+  const [h, m] = t.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function formatSubtype(e: FutureException) {
+  const hours = e.is_closed
+    ? "Closed"
+    : e.open_time && e.close_time
+    ? `${formatTime12(e.open_time)} to ${formatTime12(e.close_time)}`
+    : "Hours unchanged";
+  const name = e.event_name;
+  if (name) {
+    return <span>{hours} <span className="text-gray-400">&mdash; {name}</span></span>;
+  }
+  return <span>{hours}</span>;
 }
 
 function formatDate(iso: string) {
@@ -24,13 +39,13 @@ function formatDate(iso: string) {
 function formatEventType(eventType: string) {
   switch (eventType) {
     case "store_hours_schedule":
-      return <span className="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-800">Store Hours</span>;
+      return <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800">Exception</span>;
     case "planned_maintenance":
       return <span className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-800">Maintenance</span>;
     case "hotel_occupancy":
       return <span className="px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800">Hotel</span>;
     default:
-      return <span className="px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-800">{eventType}</span>;
+      return <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800">Exception</span>;
   }
 }
 
@@ -61,9 +76,8 @@ export default function UpcomingEventsTable({
         <thead className="bg-gray-50">
           <tr className="text-left">
             <th className="p-2">Type</th>
-            <th className="p-2">Name</th>
+            <th className="p-2">Detail</th>
             <th className="p-2">Date</th>
-            <th className="p-2">Hours</th>
             <th className="p-2">💬</th>
             <th className="p-2 text-right">Action</th>
           </tr>
@@ -79,9 +93,8 @@ export default function UpcomingEventsTable({
               <React.Fragment key={e.event_id}>
                 <tr className="border-t">
                   <td className="p-2">{formatEventType(e.event_type)}</td>
-                  <td className="p-2">{e.event_name}</td>
+                  <td className="p-2">{formatSubtype(e)}</td>
                   <td className="p-2">{formatDate(e.event_date)}</td>
-                  <td className="p-2">{formatHours(e)}</td>
                   <td className="p-2">
                     <button
                       onClick={() => onCommentClick?.(e.event_date, formatDate(e.event_date))}
@@ -113,7 +126,7 @@ export default function UpcomingEventsTable({
                 </tr>
                 {isLastRowForDate && dateComments.length > 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-1 bg-yellow-50 border-b">
+                    <td colSpan={5} className="px-4 py-1 bg-yellow-50 border-b">
                       {dateComments.map((c: any) => (
                         <div key={c.id} className="text-xs text-gray-600 py-0.5">
                           <span className="text-gray-400 mr-1">💬</span>
