@@ -1293,8 +1293,8 @@ export default function SettingsPage() {
               filteredAndSortedMembers.map((m) => (
                 <tr
                   key={m.membership_id}
-                  onClick={() => openEditMember(m)}
-                  className="border-b hover:bg-gray-50 transition cursor-pointer"
+                  onClick={() => m.user_id !== profile?.user_id && openEditMember(m)}
+                  className={`border-b hover:bg-gray-50 transition ${m.user_id !== profile?.user_id ? "cursor-pointer" : ""}`}
                 >
                   <td className="p-3">
                     {m.first_name} {m.last_name}
@@ -1317,13 +1317,15 @@ export default function SettingsPage() {
                     {new Date(m.joined_at).toLocaleDateString()}
                   </td>
                   <td className="p-3 text-center">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); openEditMember(m); }}
-                      className="text-gray-400 hover:text-green-600 transition"
-                      title="Edit member"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
+                    {m.user_id !== profile?.user_id && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openEditMember(m); }}
+                        className="text-gray-400 hover:text-green-600 transition"
+                        title="Edit member"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))
