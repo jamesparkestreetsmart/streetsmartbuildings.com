@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { evaluateRealtime } from "@/lib/alert-evaluator";
+import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -36,20 +37,7 @@ type LibrarySensor = {
   name: string;
 };
 
-// ─── ha_device_id normalizer ─────────────────────────────────────────────────
-// HA addons sometimes send ha_device_id as a 32-char hex string without dashes.
-// Normalize to standard UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-function normalizeHaDeviceId(id: string | null | undefined): string | null {
-  if (!id) return null;
-  // Already has dashes — return as-is
-  if (id.includes("-")) return id;
-  // 32-char hex → insert dashes at 8-4-4-4-12
-  if (/^[0-9a-fA-F]{32}$/.test(id)) {
-    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
-  }
-  // Not a raw UUID — return as-is (synthetic IDs like "device_xxx")
-  return id;
-}
+
 
 // ─── Orphan Entity Resolution ─────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
 import { getAuthUser } from "@/lib/auth/requireAdminRole";
+import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,16 +19,6 @@ const DAY_NAMES = [
   "friday",
   "saturday",
 ];
-
-// Normalize ha_device_id: 32-char hex → UUID with dashes
-function normalizeHaDeviceId(id: string | null | undefined): string | null {
-  if (!id) return null;
-  if (id.includes("-")) return id;
-  if (/^[0-9a-fA-F]{32}$/.test(id)) {
-    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
-  }
-  return id;
-}
 
 function timeToMinutes(timeStr: string | null): number | null {
   if (!timeStr) return null;

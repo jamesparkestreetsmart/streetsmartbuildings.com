@@ -6,6 +6,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync, ResolvedSetpoints } from "@/lib/setpoint-resolver";
 import { evaluateCron } from "@/lib/alert-evaluator";
 import { processDeliveryQueue } from "@/lib/alert-delivery";
+import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1151,7 +1152,7 @@ export async function logZoneSetpointSnapshot(
     const deviceToHa: Record<string, string> = {};
     const deviceSsEnabled: Record<string, boolean> = {};
     for (const dev of devices || []) {
-      deviceToHa[dev.device_id] = dev.ha_device_id;
+      deviceToHa[dev.device_id] = normalizeHaDeviceId(dev.ha_device_id) || dev.ha_device_id;
       deviceSsEnabled[dev.device_id] = dev.smart_start_enabled || false;
     }
 
@@ -1166,7 +1167,7 @@ export async function logZoneSetpointSnapshot(
     const stateByHaDevice: Record<string, any> = {};
     const stateByEntityId: Record<string, any> = {};
     for (const ts of tStates || []) {
-      if (ts.ha_device_id) stateByHaDevice[ts.ha_device_id] = ts;
+      if (ts.ha_device_id) stateByHaDevice[normalizeHaDeviceId(ts.ha_device_id) || ts.ha_device_id] = ts;
       if (ts.entity_id) stateByEntityId[ts.entity_id] = ts;
     }
 
@@ -1182,7 +1183,7 @@ export async function logZoneSetpointSnapshot(
         .in("ha_device_id", haDeviceIds);
       for (const ce of climateEntities || []) {
         if (ce.ha_device_id && ce.entity_id) {
-          climateEntityByHaDevice[ce.ha_device_id] = ce.entity_id;
+          climateEntityByHaDevice[normalizeHaDeviceId(ce.ha_device_id) || ce.ha_device_id] = ce.entity_id;
         }
       }
     }
@@ -1220,8 +1221,6 @@ export async function logZoneSetpointSnapshot(
           tState = stateByEntityId[climateEntityId];
         }
       }
-      console.log("[zone-setpoint-logger] zone:", zone.hvac_zone_id, "thermostat_device_id:", zone.thermostat_device_id, "ha_device_id:", haDeviceId, "tState found:", !!tState, "current_temp:", tState?.current_temperature_f, "current_humidity:", tState?.current_humidity);
-
       // Profile setpoints for current phase
       const profileHeat = phaseInfo.phase === "occupied" ? resolved.occupied_heat_f : resolved.unoccupied_heat_f;
       const profileCool = phaseInfo.phase === "occupied" ? resolved.occupied_cool_f : resolved.unoccupied_cool_f;
@@ -1493,15 +1492,19 @@ export async function logZoneSetpointSnapshot(
     }
 
     // 9. Batch insert
+    console.log(`[zone-setpoint-logger] PRE-INSERT: site=${siteId}, zones_fetched=${zones.length}, rows_built=${rows.length}`);
     if (rows.length > 0) {
+      console.log(`[zone-setpoint-logger] INSERT: attempting ${rows.length} rows for site ${siteId}, first zone=${rows[0].hvac_zone_id}`);
       const { error } = await supabase.from("b_zone_setpoint_log").insert(rows);
       if (error) {
-        console.error("[zone-setpoint-logger] Insert error:", error.message, error.details, error.hint);
+        console.error("[zone-setpoint-logger] INSERT FAILED:", error.message, error.details, error.hint, error.code);
+        // Log a sample row to help diagnose schema mismatches
+        console.error("[zone-setpoint-logger] Sample row keys:", Object.keys(rows[0]).join(", "));
       } else {
-        console.log(`[zone-setpoint-logger] Inserted ${rows.length} rows for site ${siteId}`);
+        console.log(`[zone-setpoint-logger] INSERT OK: ${rows.length} rows for site ${siteId}`);
       }
     } else {
-      console.log(`[zone-setpoint-logger] No rows to insert for site ${siteId} (${zones.length} zones processed)`);
+      console.log(`[zone-setpoint-logger] NO ROWS: site ${siteId} had ${zones.length} zones but 0 rows built — all zones errored during processing`);
     }
 
     // 10. Alert evaluation v2 — evaluate all alert definitions for this org

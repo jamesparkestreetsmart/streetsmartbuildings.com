@@ -20,6 +20,7 @@ import {
 } from "@/lib/smart-start";
 import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
 import { executePushForSite } from "@/lib/ha-push";
+import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
 
 async function getCallerEmail(): Promise<string> {
   try {
@@ -53,16 +54,6 @@ function timeToMinutes(timeStr: string | null): number | null {
   if (!timeStr) return null;
   const parts = timeStr.split(":");
   return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-}
-
-// Normalize ha_device_id: 32-char hex → UUID with dashes
-function normalizeHaDeviceId(id: string | null | undefined): string | null {
-  if (!id) return null;
-  if (id.includes("-")) return id;
-  if (/^[0-9a-fA-F]{32}$/.test(id)) {
-    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
-  }
-  return id;
 }
 
 export async function POST(req: NextRequest) {
