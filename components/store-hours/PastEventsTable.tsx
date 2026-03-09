@@ -83,7 +83,7 @@ export function PastEventsTable({
         {(() => {
           const tz = timezone || "America/Chicago";
           const y = parseInt(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric" }).format(new Date()), 10);
-          return `Past Events \u2014 ${y} & ${y - 1}`;
+          return `Past Events \u2014 Last 7 Days, ${y} & ${y - 1}`;
         })()}
       </div>
       <p className="px-3 pb-2 text-xs text-gray-500 italic">

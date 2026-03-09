@@ -56,15 +56,53 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Filter: show actual events (with event_id) from this year/last year
-  // OR show base hours (no event_id) only from last 7 days
-  const filtered = (data ?? []).filter((row: any) => {
-    const isEvent = !!row.event_id;
-    const isWithin7Days = row.manifest_date >= sevenDaysAgoStr;
+  // Enrich rows with exception data from b_store_hours_events.
+  // The manifest view may not include event_id, so we check events directly.
+  const manifestDates = [...new Set((data ?? []).map((r: any) => r.manifest_date))];
+  const eventsByDate = new Map<string, any>();
 
-    // Keep if it's an actual event OR if it's base hours within last 7 days
-    return isEvent || isWithin7Days;
-  });
+  if (manifestDates.length > 0) {
+    const { data: events } = await supabase
+      .from("b_store_hours_events")
+      .select("event_id, event_date, event_name, event_type, is_closed, open_time, close_time")
+      .eq("site_id", site_id)
+      .in("event_date", manifestDates);
+
+    for (const evt of events ?? []) {
+      // If multiple events on same date, closed takes precedence
+      const existing = eventsByDate.get(evt.event_date);
+      if (!existing || (evt.is_closed && !existing.is_closed)) {
+        eventsByDate.set(evt.event_date, evt);
+      }
+    }
+  }
+
+  // Filter: show actual events from this year/last year
+  // OR show base hours (no event) only from last 7 days
+  const filtered = (data ?? [])
+    .map((row: any) => {
+      const evt = eventsByDate.get(row.manifest_date);
+      if (evt) {
+        // Enrich with exception data
+        return {
+          ...row,
+          event_id: evt.event_id,
+          event_type: evt.event_type || row.event_type,
+          manifest_name: evt.event_name || row.manifest_name,
+          is_closed: evt.is_closed,
+          open_time: evt.is_closed ? null : (evt.open_time || row.open_time),
+          close_time: evt.is_closed ? null : (evt.close_time || row.close_time),
+        };
+      }
+      return row;
+    })
+    .filter((row: any) => {
+      const isEvent = !!row.event_id;
+      const isWithin7Days = row.manifest_date >= sevenDaysAgoStr;
+
+      // Keep if it's an actual event OR if it's base hours within last 7 days
+      return isEvent || isWithin7Days;
+    });
 
   return NextResponse.json({ rows: filtered });
 }
