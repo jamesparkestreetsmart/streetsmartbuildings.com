@@ -1133,12 +1133,17 @@ export async function logZoneSetpointSnapshot(
 
     // 4. Batch-fetch profiles
     const profileIds = [...new Set(zones.filter((z: any) => z.profile_id).map((z: any) => z.profile_id))];
+    console.log(`[zone-setpoint-logger] Profile IDs to fetch: ${profileIds.length} — ${JSON.stringify(profileIds)}`);
     const profileMap = new Map<string, any>();
     if (profileIds.length > 0) {
-      const { data: profiles } = await supabase
+      const { data: profiles, error: profileErr } = await supabase
         .from("b_thermostat_profiles")
         .select("*")
         .in("profile_id", profileIds);
+      if (profileErr) {
+        console.error(`[zone-setpoint-logger] Profile fetch error:`, profileErr.message, profileErr.code);
+      }
+      console.log(`[zone-setpoint-logger] Fetched ${(profiles || []).length} profiles`);
       for (const p of profiles || []) {
         profileMap.set(p.profile_id, p);
       }
