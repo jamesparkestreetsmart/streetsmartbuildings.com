@@ -55,10 +55,12 @@ export function PastEventsTable({
   rows,
   commentsByDate,
   onCommentClick,
+  timezone,
 }: {
   rows: PastStoreHour[];
   commentsByDate?: Map<string, any[]>;
   onCommentClick?: (date: string, dateLabel: string) => void;
+  timezone?: string;
 }) {
   // Deduplicate: one effective row per date. Exception wins over base.
   const byDate = new Map<string, PastStoreHour>();
@@ -77,7 +79,13 @@ export function PastEventsTable({
 
   return (
     <div className="border rounded bg-green-50">
-      <div className="p-3 font-semibold text-green-900">Past Events</div>
+      <div className="p-3 font-semibold text-green-900">
+        {(() => {
+          const tz = timezone || "America/Chicago";
+          const y = parseInt(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric" }).format(new Date()), 10);
+          return `Past Events \u2014 ${y} & ${y - 1}`;
+        })()}
+      </div>
       <p className="px-3 pb-2 text-xs text-gray-500 italic">
         Exceptions override base schedule for their effective date.
       </p>

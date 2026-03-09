@@ -15,7 +15,16 @@ import { useStoreHoursComments } from "./useStoreHoursComments";
 import CommentModal from "./CommentModal";
 
 function todayInTimezone(tz: string): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: tz });
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function currentYear(tz: string): number {
+  return parseInt(todayInTimezone(tz).slice(0, 4), 10);
 }
 
 function EventsDisclaimer() {
@@ -107,6 +116,7 @@ export default function StoreHoursManager({ siteId, timezone, orgId }: { siteId:
             rows={past.rows}
             commentsByDate={comments.commentsByDate}
             onCommentClick={(date, label) => openCommentModal(date, label)}
+            timezone={timezone}
           />
 
           {/* CENTER — Upcoming events */}
@@ -114,7 +124,9 @@ export default function StoreHoursManager({ siteId, timezone, orgId }: { siteId:
             <EventsDisclaimer />
 
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Upcoming Events</h3>
+              <h3 className="text-lg font-semibold">
+                Upcoming Events &mdash; {currentYear(timezone)} &amp; {currentYear(timezone) + 1}
+              </h3>
 
               <button
                 className="px-3 py-1.5 rounded-md text-sm font-semibold bg-green-600 text-white hover:bg-green-700"

@@ -18,7 +18,7 @@ function verifyCronSecret(req: NextRequest): boolean {
 }
 
 const LOCK_NAME = "thermostat-enforce";
-const LOCK_TTL_MINUTES = 5;
+const MAX_LOCK_AGE_MS = 4 * 60 * 1000; // 4 minutes — safely under the 5-min cron interval
 
 export async function GET(req: NextRequest) {
   const startMs = Date.now();
@@ -27,32 +27,61 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // ─── Overlap protection ──────────────────────────────────────────────────
-  // Atomic lock acquisition: UPDATE only matches rows where locked_at IS NULL
-  // or the lock is stale (older than TTL). If zero rows affected, either the
-  // row doesn't exist yet or another instance holds a fresh lock.
+  // ─── Overlap protection (atomic lock acquisition) ───────────────────────
+  // Single atomic UPDATE: acquires the lock only if it is not held OR is stale.
+  // No read-then-act gap — Postgres guarantees only one writer succeeds.
   const now = new Date().toISOString();
-  const staleThreshold = new Date(Date.now() - LOCK_TTL_MINUTES * 60000).toISOString();
+  const staleThreshold = new Date(Date.now() - MAX_LOCK_AGE_MS).toISOString();
+
+  // Pre-read for stale-lock logging only (not used for acquisition decision)
+  const { data: preLock } = await supabase
+    .from("b_cron_locks")
+    .select("locked_at")
+    .eq("cron_name", LOCK_NAME)
+    .maybeSingle();
+
   const { data: lockRows } = await supabase
     .from("b_cron_locks")
     .update({ locked_at: now, last_started_at: now })
     .eq("cron_name", LOCK_NAME)
-    .or(`locked_at.is.null,locked_at.lt.${staleThreshold}`)
-    .select("cron_name");
+    .or(`locked_at.is.null,locked_at.lte.${staleThreshold}`)
+    .select("locked_at");
 
-  if (!lockRows || lockRows.length === 0) {
-    // No row was updated — either the row doesn't exist yet, or a fresh lock is held.
-    // Try to insert a new row; if it conflicts (row exists), another instance holds the lock.
+  if (lockRows && lockRows.length > 0) {
+    // We acquired the lock via atomic UPDATE.
+    if (preLock?.locked_at && preLock.locked_at <= staleThreshold) {
+      const staleAge = Math.round((Date.now() - new Date(preLock.locked_at).getTime()) / 1000);
+      console.warn(
+        `[cron/thermostat-enforce] Stale lock detected (age ${staleAge}s), clearing and proceeding`
+      );
+    } else {
+      console.log("[cron/thermostat-enforce] Lock acquired");
+    }
+  } else {
+    // UPDATE matched 0 rows — either no row exists, or a fresh lock is held.
+    // Try INSERT for the case where the row doesn't exist yet.
     const { error: insertErr } = await supabase
       .from("b_cron_locks")
       .insert({ cron_name: LOCK_NAME, locked_at: now, last_started_at: now });
 
     if (insertErr) {
-      // Row already exists with a fresh lock — another instance is running
-      console.log("[cron/thermostat-enforce] Skipping — already running (lock held)");
+      // Row exists with a fresh lock — another instance is running.
+      // Read the lock to log its age.
+      const { data: heldLock } = await supabase
+        .from("b_cron_locks")
+        .select("locked_at")
+        .eq("cron_name", LOCK_NAME)
+        .maybeSingle();
+      const age = heldLock?.locked_at
+        ? Math.round((Date.now() - new Date(heldLock.locked_at).getTime()) / 1000)
+        : "unknown";
+      console.log(
+        `[cron/thermostat-enforce] Skipping — already running (lock held, age ${age}s)`
+      );
       return NextResponse.json({ skipped: true, reason: "already_running" });
     }
     // else: successfully created the lock row — proceed
+    console.log("[cron/thermostat-enforce] Lock created and acquired");
   }
 
   try {
