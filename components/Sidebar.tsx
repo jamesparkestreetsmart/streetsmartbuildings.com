@@ -61,10 +61,10 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             ? activeMatch.some((path) => pathname.startsWith(path))
             : pathname.startsWith(href);
 
-          // When SSB Internal is selected, only Sites is clickable
-          // When another org is selected, all links are active
-          // When no org selected, all grayed out
+          // Dynamic label: SSB org sees "SSB1's Journey"
           const isSSBOrg = selectedOrg?.org_identifier === "SSB1";
+          const displayLabel = href === "/journey" && isSSBOrg ? "SSB1's Journey" : label;
+
           const alwaysEnabled = href === "/sites" && (isServiceProvider || hasOrgSelected);
           const disabled = !hasOrgSelected || (isSSBOrg && href !== "/sites" && href !== "/journey" && href !== "/live");
 
@@ -75,7 +75,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
                 className="block px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed select-none"
                 title="Select an organization first"
               >
-                {icon} {label}
+                {icon} {displayLabel}
               </span>
             );
           }
@@ -88,7 +88,7 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
                 active ? "bg-gray-200 text-black" : "text-gray-700"
               }`}
             >
-              {icon} {label}
+              {icon} {displayLabel}
             </Link>
           );
         })}

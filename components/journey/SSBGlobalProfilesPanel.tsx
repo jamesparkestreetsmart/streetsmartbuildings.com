@@ -136,6 +136,10 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [promotedId, setPromotedId] = useState<string | null>(null);
 
+  // ─── Push State ───────────────────────────────────────────────────────────
+  const [pushingId, setPushingId] = useState<string | null>(null);
+  const [pushResult, setPushResult] = useState<{ id: string; zones: number; sites: number } | null>(null);
+
   // ─── Search/Browse State (per tab) ─────────────────────────────────────────
   const [anomalySearch, setAnomalySearch] = useState("");
   const [anomalyOrgFilter, setAnomalyOrgFilter] = useState("");
@@ -337,6 +341,32 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
       fetchThermostatProfiles();
     } catch { /* handled */ } finally {
       setDeletingId(null);
+    }
+  };
+
+  // ─── Push Handlers ────────────────────────────────────────────────────────
+
+  const pushThermostatProfile = async (profileId: string) => {
+    setPushingId(profileId);
+    setPushResult(null);
+    try {
+      const res = await fetch("/api/thermostat/global-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile_id: profileId, org_id: orgId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPushResult({ id: profileId, zones: data.zones_updated, sites: data.sites_affected });
+        setTimeout(() => setPushResult(null), 5000);
+      } else {
+        const err = await res.json();
+        alert("Push failed: " + (err.error || "Unknown error"));
+      }
+    } catch (e: any) {
+      alert("Push failed: " + e.message);
+    } finally {
+      setPushingId(null);
     }
   };
 
@@ -1086,6 +1116,19 @@ export default function SSBGlobalProfilesPanel({ orgId }: SSBGlobalProfilesPanel
                         <span className="text-xs text-gray-400">{thermostatValuesSummary(p)}</span>
                       </div>
                       <div className="flex items-center gap-1">
+                        {pushResult?.id === p.profile_id ? (
+                          <span className="text-xs text-green-600 font-medium">
+                            Pushed to {pushResult.zones} zone{pushResult.zones !== 1 ? "s" : ""} across {pushResult.sites} site{pushResult.sites !== 1 ? "s" : ""}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => pushThermostatProfile(p.profile_id)}
+                            disabled={pushingId === p.profile_id}
+                            className="px-2 py-1 text-xs font-medium text-white bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 rounded transition-colors disabled:opacity-50"
+                          >
+                            {pushingId === p.profile_id ? "Pushing..." : "Global Push"}
+                          </button>
+                        )}
                         {deletingId === p.profile_id ? (
                           <span className="flex items-center gap-1 text-xs">
                             <span className="text-red-600">Delete?</span>

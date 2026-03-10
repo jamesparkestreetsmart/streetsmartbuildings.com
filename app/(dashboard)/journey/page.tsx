@@ -4,10 +4,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useOrg } from "@/context/OrgContext";
-import IntegrationRoadmap from "@/components/IntegrationRoadmap";
-import IntegrationSpec from "@/components/IntegrationSpec";
 import GlobalOperationsPanel from "@/components/journey/GlobalOperationsPanel";
 import SSBGlobalProfilesPanel from "@/components/journey/SSBGlobalProfilesPanel";
+import PlatformIssuesPanel from "@/components/journey/PlatformIssuesPanel";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,42 +36,14 @@ interface SiteOption {
 
 type Scope = "org" | "sites" | "equipment" | "devices";
 
-const SSB_PLATFORM_TASKS = [
-  {
-    title: "Onboard new client org",
-    description: "Create a new organization, invite the client admin, and set up initial site structure.",
-    icon: "🏢",
-  },
-  {
-    title: "Configure SSB-level thermostat profile templates",
-    description: "Create global thermostat profiles that client orgs can inherit for consistent setpoint standards.",
-    icon: "🌡️",
-  },
-  {
-    title: "Set up global alert definitions",
-    description: "Define alert rules at the SSB platform level that apply across all managed organizations.",
-    icon: "🔔",
-  },
-  {
-    title: "Review demo site data quality",
-    description: "Audit demo site sensor data, equipment mappings, and anomaly detection accuracy.",
-    icon: "📊",
-  },
-  {
-    title: "Configure SSB anomaly config profiles",
-    description: "Set up and tune anomaly detection thresholds and profiles for platform-wide use.",
-    icon: "⚙️",
-  },
-];
-
 export default function JourneyPage() {
   const { selectedOrgId, selectedOrg, userEmail, isServiceProvider } = useOrg();
   const isSSBOrg = isServiceProvider && selectedOrg?.org_identifier === "SSB1";
-  const [journeyTab, setJourneyTab] = useState<"platform" | "org">("platform");
+  const pageTitle = isSSBOrg ? "SSB1's Journey" : "My Journey";
   const [records, setRecords] = useState<RecordLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [sites, setSites] = useState<SiteOption[]>([]);
-  const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set(["org"]));
+  const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set<Scope>(["org", "sites", "equipment", "devices"]));
 
   // Fetch sites for this org
   useEffect(() => {
@@ -281,7 +252,7 @@ export default function JourneyPage() {
     <div className="p-6">
       <div className="text-center mb-8">
         <h1 className="text-4xl font-extrabold bg-gradient-to-r from-[#00a859] to-[#e0b53f] bg-clip-text text-transparent mb-2 drop-shadow-[0_0_6px_rgba(224,181,63,0.45)]">
-          My Journey
+          {pageTitle}
         </h1>
         <p className="text-gray-600 text-sm max-w-2xl mx-auto">
           To be filled out on an annual basis as Eagle Eyes reviews{" "}
@@ -292,64 +263,8 @@ export default function JourneyPage() {
         </p>
       </div>
 
-      {/* SSB Journey Tabs */}
-      {isSSBOrg && (
-        <div className="max-w-5xl mx-auto mb-6">
-          <div className="flex gap-1 border-b">
-            <button
-              onClick={() => setJourneyTab("platform")}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                journeyTab === "platform"
-                  ? "border-b-2 border-green-600 text-green-700"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              SSB Platform Journey
-            </button>
-            <button
-              onClick={() => setJourneyTab("org")}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                journeyTab === "org"
-                  ? "border-b-2 border-green-600 text-green-700"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {selectedOrg?.org_name || "Org"} Journey
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* SSB Platform Journey Section */}
-      {isSSBOrg && journeyTab === "platform" && (
-        <div className="max-w-5xl mx-auto mb-8">
-          <div className="border rounded-lg bg-white shadow-sm">
-            <div className="px-6 py-4 border-b bg-gradient-to-r from-green-50 to-yellow-50 rounded-t-lg">
-              <h3 className="text-lg font-semibold text-gray-900">SSB Platform Journey</h3>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Core platform tasks for managing the SSB ecosystem.
-              </p>
-            </div>
-            <div className="p-6 space-y-3">
-              {SSB_PLATFORM_TASKS.map((task) => (
-                <div
-                  key={task.title}
-                  className="flex items-start gap-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <span className="text-2xl">{task.icon}</span>
-                  <div>
-                    <h4 className="font-semibold text-gray-900">{task.title}</h4>
-                    <p className="text-sm text-gray-500 mt-0.5">{task.description}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Organization Activity Log — show always for non-SSB, or on "org" tab for SSB */}
-      {(!isSSBOrg || journeyTab === "org") && (
+      {/* Organization Activity Log — always visible */}
+      {selectedOrgId && (
       <div className="border rounded-lg bg-white shadow-sm max-w-5xl mx-auto">
         <div className="px-6 py-4 border-b bg-gray-50 rounded-t-lg flex items-center justify-between">
           <div>
@@ -556,7 +471,7 @@ export default function JourneyPage() {
       </div>
       )}
 
-      {/* Global Operations Panel — SSB sees SSBGlobalProfilesPanel, orgs see GlobalOperationsPanel */}
+      {/* Global Profiles Panel — SSB sees SSBGlobalProfilesPanel, orgs see GlobalOperationsPanel */}
       {selectedOrgId && (
         <div className="mt-10 max-w-5xl mx-auto">
           {selectedOrg?.org_identifier === "SSB1" ? (
@@ -567,15 +482,12 @@ export default function JourneyPage() {
         </div>
       )}
 
-      {/* Integration Roadmap */}
-      <div className="mt-10 max-w-5xl mx-auto">
-        <IntegrationRoadmap />
-      </div>
-
-      {/* Integration Specification */}
-      <div className="mt-8 mb-10 max-w-5xl mx-auto">
-        <IntegrationSpec />
-      </div>
+      {/* Platform Issues Tracker */}
+      {selectedOrgId && (
+        <div className="mt-10 mb-10 max-w-5xl mx-auto">
+          <PlatformIssuesPanel orgId={selectedOrgId} isSSB={isSSBOrg} />
+        </div>
+      )}
     </div>
   );
 }
