@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState, useCallback } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -9,7 +9,7 @@ import { useEffect, useState, useCallback } from "react";
 type Tab = "issues" | "work_items" | "learnings";
 
 interface PlatformIssue {
-  id: string;
+  issue_id: string;
   title: string;
   issue_type: string;
   severity: string;
@@ -27,7 +27,7 @@ interface PlatformIssue {
 }
 
 interface WorkItem {
-  id: string;
+  work_item_id: string;
   title: string;
   work_type: string;
   status: string;
@@ -48,7 +48,7 @@ interface WorkItem {
 }
 
 interface Learning {
-  id: string;
+  learning_id: string;
   title: string;
   category: string;
   summary: string;
@@ -59,7 +59,7 @@ interface Learning {
 }
 
 interface Comment {
-  id: string;
+  comment_id: string;
   issue_id: string | null;
   work_item_id: string | null;
   learning_id: string | null;
@@ -70,6 +70,18 @@ interface Comment {
 }
 
 type AnyItem = PlatformIssue | WorkItem | Learning;
+
+function getItemId(item: AnyItem): string {
+  if ("issue_id" in item) return item.issue_id;
+  if ("work_item_id" in item) return item.work_item_id;
+  return item.learning_id;
+}
+
+function getIdFieldName(tab: Tab): string {
+  if (tab === "issues") return "issue_id";
+  if (tab === "work_items") return "work_item_id";
+  return "learning_id";
+}
 
 interface Props {
   userEmail: string;
@@ -287,11 +299,11 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
       ]);
       if (issuesRes.ok) {
         const data = await issuesRes.json();
-        setAllIssues(data.map((i: any) => ({ id: i.id, title: i.title })));
+        setAllIssues(data.map((i: any) => ({ id: i.issue_id, title: i.title })));
       }
       if (workRes.ok) {
         const data = await workRes.json();
-        setAllWorkItems(data.map((i: any) => ({ id: i.id, title: i.title })));
+        setAllWorkItems(data.map((i: any) => ({ id: i.work_item_id, title: i.title })));
       }
     } catch {
       // ignore
@@ -452,7 +464,9 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
     if (!modalItem) return;
     setModalSaving(true);
 
-    const isEdit = !!modalItem.id;
+    const idField = getIdFieldName(activeTab);
+    const itemId = modalItem[idField];
+    const isEdit = !!itemId;
     const base =
       activeTab === "issues"
         ? "/api/admin/platform-issues"
@@ -460,11 +474,20 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
           ? "/api/admin/work-items"
           : "/api/admin/learnings";
 
-    const url = isEdit ? `${base}/${modalItem.id}` : base;
+    const url = isEdit ? `${base}/${itemId}` : base;
     const method = isEdit ? "PATCH" : "POST";
 
-    // Strip id and timestamps from the payload
-    const { id, created_at, updated_at, org_id, ...payload } = modalItem;
+    // Strip pk, timestamps, and org_id from the payload
+    const { issue_id, work_item_id, learning_id, created_at, updated_at, org_id, opened_at, resolved_at, completed_at, ...rawPayload } = modalItem;
+
+    // Convert empty strings to null so Postgres doesn't choke on e.g. uuid fields
+    // For new items, omit null values entirely so DB defaults apply
+    const payload: Record<string, any> = {};
+    for (const [k, v] of Object.entries(rawPayload)) {
+      const val = v === "" ? null : v;
+      if (!isEdit && val === null) continue; // omit so DB default kicks in
+      payload[k] = val;
+    }
 
     try {
       const res = await fetch(url, {
@@ -575,11 +598,10 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
         </thead>
         <tbody className="divide-y divide-gray-100">
           {data.map((item) => (
-            <>
+            <Fragment key={item.issue_id}>
               <tr
-                key={item.id}
                 className="hover:bg-gray-50 cursor-pointer"
-                onClick={() => toggleRow(item.id)}
+                onClick={() => toggleRow(item.issue_id)}
               >
                 <td className="px-4 py-2"><Badge value={item.status} colorMap={STATUS_COLORS} /></td>
                 <td className="px-4 py-2"><Badge value={item.severity} colorMap={SEVERITY_COLORS} /></td>
@@ -598,14 +620,14 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
                   </button>
                 </td>
               </tr>
-              {expandedRowId === item.id && (
-                <tr key={`${item.id}-comments`}>
+              {expandedRowId === item.issue_id && (
+                <tr>
                   <td colSpan={8} className="px-4 py-3 bg-gray-50">
                     {renderCommentsSection()}
                   </td>
                 </tr>
               )}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -633,11 +655,10 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
         </thead>
         <tbody className="divide-y divide-gray-100">
           {data.map((item) => (
-            <>
+            <Fragment key={item.work_item_id}>
               <tr
-                key={item.id}
                 className="hover:bg-gray-50 cursor-pointer"
-                onClick={() => toggleRow(item.id)}
+                onClick={() => toggleRow(item.work_item_id)}
               >
                 <td className="px-4 py-2"><Badge value={item.status} colorMap={STATUS_COLORS} /></td>
                 <td className="px-4 py-2"><Badge value={item.priority} colorMap={SEVERITY_COLORS} /></td>
@@ -663,14 +684,14 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
                   </button>
                 </td>
               </tr>
-              {expandedRowId === item.id && (
-                <tr key={`${item.id}-comments`}>
+              {expandedRowId === item.work_item_id && (
+                <tr>
                   <td colSpan={11} className="px-4 py-3 bg-gray-50">
                     {renderCommentsSection()}
                   </td>
                 </tr>
               )}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -694,11 +715,10 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
         </thead>
         <tbody className="divide-y divide-gray-100">
           {data.map((item) => (
-            <>
+            <Fragment key={item.learning_id}>
               <tr
-                key={item.id}
                 className="hover:bg-gray-50 cursor-pointer"
-                onClick={() => toggleRow(item.id)}
+                onClick={() => toggleRow(item.learning_id)}
               >
                 <td className="px-4 py-2">
                   <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${categoryColor(item.category)}`}>
@@ -728,14 +748,14 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
                   </button>
                 </td>
               </tr>
-              {expandedRowId === item.id && (
-                <tr key={`${item.id}-comments`}>
+              {expandedRowId === item.learning_id && (
+                <tr>
                   <td colSpan={7} className="px-4 py-3 bg-gray-50">
                     {renderCommentsSection()}
                   </td>
                 </tr>
               )}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -757,14 +777,14 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
         ) : (
           <div className="space-y-2">
             {comments.map((c) => (
-              <div key={c.id} className="bg-white rounded border px-3 py-2">
+              <div key={c.comment_id} className="bg-white rounded border px-3 py-2">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-medium text-gray-700">{c.author_name}</span>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-400">{formatTimestamp(c.created_at)}</span>
-                    {c.author_user_id === userId && editingCommentId !== c.id && (
+                    {c.author_user_id === userId && editingCommentId !== c.comment_id && (
                       <button
-                        onClick={() => { setEditingCommentId(c.id); setEditingCommentText(c.comment_text); }}
+                        onClick={() => { setEditingCommentId(c.comment_id); setEditingCommentText(c.comment_text); }}
                         className="text-gray-400 hover:text-blue-600"
                         title="Edit comment"
                       >
@@ -773,7 +793,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
                     )}
                   </div>
                 </div>
-                {editingCommentId === c.id ? (
+                {editingCommentId === c.comment_id ? (
                   <div className="space-y-2">
                     <textarea
                       value={editingCommentText}
@@ -783,7 +803,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
                     />
                     <div className="flex gap-2">
                       <button
-                        onClick={() => handleSaveCommentEdit(c.id)}
+                        onClick={() => handleSaveCommentEdit(c.comment_id)}
                         disabled={savingComment}
                         className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                       >
@@ -832,7 +852,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
 
   function renderModal() {
     if (!modalOpen || !modalItem) return null;
-    const isEdit = !!modalItem.id;
+    const isEdit = !!modalItem[getIdFieldName(activeTab)];
     const title = isEdit ? "Edit Item" : "Add Item";
 
     return (
@@ -859,7 +879,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
               disabled={modalSaving}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
             >
-              {modalSaving ? "Saving..." : isEdit ? "Update" : "Create"}
+              {modalSaving ? "Saving..." : (modalItem && modalItem[getIdFieldName(activeTab)]) ? "Update" : "Create"}
             </button>
           </div>
         </div>
