@@ -183,11 +183,27 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Awaited progress marker — write directly to the lock row so we can
+  // read progress from the debug endpoint even if the function crashes.
+  async function markProgress(step: string) {
+    try {
+      await supabase
+        .from("b_cron_locks")
+        .update({ last_heartbeat_at: new Date().toISOString(), last_step: step })
+        .eq("cron_name", LOCK_NAME);
+      console.log(`[cron/thermostat-enforce][${runId}] progress: ${step}`);
+    } catch (e: any) {
+      console.error(`[cron/thermostat-enforce][${runId}] markProgress(${step}) failed:`, e?.message);
+    }
+  }
+
   try {
+    await markProgress("try_block_entered");
     heartbeat("sites_query");
     // Fetch all sites that have at least one HVAC zone with a thermostat
     // (includes both managed and open zones — open zones get snapshots but no setpoint push)
     // status is fetched to gate health alerts: only "Active" sites generate alerts
+    await markProgress("pre_sites_query");
     const { data: sites, error: sitesErr } = await supabase
       .from("a_sites")
       .select(
@@ -195,6 +211,8 @@ export async function GET(req: NextRequest) {
       )
       .not("a_hvac_zones.thermostat_device_id", "is", null)
       .eq("status", "Active");
+
+    await markProgress(`post_sites_query_count_${sites?.length ?? 0}_err_${!!sitesErr}`);
 
     if (sitesErr) {
       console.error(`[cron/thermostat-enforce][${runId}] Sites query error:`, sitesErr.message);
