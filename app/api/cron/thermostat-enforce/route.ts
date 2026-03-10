@@ -47,8 +47,9 @@ export async function GET(req: NextRequest) {
     .eq("cron_name", LOCK_NAME)
     .maybeSingle();
 
+  // ── Step 1: Attempt atomic UPDATE to acquire the lock ──
   console.log(`[cron/thermostat-enforce][${runId}] attempting UPDATE lock acquire`);
-  const { data: lockRows, error: lockUpdateErr } = await supabase
+  const { error: lockUpdateErr } = await supabase
     .from("b_cron_locks")
     .update({
       locked_at: now,
@@ -58,28 +59,37 @@ export async function GET(req: NextRequest) {
       last_step: "lock_acquired",
     })
     .eq("cron_name", LOCK_NAME)
-    .or(`locked_at.is.null,locked_at.lte.${staleThreshold}`)
-    .select("locked_at");
+    .or(`locked_at.is.null,locked_at.lte.${staleThreshold}`);
 
-  console.log(`[cron/thermostat-enforce][${runId}] UPDATE result`, {
-    matched: lockRows?.length ?? 0,
-    error: lockUpdateErr?.message ?? null,
-  });
+  if (lockUpdateErr) {
+    console.error(`[cron/thermostat-enforce][${runId}] UPDATE error:`, lockUpdateErr.message);
+  }
 
-  if (lockRows && lockRows.length > 0) {
-    // We acquired the lock via atomic UPDATE.
+  // ── Step 2: Read back the lock to verify ownership ──
+  // We can't rely on .select() returning data from the UPDATE (PostgREST
+  // may return an empty array even when the UPDATE succeeded). Instead,
+  // read the lock row and check if owner_run_id matches our runId.
+  const { data: postLock } = await supabase
+    .from("b_cron_locks")
+    .select("locked_at, owner_run_id")
+    .eq("cron_name", LOCK_NAME)
+    .maybeSingle();
+
+  console.log(`[cron/thermostat-enforce][${runId}] post-UPDATE lock state:`, JSON.stringify(postLock));
+
+  if (postLock?.owner_run_id === runId) {
+    // We own the lock — proceed.
     if (preLock?.locked_at && preLock.locked_at <= staleThreshold) {
       const staleAge = Math.round((Date.now() - new Date(preLock.locked_at).getTime()) / 1000);
       console.warn(
-        `[cron/thermostat-enforce][${runId}] Stale lock detected (age ${staleAge}s), clearing and proceeding`
+        `[cron/thermostat-enforce][${runId}] Stale lock detected (age ${staleAge}s), cleared and proceeding`
       );
     } else {
-      console.log(`[cron/thermostat-enforce][${runId}] Lock acquired`);
+      console.log(`[cron/thermostat-enforce][${runId}] Lock acquired via UPDATE`);
     }
-  } else {
-    // UPDATE matched 0 rows — either no row exists, or a fresh lock is held.
-    // Try INSERT for the case where the row doesn't exist yet.
-    console.log(`[cron/thermostat-enforce][${runId}] attempting INSERT lock row`);
+  } else if (!postLock) {
+    // No lock row exists — create it via INSERT.
+    console.log(`[cron/thermostat-enforce][${runId}] No lock row, attempting INSERT`);
     const { error: insertErr } = await supabase
       .from("b_cron_locks")
       .insert({
@@ -92,28 +102,19 @@ export async function GET(req: NextRequest) {
       });
 
     if (insertErr) {
-      // Row exists with a fresh lock — another instance is running.
-      console.log(`[cron/thermostat-enforce][${runId}] INSERT conflict`, {
-        code: insertErr?.code,
-        message: insertErr?.message,
-      });
-      // Read the lock to log who owns it and where they are.
-      const { data: heldLock } = await supabase
-        .from("b_cron_locks")
-        .select("locked_at, owner_run_id, last_started_at, last_heartbeat_at, last_step")
-        .eq("cron_name", LOCK_NAME)
-        .maybeSingle();
-      const age = heldLock?.locked_at
-        ? Math.round((Date.now() - new Date(heldLock.locked_at).getTime()) / 1000)
-        : "unknown";
-      console.log(
-        `[cron/thermostat-enforce][${runId}] Skipping — lock held by ${heldLock?.owner_run_id ?? "unknown"}, started ${heldLock?.last_started_at ?? "unknown"}, last heartbeat ${heldLock?.last_heartbeat_at ?? "unknown"}, last step: ${heldLock?.last_step ?? "unknown"}`
-      );
+      console.log(`[cron/thermostat-enforce][${runId}] INSERT conflict — another instance won`);
       return NextResponse.json({ skipped: true, reason: "already_running" });
     }
-    // else: successfully created the lock row — proceed
-    console.log(`[cron/thermostat-enforce][${runId}] INSERT success — lock created`);
-    console.log(`[cron/thermostat-enforce][${runId}] Lock created and acquired`);
+    console.log(`[cron/thermostat-enforce][${runId}] Lock created via INSERT`);
+  } else {
+    // Lock is held by another run — skip.
+    const age = postLock.locked_at
+      ? Math.round((Date.now() - new Date(postLock.locked_at).getTime()) / 1000)
+      : "unknown";
+    console.log(
+      `[cron/thermostat-enforce][${runId}] Skipping — lock held by ${postLock.owner_run_id} (age ${age}s)`
+    );
+    return NextResponse.json({ skipped: true, reason: "already_running" });
   }
 
   // ─── Fire-and-forget heartbeat: updates lock row so losers can see our progress ─
@@ -183,27 +184,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Awaited progress marker — write directly to the lock row so we can
-  // read progress from the debug endpoint even if the function crashes.
-  async function markProgress(step: string) {
-    try {
-      await supabase
-        .from("b_cron_locks")
-        .update({ last_heartbeat_at: new Date().toISOString(), last_step: step })
-        .eq("cron_name", LOCK_NAME);
-      console.log(`[cron/thermostat-enforce][${runId}] progress: ${step}`);
-    } catch (e: any) {
-      console.error(`[cron/thermostat-enforce][${runId}] markProgress(${step}) failed:`, e?.message);
-    }
-  }
-
   try {
-    await markProgress("try_block_entered");
     heartbeat("sites_query");
     // Fetch all sites that have at least one HVAC zone with a thermostat
     // (includes both managed and open zones — open zones get snapshots but no setpoint push)
     // status is fetched to gate health alerts: only "Active" sites generate alerts
-    await markProgress("pre_sites_query");
     const { data: sites, error: sitesErr } = await supabase
       .from("a_sites")
       .select(
@@ -211,8 +196,6 @@ export async function GET(req: NextRequest) {
       )
       .not("a_hvac_zones.thermostat_device_id", "is", null)
       .eq("status", "Active");
-
-    await markProgress(`post_sites_query_count_${sites?.length ?? 0}_err_${!!sitesErr}`);
 
     if (sitesErr) {
       console.error(`[cron/thermostat-enforce][${runId}] Sites query error:`, sitesErr.message);
