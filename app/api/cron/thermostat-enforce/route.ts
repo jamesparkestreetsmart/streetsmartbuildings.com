@@ -180,6 +180,124 @@ export async function GET(req: NextRequest) {
     let totalZonesPushed = 0;
     const errors: { site_id: string; error: string }[] = [];
 
+    // ─── Per-site processing function ─────────────────────────────────────────
+    const PER_SITE_TIMEOUT_MS = 15_000;
+
+    async function processSite(
+      site: { site_id: string; org_id: string; timezone: string | null; ha_url: string | null; ha_token: string | null; status: string | null; has_managed: boolean }
+    ): Promise<{ pushed: number; skipped: number; failed: number; ha_connected: boolean }> {
+      const tz = site.timezone || "America/Chicago";
+      const localDate = siteLocalDate(new Date(), tz);
+
+      let pushedCount = 0;
+      let skippedCount = 0;
+      let failedCount = 0;
+      let haConnected = true;
+
+      if (site.has_managed) {
+        const haConfig: HAConfig | undefined =
+          site.ha_url && site.ha_token
+            ? { haUrl: site.ha_url, haToken: site.ha_token }
+            : undefined;
+
+        const result = await executePushForSite(
+          supabase,
+          site.site_id,
+          "cron_enforce",
+          haConfig,
+          "eagle_eyes"
+        );
+
+        pushedCount = result.results.filter((r) => r.pushed).length;
+        skippedCount = result.results.filter((r) => !r.pushed && r.reason === "Already at target").length;
+        failedCount = result.results.filter((r) => !r.pushed && r.reason !== "Already at target").length;
+        haConnected = result.ha_connected;
+      } else {
+        console.log(`[cron/thermostat-enforce] Site ${site.site_id}: no managed zones, skipping push (observation only)`);
+      }
+
+      // Log zone setpoint snapshots for time series (for ALL zones/sites including open & non-active)
+      try {
+        console.log(`[cron/thermostat-enforce] Calling logZoneSetpointSnapshot for site ${site.site_id}`);
+        await logZoneSetpointSnapshot(supabase, site.site_id);
+        console.log(`[cron/thermostat-enforce] logZoneSetpointSnapshot completed for site ${site.site_id}`);
+      } catch (logErr: any) {
+        console.error(`[cron/thermostat-enforce] Setpoint log failed for ${site.site_id}:`, logErr.message);
+      }
+
+      const isActiveSite = site.status === "Active";
+
+      if (isActiveSite) {
+        try {
+          await updateDailyHealth(supabase, {
+            site_id: site.site_id,
+            org_id: site.org_id,
+            date: localDate,
+            ha_reachable: haConnected,
+            zones_pushed: pushedCount,
+            zones_skipped: skippedCount,
+            zones_failed: failedCount,
+          });
+        } catch (healthErr: any) {
+          console.error(`[cron/thermostat-enforce] Health update failed for ${site.site_id}:`, healthErr.message);
+        }
+
+        // Check for >24hr compressor cycle gaps (active sites only)
+        try {
+          const { data: siteZones } = await supabase
+            .from("a_hvac_zones")
+            .select("hvac_zone_id, name, equipment_id")
+            .eq("site_id", site.site_id)
+            .not("equipment_id", "is", null)
+            .not("thermostat_device_id", "is", null);
+
+          if (siteZones && siteZones.length > 0) {
+            const gapZones: string[] = [];
+            let maxGapHours = 0;
+
+            for (const zone of siteZones) {
+              const { data: lastCycle } = await supabase
+                .from("b_compressor_cycles")
+                .select("started_at")
+                .eq("equipment_id", zone.equipment_id)
+                .order("started_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              const gapHours = lastCycle
+                ? (Date.now() - new Date(lastCycle.started_at).getTime()) / 3600000
+                : Infinity;
+
+              if (gapHours >= 24) {
+                gapZones.push(zone.name || zone.hvac_zone_id);
+                maxGapHours = Math.max(maxGapHours, gapHours === Infinity ? 999 : gapHours);
+                console.warn(`[cron/thermostat-enforce] Compressor cycle gap >24hr for zone "${zone.name}" (${zone.hvac_zone_id}): ${gapHours === Infinity ? "no cycles ever" : Math.round(gapHours) + "hr"}`);
+              }
+            }
+
+            if (gapZones.length > 0) {
+              await updateDailyHealth(supabase, {
+                site_id: site.site_id,
+                org_id: site.org_id,
+                date: localDate,
+                compressor_cycles: {
+                  zones_monitored: siteZones.length,
+                  zones_with_gap: gapZones.length,
+                  max_gap_hours: Math.round(maxGapHours),
+                  gap_zone_names: gapZones,
+                },
+              });
+            }
+          }
+        } catch (cycleErr: any) {
+          console.error(`[cron/thermostat-enforce] Compressor cycle gap check failed for ${site.site_id}:`, cycleErr.message);
+        }
+      }
+
+      return { pushed: pushedCount, skipped: skippedCount, failed: failedCount, ha_connected: haConnected };
+    }
+
+    // ─── Site loop with per-site Promise.race timeout ─────────────────────────
     let siteIndex = 0;
     for (const site of uniqueSites.values()) {
       siteIndex++;
@@ -191,133 +309,31 @@ export async function GET(req: NextRequest) {
       const siteStartMs = Date.now();
       console.log(`[cron/thermostat-enforce] ▶ Starting site ${siteIndex}/${uniqueSites.size}: ${site.site_id} (status=${site.status}, has_managed=${site.has_managed})`);
       try {
-        const tz = site.timezone || "America/Chicago";
-        const localDate = siteLocalDate(new Date(), tz); // YYYY-MM-DD
+        const siteResult = await Promise.race([
+          processSite(site),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`site_timeout: ${site.site_id} exceeded ${PER_SITE_TIMEOUT_MS}ms`)),
+              PER_SITE_TIMEOUT_MS
+            )
+          ),
+        ]);
 
-        // Only push setpoints to sites that have managed zones
-        let pushedCount = 0;
-        let skippedCount = 0;
-        let failedCount = 0;
-        let haConnected = true;
-
-        if (site.has_managed) {
-          // Build per-site HA config; fall back to env vars if columns are null
-          const haConfig: HAConfig | undefined =
-            site.ha_url && site.ha_token
-              ? { haUrl: site.ha_url, haToken: site.ha_token }
-              : undefined;
-
-          const result = await executePushForSite(
-            supabase,
-            site.site_id,
-            "cron_enforce",
-            haConfig,
-            "eagle_eyes"
-          );
-
-          pushedCount = result.results.filter((r) => r.pushed).length;
-          // "Already at target" is a skip, not a failure — only count actual errors as failed
-          skippedCount = result.results.filter((r) => !r.pushed && r.reason === "Already at target").length;
-          failedCount = result.results.filter((r) => !r.pushed && r.reason !== "Already at target").length;
-          haConnected = result.ha_connected;
-          if (pushedCount > 0) sitesPushed++;
-          totalZonesPushed += pushedCount;
-        } else {
-          console.log(`[cron/thermostat-enforce] Site ${site.site_id}: no managed zones, skipping push (observation only)`);
-        }
-
-        // Log zone setpoint snapshots for time series (for ALL zones/sites including open & non-active)
-        try {
-          console.log(`[cron/thermostat-enforce] Calling logZoneSetpointSnapshot for site ${site.site_id}`);
-          await logZoneSetpointSnapshot(supabase, site.site_id);
-          console.log(`[cron/thermostat-enforce] logZoneSetpointSnapshot completed for site ${site.site_id}`);
-        } catch (logErr: any) {
-          console.error(`[cron/thermostat-enforce] Setpoint log failed for ${site.site_id}:`, logErr.message);
-        }
-
-        // ── Health alerts are gated behind site active status ──────────────────
-        // Only "Active" sites generate Trust Dashboard health data and alerts.
-        //   Suspended = likely billing hold; Pending/Closed/Retired/inventory = not operational.
-        // Snapshot logging above is NOT gated — observability data flows for all sites.
-        const isActiveSite = site.status === "Active";
-
-        if (isActiveSite) {
-          // Write health data (active sites only)
-          try {
-            await updateDailyHealth(supabase, {
-              site_id: site.site_id,
-              org_id: site.org_id,
-              date: localDate,
-              ha_reachable: haConnected,
-              zones_pushed: pushedCount,
-              zones_skipped: skippedCount,
-              zones_failed: failedCount,
-            });
-          } catch (healthErr: any) {
-            console.error(`[cron/thermostat-enforce] Health update failed for ${site.site_id}:`, healthErr.message);
-          }
-
-          // Check for >24hr compressor cycle gaps (active sites only)
-          try {
-            const { data: siteZones } = await supabase
-              .from("a_hvac_zones")
-              .select("hvac_zone_id, name, equipment_id")
-              .eq("site_id", site.site_id)
-              .not("equipment_id", "is", null)
-              .not("thermostat_device_id", "is", null);
-
-            if (siteZones && siteZones.length > 0) {
-              const gapZones: string[] = [];
-              let maxGapHours = 0;
-
-              for (const zone of siteZones) {
-                const { data: lastCycle } = await supabase
-                  .from("b_compressor_cycles")
-                  .select("started_at")
-                  .eq("equipment_id", zone.equipment_id)
-                  .order("started_at", { ascending: false })
-                  .limit(1)
-                  .maybeSingle();
-
-                const gapHours = lastCycle
-                  ? (Date.now() - new Date(lastCycle.started_at).getTime()) / 3600000
-                  : Infinity;
-
-                if (gapHours >= 24) {
-                  gapZones.push(zone.name || zone.hvac_zone_id);
-                  maxGapHours = Math.max(maxGapHours, gapHours === Infinity ? 999 : gapHours);
-                  console.warn(`[cron/thermostat-enforce] Compressor cycle gap >24hr for zone "${zone.name}" (${zone.hvac_zone_id}): ${gapHours === Infinity ? "no cycles ever" : Math.round(gapHours) + "hr"}`);
-                }
-              }
-
-              if (gapZones.length > 0) {
-                // Update health with compressor gap warning
-                await updateDailyHealth(supabase, {
-                  site_id: site.site_id,
-                  org_id: site.org_id,
-                  date: localDate,
-                  compressor_cycles: {
-                    zones_monitored: siteZones.length,
-                    zones_with_gap: gapZones.length,
-                    max_gap_hours: Math.round(maxGapHours),
-                    gap_zone_names: gapZones,
-                  },
-                });
-              }
-            }
-          } catch (cycleErr: any) {
-            console.error(`[cron/thermostat-enforce] Compressor cycle gap check failed for ${site.site_id}:`, cycleErr.message);
-          }
-        }
+        if (siteResult.pushed > 0) sitesPushed++;
+        totalZonesPushed += siteResult.pushed;
 
         console.log(
-          `[cron/thermostat-enforce] ✔ Completed site ${siteIndex}/${uniqueSites.size}: ${site.site_id} in ${Date.now() - siteStartMs}ms — ${pushedCount} pushed, has_managed=${site.has_managed}`
+          `[cron/thermostat-enforce] ✔ Completed site ${siteIndex}/${uniqueSites.size}: ${site.site_id} in ${Date.now() - siteStartMs}ms — ${siteResult.pushed} pushed, has_managed=${site.has_managed}`
         );
       } catch (err: any) {
-        console.error(
-          `[cron/thermostat-enforce] ✘ Failed site ${siteIndex}/${uniqueSites.size}: ${site.site_id} after ${Date.now() - siteStartMs}ms:`,
-          err?.message ?? err
-        );
+        if (err?.message?.startsWith("site_timeout:")) {
+          console.error(`[cron/thermostat-enforce] ✘ site ${site.site_id} timed out after ${PER_SITE_TIMEOUT_MS}ms`);
+        } else {
+          console.error(
+            `[cron/thermostat-enforce] ✘ Failed site ${siteIndex}/${uniqueSites.size}: ${site.site_id} after ${Date.now() - siteStartMs}ms:`,
+            err?.message ?? err
+          );
+        }
         errors.push({ site_id: site.site_id, error: err?.message ?? String(err) });
 
         // Write failed health update (active sites only)

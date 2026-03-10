@@ -72,7 +72,7 @@ export async function haFetch(
   url: string,
   token: string,
   options: RequestInit = {},
-  timeoutMs = 10000
+  timeoutMs = 8000
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
