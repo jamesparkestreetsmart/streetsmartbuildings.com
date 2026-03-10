@@ -15,7 +15,14 @@
       "Bash(for table:*)",
       "Bash(git log:*)",
       "Bash(npx jest:*)",
-      "Bash(grep -n \"library_alert_types\\\\|b_alert_definitions\" /c/Projects/EagleEyes/eagle-eyes-dashboard/app/\\\\\\(dashboard\\\\\\)/sites/\\\\[siteid\\\\]/equipment/\\\\[equipmentid\\\\]/individual-equipment/IndividualEquipmentClient.tsx 2>/dev/null)"
+      "Bash(grep -n \"library_alert_types\\\\|b_alert_definitions\" /c/Projects/EagleEyes/eagle-eyes-dashboard/app/\\\\\\(dashboard\\\\\\)/sites/\\\\[siteid\\\\]/equipment/\\\\[equipmentid\\\\]/individual-equipment/IndividualEquipmentClient.tsx 2>/dev/null)",
+      "Bash(curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool 2>/dev/null || curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\")",
+      "Bash(curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
+      "Bash(git add:*)",
+      "Bash(curl -s -X POST \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce?site_id=aebd4fdf-2f60-4e6d-b08e-46ebc199555e\" 2>/dev/null | python -m json.tool)",
+      "Bash(echo \"Waiting 5 minutes for cron to fire...\" && sleep 330 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
+      "Bash(npx vercel:*)",
+      "Bash(gh api:*)"
     ]
   }
 }
