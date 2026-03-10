@@ -285,7 +285,7 @@ export async function persistSmartStartCalc(
 ) {
   const today = new Date().toISOString().split("T")[0];
 
-  return supabase.from("b_smart_start_log").upsert(
+  const { data, error } = await supabase.from("b_smart_start_log").upsert(
     {
       device_id: deviceId,
       site_id: siteId,
@@ -314,6 +314,17 @@ export async function persistSmartStartCalc(
     },
     { onConflict: "device_id,date" }
   );
+  if (error) {
+    console.error("[persistSmartStartCalc] b_smart_start_log upsert failed:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      deviceId,
+      siteId,
+    });
+  }
+  return { data, error };
 }
 
 function minutesToTimeStr(mins: number): string {

@@ -668,11 +668,19 @@ async function buildThermostats(
           .order("date", { ascending: false })
       : { data: [], error: null };
 
-  console.log("[buildThermostats] smartStartLogs:", {
-    count: smartStartLogs?.length ?? 0,
-    error: ssErr?.message ?? null,
-    logs: smartStartLogs?.slice(0, 5),
-  });
+  if (ssErr) {
+    console.error("[buildThermostats] b_smart_start_log query failed:", {
+      message: ssErr.message,
+      code: ssErr.code,
+      details: ssErr.details,
+      hint: ssErr.hint,
+    });
+  } else {
+    console.log("[buildThermostats] smartStartLogs:", {
+      count: smartStartLogs?.length ?? 0,
+      logs: smartStartLogs?.slice(0, 5),
+    });
+  }
 
   // Build one entry per thermostat device
   return devices.map((dev: any) => {

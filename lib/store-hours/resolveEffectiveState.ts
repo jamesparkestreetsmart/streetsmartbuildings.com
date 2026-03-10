@@ -57,14 +57,20 @@ export async function resolveEffectiveState(
   console.log(`[resolveEffectiveState] site=${siteId} tz=${tz} localDate=${localDate} dayOfWeek=${dayOfWeek} currentMins=${currentMins}`);
 
   // ── STEP A: Check for exception events on today's date ──
-  const { data: events } = await supabase
+  const { data: events, error: eventsError } = await supabase
     .from("b_store_hours_events")
-    .select("event_id, rule_id, event_date, event_name, is_closed, open_time, close_time, updated_at, created_at")
+    .select("event_id, rule_id, event_date, event_name, is_closed, open_time, close_time")
     .eq("site_id", siteId)
-    .eq("event_date", localDate)
-    .order("updated_at", { ascending: false })
-    .order("created_at", { ascending: false });
+    .eq("event_date", localDate);
 
+  if (eventsError) {
+    console.error(`[resolveEffectiveState] b_store_hours_events query failed:`, {
+      message: eventsError.message,
+      code: eventsError.code,
+      details: eventsError.details,
+      hint: eventsError.hint,
+    });
+  }
   console.log(`[resolveEffectiveState] events found: ${events?.length ?? 0}`);
 
   if (events && events.length > 0) {

@@ -11,7 +11,10 @@
       "Bash(head:*)",
       "Bash(wc:*)",
       "Bash(grep:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(for table:*)",
+      "Bash(git log:*)",
+      "Bash(npx jest:*)"
     ]
   }
 }

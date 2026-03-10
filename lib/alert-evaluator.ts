@@ -780,10 +780,18 @@ async function fetchOverrides(
   defIds: string[]
 ): Promise<AlertOverride[]> {
   if (defIds.length === 0) return [];
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("b_alert_overrides")
     .select("override_id, org_id, alert_def_id, site_id, equipment_id, threshold_override, severity_override, cooldown_override, sustain_override_min, enabled")
     .in("alert_def_id", defIds);
+  if (error) {
+    console.error("[fetchOverrides] b_alert_overrides query failed:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+  }
   return (data || []) as AlertOverride[];
 }
 
