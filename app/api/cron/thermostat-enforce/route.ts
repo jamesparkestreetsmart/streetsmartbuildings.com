@@ -4,7 +4,8 @@ import { executePushForSite, HAConfig } from "@/lib/ha-push";
 import { updateDailyHealth } from "@/lib/daily-health";
 import { logZoneSetpointSnapshot } from "@/lib/zone-setpoint-logger";
 import { siteLocalDate } from "@/lib/utils/site-date";
-import crypto from "crypto";
+
+export const maxDuration = 60;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +24,7 @@ const MAX_LOCK_AGE_MS = 4 * 60 * 1000; // 4 minutes — safely under the 5-min c
 const SOFT_TIMEOUT_MS = 50_000; // 50s — release lock before Vercel's 60s hard kill
 
 export async function GET(req: NextRequest) {
-  const runId = crypto.randomUUID().slice(0, 8);
+  const runId = Math.random().toString(36).slice(2, 10);
   console.log(`[cron/thermostat-enforce][${runId}] ENTRY`, new Date().toISOString());
 
   const startMs = Date.now();

@@ -33,7 +33,7 @@ interface AlertDefinition {
 interface AlertOverride {
   override_id: string;
   org_id: string;
-  alert_def_id: string;
+  alert_type_id: string;
   site_id: string | null;
   equipment_id: string | null;
   threshold_override: number | null;
@@ -782,8 +782,8 @@ async function fetchOverrides(
   if (defIds.length === 0) return [];
   const { data, error } = await supabase
     .from("b_alert_overrides")
-    .select("override_id, org_id, alert_def_id, site_id, equipment_id, threshold_override, severity_override, cooldown_override, sustain_override_min, enabled")
-    .in("alert_def_id", defIds);
+    .select("override_id, org_id, alert_type_id, site_id, equipment_id, threshold_override, severity_override, cooldown_override, sustain_override_min, enabled")
+    .in("alert_type_id", defIds);
   if (error) {
     console.error("[fetchOverrides] b_alert_overrides query failed:", {
       message: error.message,
@@ -801,7 +801,7 @@ function resolveOverride(
   siteId: string | null,
   equipmentId: string | null
 ): AlertOverride | null {
-  const defOverrides = overrides.filter((o) => o.alert_def_id === defId);
+  const defOverrides = overrides.filter((o) => o.alert_type_id === defId);
   if (defOverrides.length === 0) return null;
 
   // Most specific wins: equipment > site > org
