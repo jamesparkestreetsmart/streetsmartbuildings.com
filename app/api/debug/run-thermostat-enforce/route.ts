@@ -35,13 +35,28 @@ export async function POST(req: NextRequest) {
 
   console.log("[debug/run-thermostat-enforce] Lock state before:", JSON.stringify(lockBefore));
 
-  // Step 2: Clear any stuck lock
+  // Step 2: Clear any stuck lock (all fields)
   if (lockBefore) {
-    await supabase
+    const { data: clearResult, error: clearErr } = await supabase
       .from("b_cron_locks")
-      .update({ locked_at: null })
-      .eq("cron_name", LOCK_NAME);
-    console.log("[debug/run-thermostat-enforce] Lock cleared");
+      .update({
+        locked_at: null,
+        owner_run_id: null,
+        last_heartbeat_at: null,
+        last_step: "debug_cleared",
+      })
+      .eq("cron_name", LOCK_NAME)
+      .select("locked_at");
+    if (clearErr) {
+      console.error("[debug/run-thermostat-enforce] Lock clear FAILED:", clearErr.message);
+      return NextResponse.json({ error: "Failed to clear lock", detail: clearErr.message, lock_before: lockBefore }, { status: 500 });
+    }
+    const rows = Array.isArray(clearResult) ? clearResult : [clearResult];
+    const verified = rows[0];
+    console.log("[debug/run-thermostat-enforce] Lock cleared, verify:", JSON.stringify(verified));
+    if (verified && verified.locked_at !== null) {
+      console.error("[debug/run-thermostat-enforce] WARNING: locked_at still not null after clear!");
+    }
   }
 
   // Step 3: Run the full thermostat-enforce logic
@@ -165,9 +180,37 @@ export async function POST(req: NextRequest) {
 /**
  * GET /api/debug/run-thermostat-enforce
  *
- * Returns current lock state without modifying anything.
+ * Returns current lock state. Add ?clear=true to force-clear the lock without running enforce.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const forceClear = req.nextUrl.searchParams.get("clear") === "true";
+
+  if (forceClear) {
+    const { data: before } = await supabase
+      .from("b_cron_locks")
+      .select("*")
+      .eq("cron_name", LOCK_NAME)
+      .maybeSingle();
+
+    const { data: after, error: clearErr } = await supabase
+      .from("b_cron_locks")
+      .update({
+        locked_at: null,
+        owner_run_id: null,
+        last_heartbeat_at: null,
+        last_step: "force_cleared",
+      })
+      .eq("cron_name", LOCK_NAME)
+      .select("*");
+
+    return NextResponse.json({
+      action: "force_clear",
+      lock_before: before,
+      lock_after: after?.[0] ?? after,
+      clear_error: clearErr?.message ?? null,
+    });
+  }
+
   const { data: lock } = await supabase
     .from("b_cron_locks")
     .select("*")

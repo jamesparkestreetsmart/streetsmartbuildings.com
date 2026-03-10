@@ -144,20 +144,38 @@ export async function GET(req: NextRequest) {
           last_finished_at: new Date().toISOString(),
           last_step: "released",
         })
-        .eq("cron_name", LOCK_NAME);
+        .eq("cron_name", LOCK_NAME)
+        .select("locked_at, last_step");
 
       // Race the lock release against a 5s timeout — if supabase hangs
       // (e.g. Vercel is shutting down), we still log the failure cleanly
       const result = await Promise.race([
         releasePromise,
-        new Promise<{ error: { message: string } }>((resolve) =>
-          setTimeout(() => resolve({ error: { message: "lock release timed out after 5s" } }), 5000)
+        new Promise<{ data: null; error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: "lock release timed out after 5s" } }), 5000)
         ),
       ]);
       if (result.error) {
         console.error(`[cron/thermostat-enforce][${runId}] FAILED to release lock:`, result.error.message);
+        // Retry once without timeout race — last-ditch effort
+        console.log(`[cron/thermostat-enforce][${runId}] retrying lock release (no timeout race)`);
+        const { error: retryErr } = await supabase
+          .from("b_cron_locks")
+          .update({ locked_at: null, owner_run_id: null, last_step: "released_retry" })
+          .eq("cron_name", LOCK_NAME);
+        if (retryErr) {
+          console.error(`[cron/thermostat-enforce][${runId}] retry release also failed:`, retryErr.message);
+        } else {
+          console.log(`[cron/thermostat-enforce][${runId}] retry release succeeded`);
+        }
       } else {
-        console.log(`[cron/thermostat-enforce][${runId}] lock released`);
+        const rows = Array.isArray(result.data) ? result.data : [result.data];
+        const row = rows[0];
+        console.log(`[cron/thermostat-enforce][${runId}] lock released — verify:`, JSON.stringify(row));
+        // Verify locked_at is actually null
+        if (row && row.locked_at !== null) {
+          console.error(`[cron/thermostat-enforce][${runId}] WARNING: locked_at still not null after release!`, row.locked_at);
+        }
       }
     } catch (releaseEx: any) {
       // Catch absolutely everything — the lock release must never throw
