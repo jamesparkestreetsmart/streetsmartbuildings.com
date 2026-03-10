@@ -22,7 +22,13 @@
       "Bash(curl -s -X POST \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce?site_id=aebd4fdf-2f60-4e6d-b08e-46ebc199555e\" 2>/dev/null | python -m json.tool)",
       "Bash(echo \"Waiting 5 minutes for cron to fire...\" && sleep 330 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
       "Bash(npx vercel:*)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(sleep 120 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
+      "Bash(sleep 90 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
+      "Bash(curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce?clear=true\" 2>/dev/null | python -m json.tool)",
+      "Bash(echo \"Waiting ~6 min for deploy + next cron cycle...\" && sleep 360 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
+      "Bash(npx next:*)",
+      "Bash(sleep 240 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)"
     ]
   }
 }
