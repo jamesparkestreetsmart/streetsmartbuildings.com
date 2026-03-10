@@ -29,7 +29,9 @@
       "Bash(echo \"Waiting ~6 min for deploy + next cron cycle...\" && sleep 360 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
       "Bash(npx next:*)",
       "Bash(sleep 240 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
-      "Bash(echo \"Waiting ~7 min for deploy + cron cycle...\" && sleep 420 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)"
+      "Bash(echo \"Waiting ~7 min for deploy + cron cycle...\" && sleep 420 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
+      "Bash(cd \"C:\\\\Projects\\\\EagleEyes\\\\eagle-eyes-dashboard\" && npx tsc --noEmit \"app/\\(dashboard\\)/journey/page.tsx\" 2>&1 | grep -i \"journey\\\\|PlatformIssues\\\\|error\" | head -20)",
+      "Bash(git status:*)"
     ]
   }
 }
