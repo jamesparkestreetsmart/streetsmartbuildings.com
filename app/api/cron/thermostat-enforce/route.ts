@@ -198,6 +198,7 @@ export async function GET(req: NextRequest) {
 
     if (sitesErr) {
       console.error(`[cron/thermostat-enforce][${runId}] Sites query error:`, sitesErr.message);
+      await releaseLock();
       return NextResponse.json(
         { error: sitesErr.message },
         { status: 500 }
@@ -205,6 +206,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!sites || sites.length === 0) {
+      await releaseLock();
       return NextResponse.json({
         sites_checked: 0,
         sites_pushed: 0,
@@ -445,7 +447,11 @@ export async function GET(req: NextRequest) {
     }
 
     console.log(`[cron/thermostat-enforce][${runId}] All sites processed (${errors.length} errors), releasing lock`);
-    heartbeat("response_return");
+
+    // Release lock BEFORE returning response — Vercel may kill the function
+    // after the response is sent, so finally-based release is unreliable.
+    await releaseLock();
+    clearTimeout(softTimer);
 
     return NextResponse.json({
       sites_checked: uniqueSites.size,
@@ -457,13 +463,16 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: any) {
     console.error(`[cron/thermostat-enforce][${runId}] Uncaught error:`, err?.message ?? err, err?.stack);
+    // Release lock before returning error response too
+    await releaseLock();
+    clearTimeout(softTimer);
     return NextResponse.json(
       { error: err?.message || "Internal server error" },
       { status: 500 }
     );
   } finally {
+    // Safety net — releaseLock is idempotent, so double-calling is safe
     console.log(`[cron/thermostat-enforce][${runId}] finally block reached`);
-    heartbeat("finally_release");
     clearTimeout(softTimer);
     await releaseLock();
   }
