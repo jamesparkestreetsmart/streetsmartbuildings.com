@@ -34,7 +34,8 @@
       "Bash(git status:*)",
       "Bash(find /c/Projects/EagleEyes/eagle-eyes-dashboard -path \"*supabase*\" -name \"*.sql\" -type f 2>/dev/null | head -30)",
       "Bash(find /c/Projects/EagleEyes/eagle-eyes-dashboard -name \"schema*\" -o -name \"*database*\" -o -name \"*init*.sql\" 2>/dev/null | head -20)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(for f:*)"
     ]
   }
 }
