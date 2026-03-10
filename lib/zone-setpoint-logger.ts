@@ -1061,8 +1061,13 @@ export async function logZoneSetpointSnapshot(
 
     const tz = siteInfo?.timezone || "America/Chicago";
 
-    // 2. Resolve phase
+    // 2. Resolve phase (with diagnostics for UTC-vs-local date debugging)
+    const nowUtc = new Date().toISOString();
+    const localDate = siteLocalDate(new Date(), tz);
+    console.log(`[zone-setpoint-logger] DIAG site=${siteId} now_utc=${nowUtc} tz=${tz} localDate=${localDate}`);
+
     const phaseInfo = await resolvePhase(supabase, siteId, tz);
+    console.log(`[zone-setpoint-logger] DIAG site=${siteId} phase=${phaseInfo.phase} operating_status=${phaseInfo.effectiveState.operating_status} events_source=${phaseInfo.effectiveState.source} exception=${phaseInfo.effectiveState.exception_name}`);
 
     // 3. Fetch all zones for this site (managed + open — open zones get observation snapshots)
     const { data: zones } = await supabase
