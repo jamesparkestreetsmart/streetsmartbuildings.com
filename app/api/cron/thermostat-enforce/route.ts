@@ -179,12 +179,16 @@ export async function GET(req: NextRequest) {
     let totalZonesPushed = 0;
     const errors: { site_id: string; error: string }[] = [];
 
+    let siteIndex = 0;
     for (const site of uniqueSites.values()) {
+      siteIndex++;
       if (softTimedOut) {
         console.warn(`[cron/thermostat-enforce] Soft timeout reached (${SOFT_TIMEOUT_MS}ms) — aborting remaining sites to release lock before Vercel kills the function`);
         errors.push({ site_id: site.site_id, error: "soft_timeout" });
         break;
       }
+      const siteStartMs = Date.now();
+      console.log(`[cron/thermostat-enforce] ▶ Starting site ${siteIndex}/${uniqueSites.size}: ${site.site_id} (status=${site.status}, has_managed=${site.has_managed})`);
       try {
         const tz = site.timezone || "America/Chicago";
         const localDate = siteLocalDate(new Date(), tz); // YYYY-MM-DD
@@ -306,11 +310,11 @@ export async function GET(req: NextRequest) {
         }
 
         console.log(
-          `[cron/thermostat-enforce] site ${site.site_id} OK: ${pushedCount} zones pushed, has_managed=${site.has_managed}`
+          `[cron/thermostat-enforce] ✔ Completed site ${siteIndex}/${uniqueSites.size}: ${site.site_id} in ${Date.now() - siteStartMs}ms — ${pushedCount} pushed, has_managed=${site.has_managed}`
         );
       } catch (err: any) {
         console.error(
-          `[cron/thermostat-enforce] site ${site.site_id} failed:`,
+          `[cron/thermostat-enforce] ✘ Failed site ${siteIndex}/${uniqueSites.size}: ${site.site_id} after ${Date.now() - siteStartMs}ms:`,
           err?.message ?? err
         );
         errors.push({ site_id: site.site_id, error: err?.message ?? String(err) });
