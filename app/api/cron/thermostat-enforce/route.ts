@@ -171,6 +171,8 @@ export async function GET(req: NextRequest) {
     }
 
     const managedCount = [...uniqueSites.values()].filter((s) => s.has_managed).length;
+    const allSiteIds = [...uniqueSites.keys()];
+    console.log(`[cron/thermostat-enforce] Sites fetched from a_sites: [${allSiteIds.join(", ")}]`);
     console.log(`[cron/thermostat-enforce] Processing ${uniqueSites.size} sites (${managedCount} with managed zones)`);
 
     let sitesPushed = 0;
