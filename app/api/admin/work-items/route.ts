@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   const sprint = searchParams.get("sprint");
 
   let query = supabase
-    .from("work_items")
+    .from("c_work_items")
     .select("*")
     .eq("org_id", SSB_ORG_ID)
     .order("created_at", { ascending: false });
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   const { data, error } = await supabase
-    .from("work_items")
+    .from("c_work_items")
     .insert({ ...body, org_id: SSB_ORG_ID })
     .select()
     .single();

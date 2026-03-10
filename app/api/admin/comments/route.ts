@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   const learning_id = searchParams.get("learning_id");
 
   let query = supabase
-    .from("comments")
+    .from("c_item_comments")
     .select("*")
     .eq("org_id", SSB_ORG_ID)
     .order("created_at", { ascending: false });
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data, error } = await supabase
-    .from("comments")
+    .from("c_item_comments")
     .insert({ ...body, org_id: SSB_ORG_ID, author_user_id: userId })
     .select()
     .single();

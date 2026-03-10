@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   const issue_type = searchParams.get("issue_type");
 
   let query = supabase
-    .from("platform_issues")
+    .from("c_platform_issues")
     .select("*")
     .eq("org_id", SSB_ORG_ID)
     .order("created_at", { ascending: false });
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   const { data, error } = await supabase
-    .from("platform_issues")
+    .from("c_platform_issues")
     .insert({ ...body, org_id: SSB_ORG_ID })
     .select()
     .single();

@@ -39,9 +39,9 @@ export async function PATCH(
   const body = await req.json();
 
   const { data, error } = await supabase
-    .from("platform_issues")
+    .from("c_platform_issues")
     .update(body)
-    .eq("id", id)
+    .eq("issue_id", id)
     .eq("org_id", SSB_ORG_ID)
     .select()
     .single();

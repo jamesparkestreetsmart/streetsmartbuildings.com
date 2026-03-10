@@ -40,9 +40,9 @@ export async function PATCH(
 
   // Fetch the comment first to check ownership
   const { data: comment, error: fetchError } = await supabase
-    .from("comments")
+    .from("c_item_comments")
     .select("*")
-    .eq("id", id)
+    .eq("comment_id", id)
     .eq("org_id", SSB_ORG_ID)
     .single();
 
@@ -53,9 +53,9 @@ export async function PATCH(
   }
 
   const { data, error } = await supabase
-    .from("comments")
+    .from("c_item_comments")
     .update({ comment_text: body.comment_text })
-    .eq("id", id)
+    .eq("comment_id", id)
     .eq("org_id", SSB_ORG_ID)
     .select()
     .single();
