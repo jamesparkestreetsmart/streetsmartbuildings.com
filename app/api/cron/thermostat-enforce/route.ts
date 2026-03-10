@@ -50,7 +50,13 @@ export async function GET(req: NextRequest) {
   console.log(`[cron/thermostat-enforce][${runId}] attempting UPDATE lock acquire`);
   const { data: lockRows, error: lockUpdateErr } = await supabase
     .from("b_cron_locks")
-    .update({ locked_at: now, last_started_at: now })
+    .update({
+      locked_at: now,
+      last_started_at: now,
+      owner_run_id: runId,
+      last_heartbeat_at: now,
+      last_step: "lock_acquired",
+    })
     .eq("cron_name", LOCK_NAME)
     .or(`locked_at.is.null,locked_at.lte.${staleThreshold}`)
     .select("locked_at");
@@ -76,7 +82,14 @@ export async function GET(req: NextRequest) {
     console.log(`[cron/thermostat-enforce][${runId}] attempting INSERT lock row`);
     const { error: insertErr } = await supabase
       .from("b_cron_locks")
-      .insert({ cron_name: LOCK_NAME, locked_at: now, last_started_at: now });
+      .insert({
+        cron_name: LOCK_NAME,
+        locked_at: now,
+        last_started_at: now,
+        owner_run_id: runId,
+        last_heartbeat_at: now,
+        last_step: "lock_acquired",
+      });
 
     if (insertErr) {
       // Row exists with a fresh lock — another instance is running.
@@ -84,23 +97,34 @@ export async function GET(req: NextRequest) {
         code: insertErr?.code,
         message: insertErr?.message,
       });
-      // Read the lock to log its age.
+      // Read the lock to log who owns it and where they are.
       const { data: heldLock } = await supabase
         .from("b_cron_locks")
-        .select("locked_at")
+        .select("locked_at, owner_run_id, last_started_at, last_heartbeat_at, last_step")
         .eq("cron_name", LOCK_NAME)
         .maybeSingle();
       const age = heldLock?.locked_at
         ? Math.round((Date.now() - new Date(heldLock.locked_at).getTime()) / 1000)
         : "unknown";
       console.log(
-        `[cron/thermostat-enforce][${runId}] Skipping — already running (lock held, age ${age}s)`
+        `[cron/thermostat-enforce][${runId}] Skipping — lock held by ${heldLock?.owner_run_id ?? "unknown"}, started ${heldLock?.last_started_at ?? "unknown"}, last heartbeat ${heldLock?.last_heartbeat_at ?? "unknown"}, last step: ${heldLock?.last_step ?? "unknown"}`
       );
       return NextResponse.json({ skipped: true, reason: "already_running" });
     }
     // else: successfully created the lock row — proceed
     console.log(`[cron/thermostat-enforce][${runId}] INSERT success — lock created`);
     console.log(`[cron/thermostat-enforce][${runId}] Lock created and acquired`);
+  }
+
+  // ─── Fire-and-forget heartbeat: updates lock row so losers can see our progress ─
+  function heartbeat(step: string) {
+    supabase
+      .from("b_cron_locks")
+      .update({ last_heartbeat_at: new Date().toISOString(), last_step: step })
+      .eq("cron_name", LOCK_NAME)
+      .then(({ error }) => {
+        if (error) console.warn(`[cron/thermostat-enforce][${runId}] heartbeat update failed (${step}):`, error.message);
+      });
   }
 
   // ─── Soft timeout: release the lock before Vercel's hard 60s kill ────────
@@ -113,7 +137,13 @@ export async function GET(req: NextRequest) {
     try {
       const releasePromise = supabase
         .from("b_cron_locks")
-        .update({ locked_at: null, last_finished_at: new Date().toISOString() })
+        .update({
+          locked_at: null,
+          owner_run_id: null,
+          last_heartbeat_at: null,
+          last_finished_at: new Date().toISOString(),
+          last_step: "released",
+        })
         .eq("cron_name", LOCK_NAME);
 
       // Race the lock release against a 5s timeout — if supabase hangs
@@ -136,6 +166,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    heartbeat("sites_query");
     // Fetch all sites that have at least one HVAC zone with a thermostat
     // (includes both managed and open zones — open zones get snapshots but no setpoint push)
     // status is fetched to gate health alerts: only "Active" sites generate alerts
@@ -220,6 +251,7 @@ export async function GET(req: NextRequest) {
             ? { haUrl: site.ha_url, haToken: site.ha_token }
             : undefined;
 
+        heartbeat("executePushForSite");
         console.log(`[cron/thermostat-enforce][${runId}] [${site.site_id}] push start`);
         const t1 = Date.now();
         const result = await executePushForSite(
@@ -241,6 +273,7 @@ export async function GET(req: NextRequest) {
 
       // Log zone setpoint snapshots for time series (for ALL zones/sites including open & non-active)
       try {
+        heartbeat("logZoneSetpointSnapshot");
         console.log(`[cron/thermostat-enforce][${runId}] [${site.site_id}] snapshot start`);
         const t2 = Date.now();
         await logZoneSetpointSnapshot(supabase, site.site_id);
@@ -253,6 +286,7 @@ export async function GET(req: NextRequest) {
 
       if (isActiveSite) {
         try {
+          heartbeat("updateDailyHealth");
           console.log(`[cron/thermostat-enforce][${runId}] [${site.site_id}] health update start`);
           const t3 = Date.now();
           await updateDailyHealth(supabase, {
@@ -271,6 +305,7 @@ export async function GET(req: NextRequest) {
 
         // Check for >24hr compressor cycle gaps (active sites only)
         try {
+          heartbeat("compressor_cycle_check");
           console.log(`[cron/thermostat-enforce][${runId}] [${site.site_id}] fetching zones for compressor gap check`);
           const t4 = Date.now();
           const { data: siteZones } = await supabase
@@ -392,6 +427,7 @@ export async function GET(req: NextRequest) {
     }
 
     console.log(`[cron/thermostat-enforce][${runId}] All sites processed (${errors.length} errors), releasing lock`);
+    heartbeat("response_return");
 
     return NextResponse.json({
       sites_checked: uniqueSites.size,
@@ -409,6 +445,7 @@ export async function GET(req: NextRequest) {
     );
   } finally {
     console.log(`[cron/thermostat-enforce][${runId}] finally block reached`);
+    heartbeat("finally_release");
     clearTimeout(softTimer);
     await releaseLock();
   }
