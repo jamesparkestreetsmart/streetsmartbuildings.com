@@ -31,7 +31,10 @@
       "Bash(sleep 240 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
       "Bash(echo \"Waiting ~7 min for deploy + cron cycle...\" && sleep 420 && curl -s \"https://streetsmartbuildings.com/api/debug/run-thermostat-enforce\" 2>/dev/null | python -m json.tool)",
       "Bash(cd \"C:\\\\Projects\\\\EagleEyes\\\\eagle-eyes-dashboard\" && npx tsc --noEmit \"app/\\(dashboard\\)/journey/page.tsx\" 2>&1 | grep -i \"journey\\\\|PlatformIssues\\\\|error\" | head -20)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(find /c/Projects/EagleEyes/eagle-eyes-dashboard -path \"*supabase*\" -name \"*.sql\" -type f 2>/dev/null | head -30)",
+      "Bash(find /c/Projects/EagleEyes/eagle-eyes-dashboard -name \"schema*\" -o -name \"*database*\" -o -name \"*init*.sql\" 2>/dev/null | head -20)",
+      "Bash(git commit:*)"
     ]
   }
 }
