@@ -279,7 +279,6 @@ export async function persistSmartStartCalc(
   supabase: any,
   siteId: string,
   deviceId: string,
-  zoneId: string | null,
   scheduledOpenTime: string, // "HH:MM:SS"
   calc: SmartStartCalc
 ) {
@@ -289,7 +288,6 @@ export async function persistSmartStartCalc(
     {
       device_id: deviceId,
       site_id: siteId,
-      zone_id: zoneId,
       date: today,
       scheduled_open_time: scheduledOpenTime,
       hvac_start_time: minutesToTimeStr(calc.start_time_minutes),

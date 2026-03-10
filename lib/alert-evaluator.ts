@@ -1,5 +1,6 @@
 // lib/alert-evaluator.ts
 import { SupabaseClient } from "@supabase/supabase-js";
+import { mapDefinitionToAlertTypeId } from "@/lib/alert-type-mapping";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -91,11 +92,12 @@ export async function evaluateRealtime(
 
     if (!definitions?.length) return;
 
-    // Prefetch overrides for all matching definitions
-    const defIds = (definitions as AlertDefinition[]).map((d) => d.id);
-    const overrides = await fetchOverrides(supabase, defIds);
+    // Derive canonical alert_type_ids and prefetch overrides
+    const defs = definitions as AlertDefinition[];
+    const alertTypeIds = [...new Set(defs.map(mapDefinitionToAlertTypeId).filter(Boolean))] as string[];
+    const overrides = await fetchOverridesByAlertType(supabase, orgId, alertTypeIds);
 
-    for (const def of definitions as AlertDefinition[]) {
+    for (const def of defs) {
       // Check scope
       if (!matchesScope(def, siteId, null, null)) continue;
 
@@ -105,8 +107,9 @@ export async function evaluateRealtime(
         continue;
       }
 
-      // Resolve overrides (equipment > site > org)
-      const override = resolveOverride(overrides, def.id, siteId, null);
+      // Resolve overrides by canonical alert_type_id (equipment > site > org)
+      const canonicalTypeId = mapDefinitionToAlertTypeId(def);
+      const override = resolveOverride(overrides, canonicalTypeId, siteId, null);
       if (override && !override.enabled) continue; // Silenced — skip
 
       const effectiveDef = applyOverride(def, override);
@@ -144,11 +147,12 @@ export async function evaluateCron(
 
     if (!definitions?.length) return;
 
-    // Prefetch all overrides for this org's definitions
-    const defIds = (definitions as AlertDefinition[]).map((d) => d.id);
-    const overrides = await fetchOverrides(supabase, defIds);
+    // Derive canonical alert_type_ids and prefetch overrides
+    const defs = definitions as AlertDefinition[];
+    const alertTypeIds = [...new Set(defs.map(mapDefinitionToAlertTypeId).filter(Boolean))] as string[];
+    const overrides = await fetchOverridesByAlertType(supabase, orgId, alertTypeIds);
 
-    for (const def of definitions as AlertDefinition[]) {
+    for (const def of defs) {
       // Skip realtime-only definitions
       if (def.eval_path === "realtime") continue;
 
@@ -163,9 +167,10 @@ export async function evaluateCron(
       const targets = await getTargetsForDefinition(supabase, def);
 
       for (const target of targets) {
-        // Resolve overrides for this target (equipment > site > org)
+        // Resolve overrides by canonical alert_type_id for this target (equipment > site > org)
+        const canonicalTypeId = mapDefinitionToAlertTypeId(def);
         const equipmentId = target.level === "entity" ? null : null; // entity targets don't have equipment_id directly
-        const override = resolveOverride(overrides, def.id, target.site_id, equipmentId);
+        const override = resolveOverride(overrides, canonicalTypeId, target.site_id, equipmentId);
         if (override && !override.enabled) continue; // Silenced — skip
 
         const effectiveDef = applyOverride(def, override);
@@ -774,17 +779,33 @@ async function processRepeats(
 
 // ─── Override Resolution ─────────────────────────────────────────────────────
 
+// TODO: Overrides will later map from alert definitions to canonical
+// `library_alert_types.alert_type_id` values (e.g. high_temperature, short_cycling).
+// Stubbed to return [] while the override architecture is being reworked.
 async function fetchOverrides(
-  supabase: SupabaseClient,
-  defIds: string[]
+  _supabase: SupabaseClient,
+  _defIds: string[]
 ): Promise<AlertOverride[]> {
-  if (defIds.length === 0) return [];
+  return [];
+}
+
+/**
+ * Fetches overrides from b_alert_overrides scoped to org + canonical alert_type_ids.
+ * Only pulls rows relevant to the current evaluation batch.
+ */
+async function fetchOverridesByAlertType(
+  supabase: SupabaseClient,
+  orgId: string,
+  alertTypeIds: string[]
+): Promise<AlertOverride[]> {
+  if (alertTypeIds.length === 0) return [];
   const { data, error } = await supabase
     .from("b_alert_overrides")
     .select("override_id, org_id, alert_type_id, site_id, equipment_id, threshold_override, severity_override, cooldown_override, enabled")
-    .in("alert_type_id", defIds);
+    .eq("org_id", orgId)
+    .in("alert_type_id", alertTypeIds);
   if (error) {
-    console.error("[fetchOverrides] b_alert_overrides query failed:", {
+    console.error("[fetchOverridesByAlertType] query failed:", {
       message: error.message,
       code: error.code,
       details: error.details,
@@ -796,24 +817,25 @@ async function fetchOverrides(
 
 function resolveOverride(
   overrides: AlertOverride[],
-  defId: string,
+  alertTypeId: string | null,
   siteId: string | null,
   equipmentId: string | null
 ): AlertOverride | null {
-  const defOverrides = overrides.filter((o) => o.alert_type_id === defId);
-  if (defOverrides.length === 0) return null;
+  if (!alertTypeId) return null;
+  const typeOverrides = overrides.filter((o) => o.alert_type_id === alertTypeId);
+  if (typeOverrides.length === 0) return null;
 
   // Most specific wins: equipment > site > org
   if (equipmentId) {
-    const equipMatch = defOverrides.find((o) => o.equipment_id === equipmentId);
+    const equipMatch = typeOverrides.find((o) => o.equipment_id === equipmentId);
     if (equipMatch) return equipMatch;
   }
   if (siteId) {
-    const siteMatch = defOverrides.find((o) => o.site_id === siteId && !o.equipment_id);
+    const siteMatch = typeOverrides.find((o) => o.site_id === siteId && !o.equipment_id);
     if (siteMatch) return siteMatch;
   }
   // Org-level: no site_id, no equipment_id
-  const orgMatch = defOverrides.find((o) => !o.site_id && !o.equipment_id);
+  const orgMatch = typeOverrides.find((o) => !o.site_id && !o.equipment_id);
   return orgMatch || null;
 }
 
@@ -826,6 +848,8 @@ function applyOverride(
     ...def,
     threshold_value: override.threshold_override ?? def.threshold_value,
     severity: override.severity_override ?? def.severity,
+    // cooldown_override maps to resolved_dead_time_minutes on the definition
+    resolved_dead_time_minutes: override.cooldown_override ?? def.resolved_dead_time_minutes,
   };
 }
 

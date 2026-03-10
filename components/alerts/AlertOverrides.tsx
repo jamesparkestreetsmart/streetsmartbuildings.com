@@ -5,16 +5,13 @@ import { useState, useEffect, useCallback } from "react";
 interface Override {
   override_id: string;
   org_id: string;
-  alert_def_id: string;
+  alert_type_id: string;
   site_id: string | null;
   equipment_id: string | null;
   threshold_override: number | null;
   severity_override: string | null;
   cooldown_override: number | null;
-  sustain_override_min: number | null;
   enabled: boolean;
-  silence_reason: string | null;
-  created_by: string | null;
   site_name: string | null;
   equipment_name: string | null;
 }
@@ -29,17 +26,16 @@ const defaultOverrideForm = {
   equipment_id: "",
   threshold_override: "",
   severity_override: "",
-  sustain_override_min: "",
+  cooldown_override: "",
   enabled: true,
-  silence_reason: "",
 };
 
 export default function AlertOverrides({
   orgId,
-  alertDefId,
+  alertTypeId,
 }: {
   orgId: string;
-  alertDefId: string;
+  alertTypeId: string;
 }) {
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +48,7 @@ export default function AlertOverrides({
   const fetchOverrides = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/alerts/overrides?alert_def_id=${alertDefId}`);
+      const res = await fetch(`/api/alerts/overrides?alert_type_id=${alertTypeId}&org_id=${orgId}`);
       const data = await res.json();
       setOverrides(data.overrides || []);
     } catch (err) {
@@ -60,7 +56,7 @@ export default function AlertOverrides({
     } finally {
       setLoading(false);
     }
-  }, [alertDefId]);
+  }, [alertTypeId, orgId]);
 
   const fetchSitesAndEquipment = useCallback(async () => {
     const [sitesRes, eqRes] = await Promise.all([
@@ -89,14 +85,13 @@ export default function AlertOverrides({
     try {
       const body: any = {
         org_id: orgId,
-        alert_def_id: alertDefId,
+        alert_type_id: alertTypeId,
         site_id: form.site_id || null,
         equipment_id: form.equipment_id || null,
         threshold_override: form.threshold_override ? parseFloat(form.threshold_override) : null,
         severity_override: form.severity_override || null,
-        sustain_override_min: form.sustain_override_min ? parseInt(form.sustain_override_min) : null,
+        cooldown_override: form.cooldown_override ? parseInt(form.cooldown_override) : null,
         enabled: form.enabled,
-        silence_reason: !form.enabled ? form.silence_reason : null,
       };
 
       const res = await fetch("/api/alerts/overrides", {
@@ -193,11 +188,11 @@ export default function AlertOverrides({
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-600">Sustain (min)</label>
+              <label className="text-xs font-medium text-gray-600">Cooldown (min)</label>
               <input
                 type="number"
-                value={form.sustain_override_min}
-                onChange={(e) => setForm({ ...form, sustain_override_min: e.target.value })}
+                value={form.cooldown_override}
+                onChange={(e) => setForm({ ...form, cooldown_override: e.target.value })}
                 placeholder="inherit"
                 className="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg"
               />
@@ -226,21 +221,12 @@ export default function AlertOverrides({
               />
               Enabled
             </label>
-            {!form.enabled && (
-              <input
-                type="text"
-                value={form.silence_reason}
-                onChange={(e) => setForm({ ...form, silence_reason: e.target.value })}
-                placeholder="Silence reason (required)"
-                className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-lg"
-              />
-            )}
           </div>
 
           <div className="flex justify-end">
             <button
               onClick={createOverride}
-              disabled={saving || (!form.enabled && !form.silence_reason)}
+              disabled={saving}
               className="px-3 py-1 bg-indigo-500 text-white text-xs font-medium rounded-lg hover:bg-indigo-600 disabled:opacity-50"
             >
               {saving ? "Saving..." : "Add Override"}
@@ -272,9 +258,9 @@ export default function AlertOverrides({
                     threshold: {o.threshold_override}
                   </span>
                 )}
-                {o.sustain_override_min !== null && (
+                {o.cooldown_override !== null && (
                   <span className="px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded border border-purple-200">
-                    sustain: {o.sustain_override_min}min
+                    cooldown: {o.cooldown_override}min
                   </span>
                 )}
                 {o.severity_override && (
@@ -290,7 +276,7 @@ export default function AlertOverrides({
                 )}
                 {!o.enabled && (
                   <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded border border-red-300">
-                    SILENCED: {o.silence_reason}
+                    DISABLED
                   </span>
                 )}
               </div>

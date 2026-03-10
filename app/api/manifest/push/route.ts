@@ -433,7 +433,6 @@ export async function POST(req: NextRequest) {
             supabase,
             site_id,
             devInfo.device_id,
-            zoneInfo?.hvac_zone_id || null,
             openTime!,
             calc
           );

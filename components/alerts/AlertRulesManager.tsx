@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import AlertOverrides from "./AlertOverrides";
+import { mapDefinitionToAlertTypeId } from "@/lib/alert-type-mapping";
 
 interface AlertDefinition {
   id: string;
@@ -1604,7 +1605,9 @@ export default function AlertRulesManager({
                           </>
                         )}
                       </div>
-                      <AlertOverrides orgId={orgId} alertDefId={def.id} />
+                      {mapDefinitionToAlertTypeId(def) && (
+                        <AlertOverrides orgId={orgId} alertTypeId={mapDefinitionToAlertTypeId(def)!} />
+                      )}
                     </div>
                   )}
                 </div>

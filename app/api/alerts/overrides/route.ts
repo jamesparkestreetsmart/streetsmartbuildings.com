@@ -9,34 +9,34 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// GET: List overrides for a definition, org, or silenced overrides
+// GET: List overrides by alert_type_id or org_id
 export async function GET(req: NextRequest) {
-  const alertDefId = req.nextUrl.searchParams.get("alert_def_id");
+  const alertTypeId = req.nextUrl.searchParams.get("alert_type_id");
   const orgId = req.nextUrl.searchParams.get("org_id");
   const silenced = req.nextUrl.searchParams.get("silenced");
 
-  if (!alertDefId && !orgId) {
-    return NextResponse.json({ error: "alert_def_id or org_id required" }, { status: 400 });
+  if (!alertTypeId && !orgId) {
+    return NextResponse.json({ error: "alert_type_id or org_id required" }, { status: 400 });
   }
 
   // Require admin for override management
-  const resolvedOrgId = orgId || (alertDefId ? (await supabase.from("b_alert_definitions").select("org_id").eq("id", alertDefId).single()).data?.org_id : null);
-  if (!resolvedOrgId) return NextResponse.json({ error: "Could not determine org" }, { status: 400 });
-  const auth = await requireAdminRole(resolvedOrgId);
+  if (!orgId) {
+    return NextResponse.json({ error: "org_id required" }, { status: 400 });
+  }
+  const auth = await requireAdminRole(orgId);
   if (auth instanceof NextResponse) return auth;
 
   let query = supabase
     .from("b_alert_overrides")
     .select("*")
+    .eq("org_id", orgId)
     .order("created_at", { ascending: false });
 
-  if (alertDefId) {
-    query = query.eq("alert_def_id", alertDefId);
-  } else if (orgId) {
-    query = query.eq("org_id", orgId);
-    if (silenced === "true") {
-      query = query.eq("enabled", false);
-    }
+  if (alertTypeId) {
+    query = query.eq("alert_type_id", alertTypeId);
+  }
+  if (silenced === "true") {
+    query = query.eq("enabled", false);
   }
 
   const { data: overrides, error } = await query;
@@ -79,36 +79,28 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   const {
-    org_id, alert_def_id, site_id, equipment_id,
-    threshold_override, severity_override, cooldown_override,
-    sustain_override_min, enabled, silence_reason,
+    org_id, alert_type_id, site_id, equipment_id,
+    threshold_override, severity_override, cooldown_override, enabled,
   } = body;
 
-  if (!org_id || !alert_def_id) {
-    return NextResponse.json({ error: "org_id and alert_def_id required" }, { status: 400 });
+  if (!org_id || !alert_type_id) {
+    return NextResponse.json({ error: "org_id and alert_type_id required" }, { status: 400 });
   }
 
   const auth = await requireAdminRole(org_id);
   if (auth instanceof NextResponse) return auth;
 
-  if (enabled === false && !silence_reason) {
-    return NextResponse.json({ error: "silence_reason required when disabling" }, { status: 400 });
-  }
-
   const { data: override, error } = await supabase
     .from("b_alert_overrides")
     .insert({
       org_id,
-      alert_def_id,
+      alert_type_id,
       site_id: site_id || null,
       equipment_id: equipment_id || null,
       threshold_override: threshold_override ?? null,
       severity_override: severity_override || null,
       cooldown_override: cooldown_override ?? null,
-      sustain_override_min: sustain_override_min ?? null,
       enabled: enabled ?? true,
-      silence_reason: silence_reason || null,
-      created_by: auth.email,
     })
     .select()
     .single();
@@ -136,14 +128,9 @@ export async function PATCH(req: NextRequest) {
   const auth = await requireAdminRole(existing.org_id);
   if (auth instanceof NextResponse) return auth;
 
-  if (updates.enabled === false && !updates.silence_reason) {
-    return NextResponse.json({ error: "silence_reason required when disabling" }, { status: 400 });
-  }
-
   const allowed = [
     "threshold_override", "severity_override", "cooldown_override",
-    "sustain_override_min", "enabled", "silence_reason",
-    "site_id", "equipment_id",
+    "enabled", "site_id", "equipment_id",
   ];
   const filtered: Record<string, any> = { updated_at: new Date().toISOString() };
   for (const key of allowed) {

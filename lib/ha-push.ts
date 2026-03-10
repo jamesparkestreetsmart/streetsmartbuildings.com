@@ -633,14 +633,14 @@ export async function executePushForSite(
   const today = siteLocalDate(new Date(), tz);
   const { data: ssLogs } = await supabase
     .from("b_smart_start_log")
-    .select("zone_id, offset_used_minutes")
+    .select("device_id, offset_used_minutes")
     .eq("site_id", siteId)
     .eq("date", today);
 
-  const ssByZone: Record<string, number> = {};
+  const ssByDevice: Record<string, number> = {};
   for (const ss of ssLogs || []) {
-    if (ss.zone_id && ss.offset_used_minutes > 0) {
-      ssByZone[ss.zone_id] = ss.offset_used_minutes;
+    if (ss.device_id && ss.offset_used_minutes > 0) {
+      ssByDevice[ss.device_id] = ss.offset_used_minutes;
     }
   }
 
@@ -1123,7 +1123,7 @@ export async function executePushForSite(
 
     // Smart Start adjustment
     let smartStartAdj = 0;
-    const ssOffset = ssByZone[zone.hvac_zone_id];
+    const ssOffset = ssByDevice[zone.thermostat_device_id];
     if (ssProfileEnabled && ssOffset && ssOffset > 0 && openMins !== null) {
       const windowStart = openMins - ssOffset;
       const isInSmartStartWindow = currentMins >= windowStart && currentMins < openMins;

@@ -14,7 +14,8 @@
       "Bash(cat:*)",
       "Bash(for table:*)",
       "Bash(git log:*)",
-      "Bash(npx jest:*)"
+      "Bash(npx jest:*)",
+      "Bash(grep -n \"library_alert_types\\\\|b_alert_definitions\" /c/Projects/EagleEyes/eagle-eyes-dashboard/app/\\\\\\(dashboard\\\\\\)/sites/\\\\[siteid\\\\]/equipment/\\\\[equipmentid\\\\]/individual-equipment/IndividualEquipmentClient.tsx 2>/dev/null)"
     ]
   }
 }
