@@ -39,7 +39,6 @@ interface AlertOverride {
   threshold_override: number | null;
   severity_override: string | null;
   cooldown_override: number | null;
-  sustain_override_min: number | null;
   enabled: boolean;
 }
 
@@ -183,7 +182,7 @@ export async function evaluateCron(
           try {
             const { data: existingStale } = await supabase
               .from("b_alert_instances")
-              .select("instance_id")
+              .select("id")
               .eq("target_level", target.level)
               .eq("target_id", target.id)
               .eq("status", "active")
@@ -782,7 +781,7 @@ async function fetchOverrides(
   if (defIds.length === 0) return [];
   const { data, error } = await supabase
     .from("b_alert_overrides")
-    .select("override_id, org_id, alert_type_id, site_id, equipment_id, threshold_override, severity_override, cooldown_override, sustain_override_min, enabled")
+    .select("override_id, org_id, alert_type_id, site_id, equipment_id, threshold_override, severity_override, cooldown_override, enabled")
     .in("alert_type_id", defIds);
   if (error) {
     console.error("[fetchOverrides] b_alert_overrides query failed:", {
@@ -827,7 +826,6 @@ function applyOverride(
     ...def,
     threshold_value: override.threshold_override ?? def.threshold_value,
     severity: override.severity_override ?? def.severity,
-    sustain_minutes: override.sustain_override_min ?? def.sustain_minutes,
   };
 }
 
