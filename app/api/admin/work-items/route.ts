@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   if (status) query = query.eq("status", status);
   if (work_type) query = query.eq("work_type", work_type);
   if (area) query = query.eq("area", area);
-  if (sprint) query = query.eq("sprint", sprint);
+  if (sprint) query = query.eq("sprint_label", sprint);
 
   const { data, error } = await query;
 
@@ -61,13 +61,28 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
+  const insertPayload = { ...body, org_id: SSB_ORG_ID };
+  console.log("[work-items] POST payload keys:", Object.keys(insertPayload));
+
   const { data, error } = await supabase
     .from("c_work_items")
-    .insert({ ...body, org_id: SSB_ORG_ID })
+    .insert(insertPayload)
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[work-items] POST error:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      payload: JSON.stringify(insertPayload),
+    });
+    return NextResponse.json(
+      { error: error.message, code: error.code, details: error.details, hint: error.hint },
+      { status: 500 }
+    );
+  }
 
   await supabase.from("b_records_log").insert({
     org_id: SSB_ORG_ID,

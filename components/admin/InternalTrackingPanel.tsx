@@ -232,6 +232,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalItem, setModalItem] = useState<Record<string, any> | null>(null);
   const [modalSaving, setModalSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   // Related item dropdowns
   const [allIssues, setAllIssues] = useState<{ id: string; title: string }[]>([]);
@@ -447,12 +448,14 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
 
   function openAddModal() {
     setModalItem({});
+    setModalError(null);
     setModalOpen(true);
     fetchRelatedDropdowns();
   }
 
   function openEditModal(item: AnyItem) {
     setModalItem({ ...item });
+    setModalError(null);
     setModalOpen(true);
     fetchRelatedDropdowns();
   }
@@ -496,6 +499,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
     }
 
     try {
+      setModalError(null);
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -505,7 +509,15 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
         closeModal();
         const filters = buildFilters(activeTab);
         fetchItems(activeTab, filters);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        const msg = errData.error || errData.message || `Save failed (${res.status})`;
+        setModalError(msg);
+        console.error("[InternalTrackingPanel] Save error:", res.status, errData);
       }
+    } catch (err: any) {
+      setModalError(err.message || "Network error");
+      console.error("[InternalTrackingPanel] Save exception:", err);
     } finally {
       setModalSaving(false);
     }
@@ -871,6 +883,11 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
             {activeTab === "work_items" && renderWorkItemFields()}
             {activeTab === "learnings" && renderLearningFields()}
           </div>
+          {modalError && (
+            <div className="mx-6 mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+              {modalError}
+            </div>
+          )}
           <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
             <button
               onClick={closeModal}

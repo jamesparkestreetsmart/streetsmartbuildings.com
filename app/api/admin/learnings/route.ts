@@ -55,13 +55,24 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
+  const insertPayload = { ...body, org_id: SSB_ORG_ID };
+
   const { data, error } = await supabase
     .from("c_learnings")
-    .insert({ ...body, org_id: SSB_ORG_ID })
+    .insert(insertPayload)
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[learnings] POST error:", {
+      message: error.message, code: error.code, details: error.details, hint: error.hint,
+      payload: JSON.stringify(insertPayload),
+    });
+    return NextResponse.json(
+      { error: error.message, code: error.code, details: error.details, hint: error.hint },
+      { status: 500 }
+    );
+  }
 
   await supabase.from("b_records_log").insert({
     org_id: SSB_ORG_ID,
