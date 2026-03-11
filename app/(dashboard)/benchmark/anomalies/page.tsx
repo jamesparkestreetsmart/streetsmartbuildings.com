@@ -202,8 +202,6 @@ export default function BenchmarkAnomaliesPage() {
         <select value={filters.equipmentId} onChange={e => updateFilter("equipmentId", e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5">
           <option value="">All HVAC Equipment</option>
           {filteredEquipments.hvac.map(e => <option key={e.equipment_id} value={e.equipment_id}>{e.equipment_name}{!filters.siteId && siteMap[e.site_id] ? ` (${siteMap[e.site_id]})` : ""}</option>)}
-          {filteredEquipments.other.length > 0 && <option disabled>── Other ──</option>}
-          {filteredEquipments.other.map(e => <option key={e.equipment_id} value={e.equipment_id}>{e.equipment_name}{!filters.siteId && siteMap[e.site_id] ? ` (${siteMap[e.site_id]})` : ""}</option>)}
         </select>
         <select value={filters.anomalyType} onChange={e => updateFilter("anomalyType", e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5">
           <option value="">All Types</option>
