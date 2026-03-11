@@ -159,6 +159,7 @@ const CATEGORY_COLORS = [
 ];
 
 function categoryColor(cat: string): string {
+  if (!cat) return CATEGORY_COLORS[0];
   const idx = LEARNING_CATEGORIES.indexOf(cat);
   return CATEGORY_COLORS[idx >= 0 ? idx : Math.abs(hashCode(cat)) % CATEGORY_COLORS.length];
 }
@@ -366,6 +367,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   // ---------------------------------------------------------------------------
 
   function handleTabChange(tab: Tab) {
+    setItems([]); // clear stale data before switching tab to prevent type mismatch renders
     setActiveTab(tab);
     setFilterStatus("__default__");
     setFilterSeverity("");
