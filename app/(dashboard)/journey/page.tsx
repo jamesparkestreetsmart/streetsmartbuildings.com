@@ -8,7 +8,7 @@ import IntegrationRoadmap from "@/components/IntegrationRoadmap";
 import IntegrationSpec from "@/components/IntegrationSpec";
 import GlobalOperationsPanel from "@/components/journey/GlobalOperationsPanel";
 import SSBGlobalProfilesPanel from "@/components/journey/SSBGlobalProfilesPanel";
-import PlatformIssuesPanel from "@/components/journey/PlatformIssuesPanel";
+import InternalTrackingPanel from "@/components/admin/InternalTrackingPanel";
 import SeasonalSnapshotsPanel from "@/components/journey/SeasonalSnapshotsPanel";
 
 const supabase = createClient(
@@ -504,10 +504,10 @@ export default function JourneyPage() {
         </div>
       )}
 
-      {/* Platform Issues Tracker — SSB1 only */}
+      {/* Internal Tracking (Issues / Work Items / Learnings) — SSB1 only */}
       {selectedOrgId && isSSBOrg && (
         <div className="mt-10 mb-10 max-w-5xl mx-auto">
-          <PlatformIssuesPanel orgId={selectedOrgId} isSSB={isSSBOrg} />
+          <InternalTrackingPanel />
         </div>
       )}
     </div>
