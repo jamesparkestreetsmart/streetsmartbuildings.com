@@ -123,6 +123,7 @@ export default function AlertRulesManager({
   const [collapsed, setCollapsed] = useState(false);
   const [expandedDef, setExpandedDef] = useState<string | null>(null);
   const [form, setForm] = useState({ ...defaultForm });
+  const [editingDefId, setEditingDefId] = useState<string | null>(null);
   const [totalSites, setTotalSites] = useState(0);
   const [watchingData, setWatchingData] = useState<WatchingSite[]>([]);
   const [watchingLoading, setWatchingLoading] = useState(false);
@@ -220,7 +221,61 @@ export default function AlertRulesManager({
     }
   }, [form.selectedEquipmentId, fetchSensorsForEquipment]);
 
-  // ─── Create definition ──────────────────────────────────────────────────
+  // ─── Edit definition — populate form from existing def ──────────────────
+  const handleEditDefinition = (def: AlertDefinition) => {
+    // Map AlertDefinition back to form state
+    const newForm = { ...defaultForm };
+    newForm.name = def.name;
+    newForm.description = def.description || "";
+    newForm.severity = def.severity;
+    newForm.entity_type = def.entity_type as typeof newForm.entity_type;
+    newForm.condition_type = def.condition_type;
+    newForm.threshold_value = def.threshold_value != null ? String(def.threshold_value) : "";
+    newForm.target_value = def.target_value || "";
+    newForm.target_value_type = def.target_value_type || "string";
+    newForm.stale_minutes = def.stale_minutes != null ? String(def.stale_minutes) : "30";
+    newForm.delta_value = def.delta_value != null ? String(def.delta_value) : "";
+    newForm.delta_direction = def.delta_direction || "any";
+    newForm.window_minutes = def.window_minutes != null ? String(def.window_minutes) : "15";
+    newForm.sustain_minutes = String(def.sustain_minutes ?? 0);
+    newForm.resolved_dead_time_minutes = String(def.resolved_dead_time_minutes ?? 0);
+
+    // Sensor selection
+    if (def.entity_type === "sensor") {
+      if (def.equipment_type) {
+        newForm.sensorMode = "equipment_type";
+        newForm.selectedEquipmentType = def.equipment_type;
+        newForm.selectedSensorType = def.sensor_role || "";
+      } else if (def.entity_id) {
+        newForm.sensorMode = "specific_equipment";
+        newForm.selectedEntityId = def.entity_id;
+      }
+    } else if (def.entity_type === "derived") {
+      newForm.derived_metric = def.derived_metric || "";
+    } else if (def.entity_type === "anomaly") {
+      newForm.anomaly_type = def.anomaly_type || "";
+    }
+
+    // Scope
+    if (def.scope_mode === "all") {
+      newForm.scopeChoice = "all";
+    } else if (def.scope_level === "site" && def.scope_mode === "include") {
+      newForm.scopeChoice = "include_sites";
+      newForm.scopeSiteIds = def.scope_ids || [];
+    } else if (def.scope_level === "site" && def.scope_mode === "exclude") {
+      newForm.scopeChoice = "exclude_sites";
+      newForm.scopeSiteIds = def.scope_ids || [];
+    } else if (def.scope_level === "equipment" && def.scope_mode === "include") {
+      newForm.scopeChoice = "specific_equipment";
+      newForm.scopeEquipmentIds = def.scope_ids || [];
+    }
+
+    setForm(newForm);
+    setEditingDefId(def.id);
+    setShowCreate(true);
+  };
+
+  // ─── Create / Update definition ───────────────────────────────────────────
   const createDefinition = async () => {
     setSaving(true);
     try {
@@ -290,10 +345,15 @@ export default function AlertRulesManager({
         body.window_minutes = parseInt(form.window_minutes) || 15;
       }
 
-      console.log("[AlertRulesManager] POST body:", JSON.stringify(body, null, 2));
+      const isEdit = !!editingDefId;
+      if (isEdit) {
+        body.id = editingDefId;
+      }
+
+      console.log(`[AlertRulesManager] ${isEdit ? "PATCH" : "POST"} body:`, JSON.stringify(body, null, 2));
 
       const res = await fetch("/api/alerts/rules", {
-        method: "POST",
+        method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -303,9 +363,16 @@ export default function AlertRulesManager({
         return;
       }
       if (data.definition) {
-        setDefinitions((prev) => [{ ...data.definition, active_instances: 0, subscriber_count: 0, my_subscription: null }, ...prev]);
+        if (isEdit) {
+          setDefinitions((prev) =>
+            prev.map((d) => (d.id === editingDefId ? { ...d, ...data.definition } : d))
+          );
+        } else {
+          setDefinitions((prev) => [{ ...data.definition, active_instances: 0, subscriber_count: 0, my_subscription: null }, ...prev]);
+        }
         setShowCreate(false);
         setForm({ ...defaultForm });
+        setEditingDefId(null);
       }
     } catch (err) {
       console.error("Failed to create definition:", err);
@@ -677,7 +744,7 @@ export default function AlertRulesManager({
         <div className="flex items-center gap-2">
           {!collapsed && (
             <span
-              onClick={(e) => { e.stopPropagation(); setShowCreate(!showCreate); }}
+              onClick={(e) => { e.stopPropagation(); setShowCreate(!showCreate); setEditingDefId(null); setForm({ ...defaultForm }); }}
               className="text-sm bg-amber-600 hover:bg-amber-700 px-3 py-1 rounded-lg transition-colors cursor-pointer"
             >
               + New Definition
@@ -692,7 +759,7 @@ export default function AlertRulesManager({
           {/* ═══════ Create Form ═══════ */}
           {showCreate && (
             <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-4">
-              <h4 className="font-medium text-gray-900">New Alert Definition</h4>
+              <h4 className="font-medium text-gray-900">{editingDefId ? "Edit Alert Definition" : "New Alert Definition"}</h4>
 
               {/* ─── Section 1: Name & Description ─── */}
               <div className="grid grid-cols-2 gap-3">
@@ -1224,7 +1291,7 @@ export default function AlertRulesManager({
               {/* ─── Section 5: Create ─── */}
               <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
                 <button
-                  onClick={() => { setShowCreate(false); setForm({ ...defaultForm }); }}
+                  onClick={() => { setShowCreate(false); setForm({ ...defaultForm }); setEditingDefId(null); }}
                   className="px-3 py-1.5 text-sm text-gray-600"
                 >
                   Cancel
@@ -1240,7 +1307,7 @@ export default function AlertRulesManager({
                   }
                   className="px-4 py-1.5 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600 disabled:opacity-50"
                 >
-                  {saving ? "Creating..." : "Create Definition"}
+                  {saving ? (editingDefId ? "Saving..." : "Creating...") : (editingDefId ? "Save Changes" : "Create Definition")}
                 </button>
               </div>
             </div>
@@ -1295,6 +1362,12 @@ export default function AlertRulesManager({
                           + Subscribe
                         </button>
                       )}
+                      <button
+                        onClick={() => handleEditDefinition(def)}
+                        className="text-xs text-indigo-500 hover:text-indigo-700"
+                      >
+                        Edit
+                      </button>
                       <button
                         onClick={() => deleteDefinition(def.id)}
                         className="text-xs text-red-400 hover:text-red-600"

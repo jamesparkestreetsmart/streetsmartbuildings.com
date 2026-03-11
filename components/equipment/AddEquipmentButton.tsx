@@ -186,12 +186,13 @@ export default function AddEquipmentButton({ siteId }: { siteId: string }) {
 
     setLoading(true);
 
-    // Duplicate check before insert
+    // Duplicate check before insert (case-insensitive to prevent near-duplicates)
     const { data: existing, error: checkErr } = await supabase
       .from("a_equipments")
       .select("equipment_id")
       .eq("site_id", siteId)
-      .eq("equipment_name", equipmentName.trim());
+      .ilike("equipment_name", equipmentName.trim())
+      .is("retired_at", null);
 
     if (checkErr) {
       console.error("Duplicate check error:", checkErr);
