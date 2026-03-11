@@ -730,10 +730,10 @@ async function processRepeats(
         if ((count || 0) >= sub.max_repeats) continue;
       }
 
-      // Check repeat interval
+      // Check repeat interval — look at last notification of ANY type for timing
       const { data: lastNotif } = await supabase
         .from("b_alert_notifications")
-        .select("created_at, repeat_number")
+        .select("created_at")
         .eq("instance_id", instance.id)
         .eq("subscription_id", sub.id)
         .order("created_at", { ascending: false })
@@ -745,7 +745,19 @@ async function processRepeats(
         if (Date.now() - lastSent < intervalMs) continue;
       }
 
-      const repeatNumber = (lastNotif?.[0]?.repeat_number || 0) + 1;
+      // Get highest repeat_number from previous repeat notifications only.
+      // Must filter to notification_type="repeat" because "fired"/"resolved"
+      // rows have repeat_number=null/0, which would reset the counter to 1.
+      const { data: lastRepeat } = await supabase
+        .from("b_alert_notifications")
+        .select("repeat_number")
+        .eq("instance_id", instance.id)
+        .eq("subscription_id", sub.id)
+        .eq("notification_type", "repeat")
+        .order("repeat_number", { ascending: false })
+        .limit(1);
+
+      const repeatNumber = ((lastRepeat?.[0]?.repeat_number) || 0) + 1;
       const { title, message } = buildNotificationContent(
         def as AlertDefinition, "repeat", instance.target_name, null
       );
