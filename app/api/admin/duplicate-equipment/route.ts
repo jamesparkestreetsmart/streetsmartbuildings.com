@@ -35,80 +35,81 @@ const FK_TABLES = [
 ];
 
 export async function GET(req: NextRequest) {
-  const orgId = req.nextUrl.searchParams.get("org_id");
-  const name = req.nextUrl.searchParams.get("name");
-  const equipmentId = req.nextUrl.searchParams.get("equipment_id");
+  try {
+    const orgId = req.nextUrl.searchParams.get("org_id");
+    const name = req.nextUrl.searchParams.get("name");
+    const equipmentId = req.nextUrl.searchParams.get("equipment_id");
 
-  // ── Single equipment FK reference check ──
-  if (equipmentId) {
-    const refs: Record<string, number> = {};
-    for (const { table, col } of FK_TABLES) {
-      try {
-        const { count } = await supabase
+    // ── Single equipment FK reference check ──
+    if (equipmentId) {
+      const refs: Record<string, number> = {};
+      for (const { table, col } of FK_TABLES) {
+        const { count, error } = await supabase
           .from(table)
           .select(col, { count: "exact", head: true })
           .eq(col, equipmentId);
-        refs[table] = count ?? 0;
-      } catch {
-        refs[table] = -1; // table might not exist
+        refs[table] = error ? -1 : (count ?? 0);
       }
+      return NextResponse.json({ equipment_id: equipmentId, references: refs });
     }
-    return NextResponse.json({ equipment_id: equipmentId, references: refs });
-  }
 
-  if (!orgId) {
-    return NextResponse.json({ error: "org_id required" }, { status: 400 });
-  }
+    if (!orgId) {
+      return NextResponse.json({ error: "org_id required" }, { status: 400 });
+    }
 
-  const auth = await requireAdminRole(orgId);
-  if (auth instanceof NextResponse) return auth;
+    const auth = await requireAdminRole(orgId);
+    if (auth instanceof NextResponse) return auth;
 
-  // ── Search for specific name across all sites ──
-  if (name) {
-    const { data, error } = await supabase
+    // ── Search for specific name across all sites ──
+    if (name) {
+      const { data, error } = await supabase
+        .from("a_equipments")
+        .select("equipment_id, equipment_name, site_id, equipment_group, equipment_type_id, status, created_at, updated_at, retired_at")
+        .eq("org_id", orgId)
+        .ilike("equipment_name", `%${name}%`)
+        .order("site_id")
+        .order("created_at");
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ matches: data });
+    }
+
+    // ── Org-wide duplicate scan: active equipment with same name at same site ──
+    const { data: allEquip, error } = await supabase
       .from("a_equipments")
-      .select("equipment_id, equipment_name, site_id, equipment_group, equipment_type_id, status, created_at, updated_at, retired_at")
+      .select("equipment_id, equipment_name, site_id, equipment_group, status, created_at, retired_at")
       .eq("org_id", orgId)
-      .ilike("equipment_name", `%${name}%`)
+      .is("retired_at", null)
       .order("site_id")
-      .order("created_at");
+      .order("equipment_name");
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ matches: data });
+
+    // Group by (site_id, lower(name)) and find duplicates
+    const groups: Record<string, typeof allEquip> = {};
+    for (const eq of allEquip || []) {
+      const key = `${eq.site_id}::${eq.equipment_name.toLowerCase()}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(eq);
+    }
+
+    const duplicates = Object.entries(groups)
+      .filter(([, items]) => items.length > 1)
+      .map(([key, items]) => ({ key, count: items.length, items }));
+
+    return NextResponse.json({
+      total_active_equipment: (allEquip || []).length,
+      duplicate_groups: duplicates.length,
+      duplicates,
+    });
+  } catch (err: any) {
+    console.error("[duplicate-equipment] GET error:", err);
+    return NextResponse.json({ error: err.message || "Internal error", stack: err.stack }, { status: 500 });
   }
-
-  // ── Org-wide duplicate scan: active equipment with same name at same site ──
-  // Supabase doesn't support GROUP BY / HAVING, so fetch all active and detect client-side
-  const { data: allEquip, error } = await supabase
-    .from("a_equipments")
-    .select("equipment_id, equipment_name, site_id, equipment_group, status, created_at, retired_at")
-    .eq("org_id", orgId)
-    .is("retired_at", null)
-    .order("site_id")
-    .order("equipment_name");
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // Group by (site_id, lower(name)) and find duplicates
-  const groups: Record<string, typeof allEquip> = {};
-  for (const eq of allEquip || []) {
-    const key = `${eq.site_id}::${eq.equipment_name.toLowerCase()}`;
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(eq);
-  }
-
-  const duplicates = Object.entries(groups)
-    .filter(([, items]) => items.length > 1)
-    .map(([key, items]) => ({ key, count: items.length, items }));
-
-  return NextResponse.json({
-    total_active_equipment: (allEquip || []).length,
-    duplicate_groups: duplicates.length,
-    duplicates,
-  });
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const { canonical_id, duplicate_id } = await req.json();
 
   if (!canonical_id || !duplicate_id) {
@@ -204,4 +205,8 @@ export async function POST(req: NextRequest) {
     retire_error: retireErr?.message || null,
     remapped,
   });
+  } catch (err: any) {
+    console.error("[duplicate-equipment] POST error:", err);
+    return NextResponse.json({ error: err.message || "Internal error", stack: err.stack }, { status: 500 });
+  }
 }
