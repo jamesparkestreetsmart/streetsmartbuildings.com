@@ -209,8 +209,8 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   const [items, setItems] = useState<AnyItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filters
-  const [filterStatus, setFilterStatus] = useState<string>("");
+  // Filters — "__default__" = initial load (apply default active statuses), "" = user chose "All"
+  const [filterStatus, setFilterStatus] = useState<string>("__default__");
   const [filterSeverity, setFilterSeverity] = useState<string>("");
   const [filterIssueType, setFilterIssueType] = useState<string>("");
   const [filterWorkType, setFilterWorkType] = useState<string>("");
@@ -252,17 +252,17 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
 
       const params = new URLSearchParams();
       Object.entries(filters).forEach(([k, v]) => {
-        if (v) params.set(k, v);
+        if (v && k !== "_default") params.set(k, v);
       });
 
       const res = await fetch(`${base}?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
 
-      // Client-side default filter for multi-status
-      if (tab === "issues" && !filters.status) {
+      // Client-side default filter — only on initial load ("__default__")
+      if (tab === "issues" && filters._default) {
         setItems(data.filter((i: PlatformIssue) => ISSUE_DEFAULT_STATUSES.includes(i.status)));
-      } else if (tab === "work_items" && !filters.status) {
+      } else if (tab === "work_items" && filters._default) {
         setItems(data.filter((i: WorkItem) => WORK_DEFAULT_STATUSES.includes(i.status)));
       } else {
         setItems(data);
@@ -338,16 +338,20 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   }, [expandedRowId, activeTab, fetchComments]);
 
   function buildFilters(tab: Tab): Record<string, string> {
+    const isDefault = filterStatus === "__default__";
+    const statusVal = isDefault ? "" : filterStatus; // "" = no server filter, specific value = server filter
     if (tab === "issues") {
       return {
-        ...(filterStatus ? { status: filterStatus } : {}),
+        ...(isDefault ? { _default: "1" } : {}),
+        ...(statusVal ? { status: statusVal } : {}),
         ...(filterSeverity ? { severity: filterSeverity } : {}),
         ...(filterIssueType ? { issue_type: filterIssueType } : {}),
       };
     }
     if (tab === "work_items") {
       return {
-        ...(filterStatus ? { status: filterStatus } : {}),
+        ...(isDefault ? { _default: "1" } : {}),
+        ...(statusVal ? { status: statusVal } : {}),
         ...(filterWorkType ? { work_type: filterWorkType } : {}),
         ...(filterArea ? { area: filterArea } : {}),
       };
@@ -363,7 +367,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
 
   function handleTabChange(tab: Tab) {
     setActiveTab(tab);
-    setFilterStatus("");
+    setFilterStatus("__default__");
     setFilterSeverity("");
     setFilterIssueType("");
     setFilterWorkType("");
@@ -514,8 +518,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
       <div className="flex flex-wrap items-center gap-3 px-4 py-3 bg-gray-50 border-b">
         {activeTab === "issues" && (
           <>
-            <FilterSelect
-              label="Status"
+            <StatusFilterSelect
               value={filterStatus}
               onChange={setFilterStatus}
               options={ISSUE_STATUSES}
@@ -536,8 +539,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
         )}
         {activeTab === "work_items" && (
           <>
-            <FilterSelect
-              label="Status"
+            <StatusFilterSelect
               value={filterStatus}
               onChange={setFilterStatus}
               options={WORK_STATUSES}
@@ -1060,6 +1062,35 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
 // ---------------------------------------------------------------------------
 // Shared field components (inline)
 // ---------------------------------------------------------------------------
+
+function StatusFilterSelect({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <label className="text-xs font-medium text-gray-500">Status:</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="border rounded px-2 py-1 text-xs bg-white"
+      >
+        <option value="__default__">Active</option>
+        <option value="">All</option>
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o.replace(/_/g, " ")}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 function FilterSelect({
   label,
