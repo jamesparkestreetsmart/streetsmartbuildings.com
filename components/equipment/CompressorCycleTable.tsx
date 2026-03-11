@@ -102,6 +102,7 @@ export default function CompressorCycleTable({ siteId }: Props) {
     if (row.equipment_id) params.set("equipmentId", row.equipment_id);
     if (siteId) params.set("siteId", siteId);
     if (row.hvac_mode) params.set("mode", row.hvac_mode);
+    if (siteId) params.set("returnTo", `/sites/${siteId}?tab=space-hvac`);
     router.push(`/benchmark/compressor-cycles?${params.toString()}`);
   };
 

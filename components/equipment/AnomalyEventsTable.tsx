@@ -162,6 +162,7 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
     if (row.equipment_id) params.set("equipmentId", row.equipment_id);
     if (siteId) params.set("siteId", siteId);
     if (row.anomaly_type) params.set("anomalyType", row.anomaly_type);
+    if (siteId) params.set("returnTo", `/sites/${siteId}?tab=space-hvac`);
     router.push(`/benchmark/anomalies?${params.toString()}`);
   };
 
