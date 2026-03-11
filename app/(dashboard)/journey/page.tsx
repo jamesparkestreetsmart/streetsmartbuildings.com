@@ -7,6 +7,7 @@ import { useOrg } from "@/context/OrgContext";
 import GlobalOperationsPanel from "@/components/journey/GlobalOperationsPanel";
 import SSBGlobalProfilesPanel from "@/components/journey/SSBGlobalProfilesPanel";
 import PlatformIssuesPanel from "@/components/journey/PlatformIssuesPanel";
+import SeasonalSnapshotsPanel from "@/components/journey/SeasonalSnapshotsPanel";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -479,6 +480,13 @@ export default function JourneyPage() {
           ) : (
             <GlobalOperationsPanel orgId={selectedOrgId} />
           )}
+        </div>
+      )}
+
+      {/* Seasonal Snapshots — customer orgs only */}
+      {selectedOrgId && !isSSBOrg && (
+        <div className="mt-10 max-w-5xl mx-auto">
+          <SeasonalSnapshotsPanel orgId={selectedOrgId} />
         </div>
       )}
 

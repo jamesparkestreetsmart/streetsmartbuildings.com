@@ -147,6 +147,13 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
   const [pushResult, setPushResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
+  // ─── Zone-selector Push State (for "Push to Zones" per profile) ──────────
+  const [zonePushProfile, setZonePushProfile] = useState<ThermostatProfile | null>(null);
+  const [zonePushStep, setZonePushStep] = useState<1 | 2 | 3>(1);
+  const [zonePushSelected, setZonePushSelected] = useState<Set<string>>(new Set());
+  const [zonePushPushing, setZonePushPushing] = useState(false);
+  const [zonePushResult, setZonePushResult] = useState<any>(null);
+
   // ─── Derived: checked + dirty field count ──────────────────────────────────
   const activeFieldCount = [...checkedKeys].filter((k) => dirtyKeys.has(k)).length;
 
@@ -666,6 +673,44 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
       setShowConfirm(false);
     }
   };
+
+  // ─── Push: Profile to Selected Zones (zone selector modal) ────────────────
+  const openZonePush = (profile: ThermostatProfile) => {
+    setZonePushProfile(profile);
+    setZonePushStep(1);
+    setZonePushResult(null);
+    // Select all org zones by default
+    setZonePushSelected(new Set(zones.map((z) => z.hvac_zone_id)));
+  };
+
+  const confirmZonePush = async () => {
+    if (!zonePushProfile) return;
+    setZonePushPushing(true);
+    try {
+      const res = await fetch(`/api/thermostat/org-profiles/${zonePushProfile.profile_id}/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ org_id: orgId, zone_ids: Array.from(zonePushSelected) }),
+      });
+      const data = await res.json();
+      setZonePushResult(data);
+      setZonePushStep(3);
+    } catch {
+      setZonePushResult({ error: "Push failed" });
+      setZonePushStep(3);
+    }
+    setZonePushPushing(false);
+  };
+
+  const closeZonePush = () => {
+    setZonePushProfile(null);
+    setZonePushResult(null);
+    setZonePushStep(1);
+  };
+
+  const zonePushSelectedSites = zonePushProfile
+    ? new Set(zones.filter((z) => zonePushSelected.has(z.hvac_zone_id)).map((z) => z.site_name)).size
+    : 0;
 
   // ─── Push: Store Hours ─────────────────────────────────────────────────────
   const pushStoreHours = async () => {
@@ -1216,8 +1261,8 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                         <div>Unocc Heat: {profile.unoccupied_heat_f}{"\u00B0"}F</div>
                         <div>Unocc Cool: {profile.unoccupied_cool_f}{"\u00B0"}F</div>
                       </div>
-                      {(profile.target_zone_types ?? []).length > 0 && (
-                        <div className="mt-2 flex justify-end" onClick={(e) => e.stopPropagation()}>
+                      <div className="mt-2 flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                        {(profile.target_zone_types ?? []).length > 0 && (
                           <button
                             onClick={() => handleReapplyThermostat(profile.profile_id)}
                             disabled={reapplyingThermostatId === profile.profile_id}
@@ -1225,8 +1270,14 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
                           >
                             {reapplyingThermostatId === profile.profile_id ? "..." : "Re-apply"}
                           </button>
-                        </div>
-                      )}
+                        )}
+                        <button
+                          onClick={() => openZonePush(profile)}
+                          className="px-2 py-0.5 text-[10px] font-medium text-white bg-green-600 rounded hover:bg-green-700"
+                        >
+                          Push to Zones
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1547,6 +1598,137 @@ export default function GlobalOperationsPanel({ orgId }: GlobalOperationsPanelPr
           </div>
         )}
       </div>
+
+      {/* ========== ZONE PUSH MODAL (3 steps) ========== */}
+      {zonePushProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto">
+            {zonePushStep === 1 && (
+              <>
+                <div className="px-6 py-4 border-b sticky top-0 bg-white">
+                  <h3 className="text-lg font-semibold text-gray-900">Push: {zonePushProfile.profile_name}</h3>
+                  <p className="text-sm text-gray-500 mt-1">Select zones to push this profile to. Deselect any you want to skip.</p>
+                </div>
+                <div className="px-6 py-4 space-y-4">
+                  {zonesBySite.map(([siteName, siteZones]) => {
+                    const allSelected = siteZones.every((z) => zonePushSelected.has(z.hvac_zone_id));
+                    return (
+                      <div key={siteName}>
+                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={() => {
+                              setZonePushSelected((prev) => {
+                                const next = new Set(prev);
+                                for (const z of siteZones) {
+                                  if (allSelected) next.delete(z.hvac_zone_id); else next.add(z.hvac_zone_id);
+                                }
+                                return next;
+                              });
+                            }}
+                            className="rounded"
+                          />
+                          {siteName}
+                        </label>
+                        <div className="ml-6 space-y-1">
+                          {siteZones.map((z) => (
+                            <label key={z.hvac_zone_id} className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={zonePushSelected.has(z.hvac_zone_id)}
+                                onChange={() => {
+                                  setZonePushSelected((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(z.hvac_zone_id)) next.delete(z.hvac_zone_id); else next.add(z.hvac_zone_id);
+                                    return next;
+                                  });
+                                }}
+                                className="rounded"
+                              />
+                              {z.name}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <p className="text-sm font-medium text-gray-700 pt-2">
+                    {zonePushSelected.size} zones selected across {zonePushSelectedSites} sites
+                  </p>
+                </div>
+                <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+                  <button onClick={closeZonePush} className="px-4 py-2 text-sm text-gray-700 bg-white border rounded-md hover:bg-gray-50">Cancel</button>
+                  <button
+                    onClick={() => setZonePushStep(2)}
+                    disabled={zonePushSelected.size === 0}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            )}
+            {zonePushStep === 2 && (
+              <>
+                <div className="px-6 py-4 border-b">
+                  <h3 className="text-lg font-semibold text-gray-900">Confirm Push</h3>
+                </div>
+                <div className="px-6 py-6">
+                  <p className="text-sm text-gray-700">
+                    Push <strong>{zonePushProfile.profile_name}</strong> to <strong>{zonePushSelected.size} zones</strong>?
+                    This will overwrite their current profile assignments and sync all setpoint values.
+                  </p>
+                  <p className="text-sm text-gray-500 mt-3">
+                    The thermostat enforce cron will apply the new settings on its next cycle.
+                  </p>
+                </div>
+                <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+                  <button onClick={() => setZonePushStep(1)} className="px-4 py-2 text-sm text-gray-700 bg-white border rounded-md hover:bg-gray-50">Back</button>
+                  <button
+                    onClick={confirmZonePush}
+                    disabled={zonePushPushing}
+                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {zonePushPushing ? "Pushing..." : "Confirm Push"}
+                  </button>
+                </div>
+              </>
+            )}
+            {zonePushStep === 3 && zonePushResult && (
+              <>
+                <div className="px-6 py-4 border-b">
+                  <h3 className="text-lg font-semibold text-gray-900">Push Complete</h3>
+                </div>
+                <div className="px-6 py-6 space-y-2">
+                  {zonePushResult.error ? (
+                    <p className="text-sm text-red-600">{zonePushResult.error}</p>
+                  ) : (
+                    <>
+                      <p className="text-sm text-gray-700">Zones updated: <strong>{zonePushResult.pushed}</strong></p>
+                      <p className="text-sm text-gray-700">Sites affected: <strong>{zonePushResult.sites_affected}</strong></p>
+                      {zonePushResult.skipped > 0 && (
+                        <p className="text-sm text-amber-600">Skipped: {zonePushResult.skipped}</p>
+                      )}
+                      {zonePushResult.errors?.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-sm font-medium text-red-600">Errors:</p>
+                          {zonePushResult.errors.map((e: string, i: number) => (
+                            <p key={i} className="text-xs text-red-500">{e}</p>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+                <div className="flex justify-end px-6 py-4 border-t bg-gray-50">
+                  <button onClick={closeZonePush} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Done</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
