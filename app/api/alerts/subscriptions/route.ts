@@ -111,14 +111,13 @@ export async function POST(req: NextRequest) {
     alert_def_id, dashboard_enabled, email_enabled, sms_enabled,
     repeat_enabled, repeat_interval_min, max_repeats,
     send_resolved, quiet_hours_override, quiet_start, quiet_end, timezone,
-    email_override, sms_override,
   } = body;
 
   if (!alert_def_id) {
     return NextResponse.json({ error: "alert_def_id required" }, { status: 400 });
   }
 
-  // Build payload with only core fields that definitely exist on the table
+  // Build payload with only core fields that exist on the table
   // Dashboard is always on — ignore client value
   const payload: Record<string, any> = {
     dashboard_enabled: true,
@@ -136,8 +135,6 @@ export async function POST(req: NextRequest) {
   if (quiet_start !== undefined) payload.quiet_start = quiet_start ?? null;
   if (quiet_end !== undefined) payload.quiet_end = quiet_end ?? null;
   if (timezone !== undefined) payload.timezone = timezone;
-  if (email_override !== undefined) payload.email_override = email_override ?? null;
-  if (sms_override !== undefined) payload.sms_override = sms_override ?? null;
 
   // Look up org_id from the definition
   const { data: def } = await supabase

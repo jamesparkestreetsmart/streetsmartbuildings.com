@@ -35,8 +35,6 @@ interface SubscriptionDef {
     repeat_interval_min: number;
     max_repeats: number | null;
     send_resolved: boolean;
-    email_override: string | null;
-    sms_override: string | null;
     enabled: boolean;
   } | null;
 }
@@ -63,8 +61,6 @@ export default function AlertSubscriptions({
     repeat_enabled: boolean;
     repeat_interval_min: number;
     send_resolved: boolean;
-    email_override: string;
-    sms_override: string;
   } | null>(null);
 
   const fetchSubscriptions = useCallback(async () => {
@@ -99,8 +95,6 @@ export default function AlertSubscriptions({
         repeat_enabled: def.subscription.repeat_enabled,
         repeat_interval_min: def.subscription.repeat_interval_min || 0,
         send_resolved: def.subscription.send_resolved,
-        email_override: def.subscription.email_override || "",
-        sms_override: def.subscription.sms_override || "",
       });
     }
   };
@@ -115,8 +109,6 @@ export default function AlertSubscriptions({
         body: JSON.stringify({
           alert_def_id: defId,
           ...editState,
-          email_override: editState.email_override || null,
-          sms_override: editState.sms_override || null,
         }),
       });
       const data = await res.json();
@@ -279,44 +271,22 @@ export default function AlertSubscriptions({
                           <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Channels</label>
                           <p className="mt-1 text-xs text-gray-400">Dashboard notifications are always on.</p>
                           <div className="mt-2 space-y-2">
-                            <div className="flex items-center gap-2">
-                              <label className="flex items-center gap-2 text-sm">
-                                <input
-                                  type="checkbox"
-                                  checked={editState.email_enabled}
-                                  onChange={(e) => setEditState({ ...editState, email_enabled: e.target.checked })}
-                                />
-                                Email
-                              </label>
-                              {editState.email_enabled && (
-                                <input
-                                  type="email"
-                                  value={editState.email_override}
-                                  onChange={(e) => setEditState({ ...editState, email_override: e.target.value })}
-                                  placeholder="Use profile email"
-                                  className="px-2 py-1 text-xs border border-gray-300 rounded-lg w-56"
-                                />
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <label className="flex items-center gap-2 text-sm">
-                                <input
-                                  type="checkbox"
-                                  checked={editState.sms_enabled}
-                                  onChange={(e) => setEditState({ ...editState, sms_enabled: e.target.checked })}
-                                />
-                                SMS
-                              </label>
-                              {editState.sms_enabled && (
-                                <input
-                                  type="tel"
-                                  value={editState.sms_override}
-                                  onChange={(e) => setEditState({ ...editState, sms_override: e.target.value })}
-                                  placeholder="Use profile phone"
-                                  className="px-2 py-1 text-xs border border-gray-300 rounded-lg w-44"
-                                />
-                              )}
-                            </div>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={editState.email_enabled}
+                                onChange={(e) => setEditState({ ...editState, email_enabled: e.target.checked })}
+                              />
+                              Email
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={editState.sms_enabled}
+                                onChange={(e) => setEditState({ ...editState, sms_enabled: e.target.checked })}
+                              />
+                              SMS
+                            </label>
                           </div>
                         </div>
 
