@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { getSourceLabel, getSourceBadgeClass } from "@/lib/source-labels";
+import TopScrollbar from "@/components/ui/TopScrollbar";
 import Link from "next/link";
 import {
   Tooltip,
@@ -490,7 +492,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
+      <TopScrollbar>
         <table className="w-full text-sm" style={{ minWidth: 4800 }}>
           <thead>
             {/* Row 1: Group labels */}
@@ -792,12 +794,8 @@ export default function SpaceHvacTable({ siteId }: Props) {
                       {/* G3: Source (rowSpan) */}
                       {isFirst && (
                         <td className={`${TD} align-top`} rowSpan={rowCount}>
-                          <span className={`px-2 py-0.5 rounded font-medium ${
-                            group.tempSource === "Zone Avg"
-                              ? "bg-blue-50 text-blue-700"
-                              : "bg-gray-100 text-gray-600"
-                          }`}>
-                            {group.tempSource}
+                          <span className={`px-2 py-0.5 rounded font-medium ${getSourceBadgeClass(group.tempSource)}`}>
+                            {getSourceLabel(group.tempSource)}
                           </span>
                         </td>
                       )}
@@ -1020,7 +1018,7 @@ export default function SpaceHvacTable({ siteId }: Props) {
             )}
           </tbody>
         </table>
-      </div>
+      </TopScrollbar>
     </div>
   );
 }

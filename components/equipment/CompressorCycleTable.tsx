@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -89,10 +91,19 @@ const TD = "py-2 px-3 whitespace-nowrap text-xs";
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function CompressorCycleTable({ siteId }: Props) {
+  const router = useRouter();
   const [rows, setRows] = useState<CycleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+
+  const handleRowDrillThrough = (row: CycleRow) => {
+    const params = new URLSearchParams();
+    if (row.equipment_id) params.set("equipmentId", row.equipment_id);
+    if (siteId) params.set("siteId", siteId);
+    if (row.hvac_mode) params.set("mode", row.hvac_mode);
+    router.push(`/benchmark/compressor-cycles?${params.toString()}`);
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -139,6 +150,12 @@ export default function CompressorCycleTable({ siteId }: Props) {
           <span className="text-gray-400 text-sm">{collapsed ? "\u25B6" : "\u25BC"}</span>
         </button>
         <div className="flex items-center gap-3">
+          <Link
+            href="/benchmark/compressor-cycles"
+            className="text-xs px-3 py-1 rounded-md border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors text-indigo-700 font-medium"
+          >
+            Org-Wide View &rarr;
+          </Link>
           <span className="text-[10px] text-gray-400">Last: {lastRefresh.toLocaleTimeString()}</span>
           <button
             onClick={fetchData}
@@ -166,13 +183,14 @@ export default function CompressorCycleTable({ siteId }: Props) {
                 <th className={TH_BASE} style={hdrStyle}>Start Temp</th>
                 <th className={TH_BASE} style={hdrStyle}>End Temp</th>
                 <th className={TH_BASE} style={hdrStyle}>{"\u0394"} Temp</th>
-                <th className={TH_BASE} style={{ ...hdrStyle, borderTopRightRadius: 6 }}>Efficiency</th>
+                <th className={TH_BASE} style={hdrStyle}>Efficiency</th>
+                <th className={TH_BASE} style={{ ...hdrStyle, borderTopRightRadius: 6, width: 32 }}></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="py-8 text-gray-500 text-center">
+                  <td colSpan={14} className="py-8 text-gray-500 text-center">
                     <div className="flex items-center justify-center gap-2">
                       <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -184,7 +202,7 @@ export default function CompressorCycleTable({ siteId }: Props) {
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-8 text-gray-500 text-center">
+                  <td colSpan={14} className="py-8 text-gray-500 text-center">
                     No compressor cycles recorded yet
                   </td>
                 </tr>
@@ -213,7 +231,10 @@ export default function CompressorCycleTable({ siteId }: Props) {
                         idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"
                       } ${
                         isRunning ? "bg-green-50/30" : ""
-                      } hover:bg-indigo-50/30 transition-colors border-b border-gray-100`}
+                      } hover:bg-indigo-50/30 transition-colors border-b border-gray-100 cursor-pointer`}
+                      onClick={() => handleRowDrillThrough(row)}
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && handleRowDrillThrough(row)}
                     >
                       <td className={TD}>
                         {isRunning ? (
@@ -289,6 +310,9 @@ export default function CompressorCycleTable({ siteId }: Props) {
                             {row.efficiency_ratio.toFixed(1)} {"\u00B0"}F/kWh
                           </span>
                         ) : <span className="text-gray-400">--</span>}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        <span className="text-gray-300 text-xs">&#x203A;</span>
                       </td>
                     </tr>
                   );

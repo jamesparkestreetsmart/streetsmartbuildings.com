@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -144,6 +146,7 @@ const TD = "py-2 px-3 whitespace-nowrap text-xs";
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function AnomalyEventsTable({ siteId, orgId }: Props) {
+  const router = useRouter();
   const [rows, setRows] = useState<AnomalyEventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
@@ -153,6 +156,14 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
   const [confirmingReset, setConfirmingReset] = useState<number | null>(null);
   const [resetting, setResetting] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const handleRowDrillThrough = (row: AnomalyEventRow) => {
+    const params = new URLSearchParams();
+    if (row.equipment_id) params.set("equipmentId", row.equipment_id);
+    if (siteId) params.set("siteId", siteId);
+    if (row.anomaly_type) params.set("anomalyType", row.anomaly_type);
+    router.push(`/benchmark/anomalies?${params.toString()}`);
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -279,6 +290,12 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
           >
             {activeOnly ? "Active Only" : "All Events"}
           </button>
+          <Link
+            href="/benchmark/anomalies"
+            className="text-xs px-3 py-1 rounded-md border border-amber-200 bg-amber-50 hover:bg-amber-100 transition-colors text-amber-700 font-medium"
+          >
+            Org-Wide View &rarr;
+          </Link>
           <span className="text-[10px] text-gray-400">
             Last: {lastRefresh.toLocaleTimeString()}
           </span>
@@ -317,15 +334,17 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
                 <th className={TH_BASE} style={{ backgroundColor: "#b45309", color: "white" }}>
                   Trigger Conditions
                 </th>
-                <th className={TH_BASE} style={{ backgroundColor: "#b45309", color: "white", borderTopRightRadius: 6 }}>
+                <th className={TH_BASE} style={{ backgroundColor: "#b45309", color: "white" }}>
                   Actions
+                </th>
+                <th className={TH_BASE} style={{ backgroundColor: "#b45309", color: "white", borderTopRightRadius: 6, width: 32 }}>
                 </th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-gray-500 text-center">
+                  <td colSpan={9} className="py-8 text-gray-500 text-center">
                     <div className="flex items-center justify-center gap-2">
                       <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -337,7 +356,7 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
                 </tr>
               ) : sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-gray-500 text-center">
+                  <td colSpan={9} className="py-8 text-gray-500 text-center">
                     {activeOnly ? "No active anomaly events" : "No anomaly events recorded yet"}
                   </td>
                 </tr>
@@ -360,7 +379,10 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
                         idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"
                       } ${
                         isActive ? "bg-red-50/30" : ""
-                      } hover:bg-amber-50/30 transition-colors border-b border-gray-100`}
+                      } hover:bg-amber-50/30 transition-colors border-b border-gray-100 cursor-pointer`}
+                      onClick={() => handleRowDrillThrough(row)}
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && handleRowDrillThrough(row)}
                     >
                       <td className={TD}>
                         <StatusIndicator endedAt={row.ended_at} resolvedReason={row.resolved_reason} />
@@ -400,7 +422,7 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
                           <span className="text-gray-400">--</span>
                         )}
                       </td>
-                      <td className={`${TD} max-w-[300px]`}>
+                      <td className={`${TD} max-w-[300px]`} onClick={(e) => e.stopPropagation()}>
                         {triggerKeys.length > 0 ? (
                           <div>
                             <button
@@ -428,7 +450,7 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
                           <span className="text-gray-400">--</span>
                         )}
                       </td>
-                      <td className={`${TD} min-w-[140px]`}>
+                      <td className={`${TD} min-w-[140px]`} onClick={(e) => e.stopPropagation()}>
                         {isConfirming ? (
                           <div className="flex flex-col gap-1">
                             <span className="text-[10px] text-gray-600 leading-tight">
@@ -463,6 +485,9 @@ export default function AnomalyEventsTable({ siteId, orgId }: Props) {
                             Reset
                           </button>
                         )}
+                      </td>
+                      <td className={`${TD} text-center`}>
+                        <span className="text-gray-300 text-xs">&#x203A;</span>
                       </td>
                     </tr>
                   );

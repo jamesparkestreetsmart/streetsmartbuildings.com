@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { getSourceLabel, getSourceBadgeClass } from "@/lib/source-labels";
+import TopScrollbar from "@/components/ui/TopScrollbar";
 import {
   LineChart,
   Line,
@@ -315,8 +317,8 @@ export default function ZoneDetailPage() {
         if (e) setEquipName(e.equipment_name);
       }
 
-      // Temp source — match SpaceHvacTable logic: check spaces linked to this zone
-      // AND the zone ID itself (SpaceHvacTable uses zone ID as fallback space ID)
+      // Temp source — match SpaceHvacTable logic exactly: check a_space_sensors
+      // for temperature sensors in spaces linked to this zone (or zone ID as fallback)
       try {
         const { data: spaces } = await supabase
           .from("a_spaces")
@@ -326,9 +328,12 @@ export default function ZoneDetailPage() {
         const idsToCheck = (spaces || []).map((s: any) => s.space_id);
         idsToCheck.push(zoneId); // fallback: zone ID used as space ID
         const { data: sensors } = await supabase
-          .from("b_space_sensors")
-          .select("space_id")
-          .in("space_id", idsToCheck);
+          .from("a_space_sensors")
+          .select("space_id, entity_id")
+          .eq("sensor_type", "temperature")
+          .in("space_id", idsToCheck)
+          .not("entity_id", "is", null)
+          .limit(1);
         if (sensors && sensors.length > 0) setTempSource("Zone Avg");
       } catch (err) {
         console.error("[ZoneDetail] Temp source check error:", err);
@@ -610,7 +615,7 @@ function TimelineTable({
   return (
     <div className="rounded-xl bg-white shadow p-4">
       <p className="text-xs text-gray-400 mb-3">{rows.length} records</p>
-      <div className="overflow-x-auto">
+      <TopScrollbar>
         <table className="w-full text-sm" style={{ minWidth: 2800 }}>
           <thead>
             {/* Row 1: Group labels */}
@@ -732,10 +737,8 @@ function TimelineTable({
                     ) : <Dash />}
                   </td>
                   <td className={TD}>
-                    <span className={`px-2 py-0.5 rounded font-medium ${
-                      tempSource === "Zone Avg" ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-600"
-                    }`}>
-                      {tempSource}
+                    <span className={`px-2 py-0.5 rounded font-medium ${getSourceBadgeClass(tempSource)}`}>
+                      {getSourceLabel(tempSource)}
                     </span>
                   </td>
                   {/* G4: Occupancy */}
@@ -794,7 +797,7 @@ function TimelineTable({
             })}
           </tbody>
         </table>
-      </div>
+      </TopScrollbar>
     </div>
   );
 }
