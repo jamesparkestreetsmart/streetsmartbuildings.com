@@ -4,6 +4,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useOrg } from "@/context/OrgContext";
+import IntegrationRoadmap from "@/components/IntegrationRoadmap";
+import IntegrationSpec from "@/components/IntegrationSpec";
 import GlobalOperationsPanel from "@/components/journey/GlobalOperationsPanel";
 import SSBGlobalProfilesPanel from "@/components/journey/SSBGlobalProfilesPanel";
 import PlatformIssuesPanel from "@/components/journey/PlatformIssuesPanel";
@@ -490,8 +492,20 @@ export default function JourneyPage() {
         </div>
       )}
 
-      {/* Platform Issues Tracker */}
-      {selectedOrgId && (
+      {/* Integration Roadmap & Spec — customer orgs only */}
+      {selectedOrgId && !isSSBOrg && (
+        <div className="mt-10 max-w-5xl mx-auto">
+          <IntegrationRoadmap />
+        </div>
+      )}
+      {selectedOrgId && !isSSBOrg && (
+        <div className="mt-8 max-w-5xl mx-auto">
+          <IntegrationSpec />
+        </div>
+      )}
+
+      {/* Platform Issues Tracker — SSB1 only */}
+      {selectedOrgId && isSSBOrg && (
         <div className="mt-10 mb-10 max-w-5xl mx-auto">
           <PlatformIssuesPanel orgId={selectedOrgId} isSSB={isSSBOrg} />
         </div>
