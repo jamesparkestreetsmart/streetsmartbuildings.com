@@ -498,6 +498,8 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
       payload[k] = val;
     }
 
+    console.log("[TrackingPanel] Save →", { method, url, payload, rawModalItem: modalItem, isEdit });
+
     try {
       setModalError(null);
       const res = await fetch(url, {
@@ -505,15 +507,16 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      const resBody = await res.json().catch(() => ({}));
+      console.log("[TrackingPanel] Response →", { status: res.status, ok: res.ok, body: resBody });
       if (res.ok) {
         closeModal();
         const filters = buildFilters(activeTab);
         fetchItems(activeTab, filters);
       } else {
-        const errData = await res.json().catch(() => ({}));
-        const msg = errData.error || errData.message || `Save failed (${res.status})`;
+        const msg = resBody.error || resBody.message || `Save failed (${res.status})`;
         setModalError(msg);
-        console.error("[InternalTrackingPanel] Save error:", res.status, errData);
+        console.error("[InternalTrackingPanel] Save error:", res.status, resBody);
       }
     } catch (err: any) {
       setModalError(err.message || "Network error");
