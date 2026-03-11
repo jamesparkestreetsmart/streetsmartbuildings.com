@@ -43,10 +43,18 @@ export default function JourneyPage() {
   const { selectedOrgId, selectedOrg, userEmail, isServiceProvider } = useOrg();
   const isSSBOrg = isServiceProvider && selectedOrg?.org_identifier === "SSB1";
   const pageTitle = isSSBOrg ? "SSB1's Journey" : "My Journey";
+  const [userId, setUserId] = useState<string | null>(null);
   const [records, setRecords] = useState<RecordLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set<Scope>(["org", "sites", "equipment", "devices"]));
+
+  // Fetch auth user id
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) setUserId(data.user.id);
+    });
+  }, []);
 
   // Fetch sites for this org
   useEffect(() => {
@@ -507,7 +515,7 @@ export default function JourneyPage() {
       {/* Internal Tracking (Issues / Work Items / Learnings) — SSB1 only */}
       {selectedOrgId && isSSBOrg && (
         <div className="mt-10 mb-10 max-w-5xl mx-auto">
-          <InternalTrackingPanel />
+          <InternalTrackingPanel userEmail={userEmail || ""} userId={userId || ""} />
         </div>
       )}
     </div>
