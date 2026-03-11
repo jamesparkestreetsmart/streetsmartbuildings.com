@@ -183,8 +183,15 @@ export async function POST(req: NextRequest) {
   }
 
   if (error) {
-    console.error("[SUBSCRIPTIONS] POST error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[SUBSCRIPTIONS] POST error:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      payload: JSON.stringify(payload),
+      existing: !!existing,
+    });
+    return NextResponse.json({ error: error.message, code: error.code, details: error.details }, { status: 500 });
   }
   return NextResponse.json({ subscription });
 }
