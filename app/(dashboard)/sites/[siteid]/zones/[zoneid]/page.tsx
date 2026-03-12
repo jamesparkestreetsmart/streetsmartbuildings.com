@@ -317,24 +317,44 @@ export default function ZoneDetailPage() {
         if (e) setEquipName(e.equipment_name);
       }
 
-      // Temp source — match SpaceHvacTable logic exactly: check a_space_sensors
-      // for temperature sensors in spaces linked to this zone (or zone ID as fallback)
+      // Temp source — match SpaceHvacTable logic: resolve space via
+      // equipment_served_spaces (primary) and a_spaces.hvac_zone_id (fallback),
+      // then check a_space_sensors for temperature sensors in those spaces.
       try {
+        const idsToCheck: string[] = [];
+
+        // Primary path: zone → equipment → served spaces (same as SpaceHvacTable)
+        if (z?.equipment_id) {
+          const { data: served } = await supabase
+            .from("a_equipment_served_spaces")
+            .select("space_id")
+            .eq("equipment_id", z.equipment_id);
+          for (const row of served || []) idsToCheck.push(row.space_id);
+        }
+
+        // Fallback: spaces linked via hvac_zone_id
         const { data: spaces } = await supabase
           .from("a_spaces")
           .select("space_id")
           .eq("site_id", siteId)
           .eq("hvac_zone_id", zoneId);
-        const idsToCheck = (spaces || []).map((s: any) => s.space_id);
-        idsToCheck.push(zoneId); // fallback: zone ID used as space ID
-        const { data: sensors } = await supabase
-          .from("a_space_sensors")
-          .select("space_id, entity_id")
-          .eq("sensor_type", "temperature")
-          .in("space_id", idsToCheck)
-          .not("entity_id", "is", null)
-          .limit(1);
-        if (sensors && sensors.length > 0) setTempSource("Zone Avg");
+        for (const s of spaces || []) {
+          if (!idsToCheck.includes(s.space_id)) idsToCheck.push(s.space_id);
+        }
+
+        // Last resort: zone ID itself as space ID
+        if (!idsToCheck.includes(zoneId)) idsToCheck.push(zoneId);
+
+        if (idsToCheck.length > 0) {
+          const { data: sensors } = await supabase
+            .from("a_space_sensors")
+            .select("space_id, entity_id")
+            .eq("sensor_type", "temperature")
+            .in("space_id", idsToCheck)
+            .not("entity_id", "is", null)
+            .limit(1);
+          if (sensors && sensors.length > 0) setTempSource("Zone Avg");
+        }
       } catch (err) {
         console.error("[ZoneDetail] Temp source check error:", err);
       }
