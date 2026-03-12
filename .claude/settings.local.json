@@ -39,7 +39,11 @@
       "Bash(find /c/Projects/EagleEyes/eagle-eyes-dashboard/components -name \"*Table*\" -o -name \"*table*\" 2>/dev/null | head -20)",
       "Bash(grep -n \"Source\\\\|tempSource\\\\|Zone Avg\\\\|Thermostat\" /c/Projects/EagleEyes/eagle-eyes-dashboard/app/\\\\\\(dashboard\\\\\\)/sites/\\\\[siteid\\\\]/zones/\\\\[zoneid\\\\]/page.tsx | head -50)",
       "Bash(ls \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/benchmark/\")",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "Bash(ls -la \"/c/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/benchmark/\")",
+      "Bash(find \"/c/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/benchmark\" -type f)",
+      "Bash(find \"C:/Projects/EagleEyes/eagle-eyes-dashboard/context\" -type f -name \"*.ts\" -o -name \"*.tsx\" 2>/dev/null | head -20)",
+      "Bash(grep -r \"\\\\.not\\\\\\(\" \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app\" --include=\"*.ts\" --include=\"*.tsx\" 2>/dev/null | grep -i \"status\\\\|dummy\\\\|retired\" | head -15)"
     ]
   }
 }

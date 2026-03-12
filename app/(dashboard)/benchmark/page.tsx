@@ -18,7 +18,7 @@ export default function BenchmarkPage() {
       </p>
 
       {/* Navigation Cards */}
-      <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
         <Link
           href="/benchmark/anomalies"
           className="block rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow border border-gray-100 p-6 group"
@@ -49,6 +49,22 @@ export default function BenchmarkPage() {
             Track compressor on/off cycles across all sites — duration, energy, efficiency, and temperature deltas.
           </p>
           <span className="mt-4 inline-block text-xs text-indigo-600 font-medium">View Org-Wide &rarr;</span>
+        </Link>
+
+        <Link
+          href="/benchmark/hvac-status"
+          className="block rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow border border-gray-100 p-6 group"
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <span className="w-4 h-4 rounded-sm" style={{ backgroundColor: "#047857" }} />
+            <h2 className="text-lg font-semibold text-gray-800 group-hover:text-emerald-700 transition-colors">
+              HVAC Live Status
+            </h2>
+          </div>
+          <p className="text-sm text-gray-500">
+            Latest 5-minute snapshot for every HVAC zone across all sites — temps, setpoints, and comfort scores at a glance.
+          </p>
+          <span className="mt-4 inline-block text-xs text-emerald-600 font-medium">View Org-Wide &rarr;</span>
         </Link>
       </div>
 

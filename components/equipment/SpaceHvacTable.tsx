@@ -483,12 +483,20 @@ export default function SpaceHvacTable({ siteId }: Props) {
           </div>
           <p className="text-xs text-gray-400 mt-1">Last 90 minutes &bull; Updates every 5 min</p>
         </div>
-        <button
-          onClick={() => fetchData()}
-          className="text-xs px-3 py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 transition-colors text-gray-600"
-        >
-          ↻ Refresh Now
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/benchmark/hvac-status?siteId=${siteId}`}
+            className="text-sm text-gray-400 hover:text-gray-700 flex items-center gap-1 transition-colors"
+          >
+            Org-Wide View <span className="text-xs">›</span>
+          </Link>
+          <button
+            onClick={() => fetchData()}
+            className="text-xs px-3 py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 transition-colors text-gray-600"
+          >
+            ↻ Refresh Now
+          </button>
+        </div>
       </div>
 
       {/* Table */}
