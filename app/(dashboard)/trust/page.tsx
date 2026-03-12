@@ -43,6 +43,7 @@ export default function TrustPage() {
 
   const [dayRows, setDayRows] = useState<DailyHealthRow[]>([]);
   const [daySites, setDaySites] = useState<SiteInfo[]>([]);
+  const [dayCompliance, setDayCompliance] = useState<Record<string, { pct: number | null; config_count: number }>>({});
 
   const [siteRow, setSiteRow] = useState<DailyHealthRow | null>(null);
   const [siteEquipment, setSiteEquipment] = useState<EquipmentItem[]>([]);
@@ -98,6 +99,7 @@ export default function TrustPage() {
       .then((data) => {
         setDayRows(data.rows || []);
         setDaySites(data.sites || []);
+        setDayCompliance(data.compliance || {});
       })
       .finally(() => setLoadingDay(false));
   }, [selectedOrgId, selectedDate]);
@@ -211,6 +213,7 @@ export default function TrustPage() {
                   date={selectedDate}
                   rows={dayRows}
                   sites={daySites}
+                  compliance={dayCompliance}
                   onSiteClick={handleSiteClick}
                   onClose={handleCloseDayDetail}
                 />

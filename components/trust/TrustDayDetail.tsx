@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { DailyHealthRow } from "@/lib/daily-health";
 
@@ -8,10 +9,16 @@ interface SiteInfo {
   site_name: string;
 }
 
+interface ComplianceInfo {
+  pct: number | null;
+  config_count: number;
+}
+
 interface Props {
   date: string;
   rows: DailyHealthRow[];
   sites: SiteInfo[];
+  compliance?: Record<string, ComplianceInfo>;
   onSiteClick: (siteId: string) => void;
   onClose: () => void;
 }
@@ -23,7 +30,15 @@ const STATUS_BADGE: Record<string, string> = {
   no_data: "bg-gray-100 text-gray-500",
 };
 
-export default function TrustDayDetail({ date, rows, sites, onSiteClick, onClose }: Props) {
+function complianceBadge(pct: number | null): { bg: string; label: string } {
+  if (pct == null) return { bg: "bg-gray-100 text-gray-400", label: "—" };
+  if (pct >= 95) return { bg: "bg-green-100 text-green-700", label: `${pct}%` };
+  if (pct >= 80) return { bg: "bg-yellow-100 text-yellow-700", label: `${pct}%` };
+  return { bg: "bg-red-100 text-red-700", label: `${pct}%` };
+}
+
+export default function TrustDayDetail({ date, rows, sites, compliance, onSiteClick, onClose }: Props) {
+  const router = useRouter();
   const siteMap = new Map(sites.map((s) => [s.site_id, s.site_name]));
 
   const formatted = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
@@ -57,30 +72,54 @@ export default function TrustDayDetail({ date, rows, sites, onSiteClick, onClose
                 <th className="text-left px-4 py-2 font-medium text-gray-600">Site</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">Score</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Compliance</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">Issues</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map((row) => (
-                <tr
-                  key={row.site_id}
-                  onClick={() => onSiteClick(row.site_id)}
-                  className="hover:bg-gray-50 cursor-pointer"
-                >
-                  <td className="px-4 py-2 text-gray-800 font-medium">
-                    {siteMap.get(row.site_id) || row.site_id.slice(0, 8)}
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[row.overall_status]}`}>
-                      {row.overall_status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 font-mono text-gray-700">{row.score}</td>
-                  <td className="px-4 py-2 text-xs text-gray-500">
-                    {row.critical_failure_reason || (row.sla_breach ? "SLA breach" : row.sla_warning ? "SLA warning" : "—")}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((row) => {
+                const comp = compliance?.[row.site_id];
+                const badge = complianceBadge(comp?.pct ?? null);
+                const hasComp = comp && comp.pct != null;
+                const tooltip = hasComp
+                  ? `${comp.pct}% compliant · ${comp.config_count} config${comp.config_count !== 1 ? "s" : ""} evaluated · Click to view detail`
+                  : "No SOP configs defined for this site";
+
+                return (
+                  <tr
+                    key={row.site_id}
+                    onClick={() => onSiteClick(row.site_id)}
+                    className="hover:bg-gray-50 cursor-pointer"
+                  >
+                    <td className="px-4 py-2 text-gray-800 font-medium">
+                      {siteMap.get(row.site_id) || row.site_id.slice(0, 8)}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[row.overall_status]}`}>
+                        {row.overall_status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 font-mono text-gray-700">{row.score}</td>
+                    <td className="px-4 py-2">
+                      <span
+                        title={tooltip}
+                        onClick={(e) => {
+                          if (hasComp) {
+                            e.stopPropagation();
+                            router.push(`/sites/${row.site_id}/compliance?date=${date}`);
+                          }
+                        }}
+                        className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${hasComp ? "cursor-pointer hover:ring-1 hover:ring-blue-300" : ""}`}
+                      >
+                        {badge.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-xs text-gray-500">
+                      {row.critical_failure_reason || (row.sla_breach ? "SLA breach" : row.sla_warning ? "SLA warning" : "—")}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

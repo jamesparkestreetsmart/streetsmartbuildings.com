@@ -317,7 +317,35 @@ export async function GET(req: NextRequest) {
         sites = siteData || [];
       }
 
-      return NextResponse.json({ rows: rows || [], sites });
+      // Fetch SOP compliance for this date (all US timezones fall within same UTC date)
+      const nextDate = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000)
+        .toISOString().slice(0, 10);
+      let compliance: Record<string, { pct: number | null; config_count: number }> = {};
+      if (siteIds.length > 0) {
+        const { data: compRows } = await supabase
+          .from("b_sop_compliance_log")
+          .select("site_id, compliance_pct")
+          .in("site_id", siteIds)
+          .gte("period_start", `${date}T00:00:00Z`)
+          .lt("period_start", `${nextDate}T00:00:00Z`);
+        if (compRows) {
+          const bySite = new Map<string, number[]>();
+          for (const cr of compRows) {
+            if (!bySite.has(cr.site_id)) bySite.set(cr.site_id, []);
+            if (cr.compliance_pct != null) bySite.get(cr.site_id)!.push(Number(cr.compliance_pct));
+          }
+          for (const [sid, pcts] of bySite) {
+            compliance[sid] = {
+              pct: pcts.length > 0
+                ? Math.round((pcts.reduce((a, b) => a + b, 0) / pcts.length) * 10) / 10
+                : null,
+              config_count: pcts.length,
+            };
+          }
+        }
+      }
+
+      return NextResponse.json({ rows: rows || [], sites, compliance });
     }
 
     // Mode 1: Monthly

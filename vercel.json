@@ -8,6 +8,9 @@
     },
     "app/api/cron/manifest-generate/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/sop-compliance-calc/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -30,6 +33,10 @@
     {
       "path": "/api/cron/deliver-notifications",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/sop-compliance-calc",
+      "schedule": "0 7 * * *"
     }
   ]
 }
