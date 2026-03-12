@@ -38,7 +38,8 @@
       "Bash(for f:*)",
       "Bash(find /c/Projects/EagleEyes/eagle-eyes-dashboard/components -name \"*Table*\" -o -name \"*table*\" 2>/dev/null | head -20)",
       "Bash(grep -n \"Source\\\\|tempSource\\\\|Zone Avg\\\\|Thermostat\" /c/Projects/EagleEyes/eagle-eyes-dashboard/app/\\\\\\(dashboard\\\\\\)/sites/\\\\[siteid\\\\]/zones/\\\\[zoneid\\\\]/page.tsx | head -50)",
-      "Bash(ls \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/benchmark/\")"
+      "Bash(ls \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/benchmark/\")",
+      "Bash(npx tsx:*)"
     ]
   }
 }
