@@ -25,4 +25,76 @@ export const SOP_EVALUATION_WINDOWS = [
   { value: "occupied_hours_only", label: "Occupied Hours Only" },
 ] as const;
 
+// ── Target Kind (which track) ────────────────────────────────
+
+export const SOP_TARGET_KINDS = [
+  { value: "equipment", label: "Equipment" },
+  { value: "space", label: "Space" },
+] as const;
+
+// ── Scope Levels (how specific) ──────────────────────────────
+
+export const SOP_SCOPE_LEVELS = [
+  { value: "ssb",            label: "SSB",            rank: 1, track: "both",      color: "blue"   },
+  { value: "org",            label: "Org",            rank: 2, track: "both",      color: "purple" },
+  { value: "site",           label: "Site",           rank: 3, track: "space",     color: "indigo" },
+  { value: "space_type",     label: "Space Type",     rank: 4, track: "space",     color: "teal"   },
+  { value: "space",          label: "Space",          rank: 5, track: "space",     color: "green"  },
+  { value: "equipment_type", label: "Equipment Type", rank: 6, track: "equipment", color: "amber"  },
+  { value: "equipment",      label: "Equipment",      rank: 7, track: "equipment", color: "orange" },
+] as const;
+
+/** @deprecated Use SOP_SCOPE_LEVELS instead */
 export const SOP_SCOPE_RANK = { org: 1, site: 2, equipment: 3 } as const;
+
+// ── Track-specific metric sets ───────────────────────────────
+
+export const EQUIPMENT_TRACK_METRICS = [
+  "zone_temp", "setpoint_delta", "cooler_temp",
+  "freezer_temp", "power_kw",
+] as const;
+
+export const SPACE_TRACK_METRICS = [
+  "space_temp", "humidity",
+] as const;
+
+export const BOTH_TRACK_METRICS = [
+  "pressure_differential",
+] as const;
+
+// ── Helpers ──────────────────────────────────────────────────
+
+export function scopeLevelLabel(val: string): string {
+  return SOP_SCOPE_LEVELS.find((s) => s.value === val)?.label || val;
+}
+
+export function scopeLevelColor(val: string): string {
+  return SOP_SCOPE_LEVELS.find((s) => s.value === val)?.color || "gray";
+}
+
+export function scopeLevelRank(val: string): number {
+  return SOP_SCOPE_LEVELS.find((s) => s.value === val)?.rank || 99;
+}
+
+export function metricLabel(val: string): string {
+  return SOP_METRICS.find((m) => m.value === val)?.label || val;
+}
+
+export function metricsForTrack(targetKind: string): readonly { value: string; label: string }[] {
+  const equipment = EQUIPMENT_TRACK_METRICS as readonly string[];
+  const space = SPACE_TRACK_METRICS as readonly string[];
+  const both = BOTH_TRACK_METRICS as readonly string[];
+  const allowed = targetKind === "equipment"
+    ? [...equipment, ...both]
+    : targetKind === "space"
+    ? [...space, ...both]
+    : SOP_METRICS.map((m) => m.value);
+  return SOP_METRICS.filter((m) => allowed.includes(m.value));
+}
+
+export function scopeLevelsForTrack(targetKind: string, isSSB: boolean): typeof SOP_SCOPE_LEVELS[number][] {
+  return SOP_SCOPE_LEVELS.filter((s) => {
+    if (s.value === "ssb" && !isSSB) return false;
+    return s.track === "both" || s.track === targetKind;
+  });
+}

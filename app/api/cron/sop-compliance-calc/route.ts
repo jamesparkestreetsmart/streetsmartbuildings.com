@@ -25,9 +25,14 @@ export const maxDuration = 60;
 
 interface SOPConfig {
   id: string;
-  org_id: string;
+  org_id: string | null;
   site_id: string | null;
   equipment_id: string | null;
+  space_id: string | null;
+  target_kind: "equipment" | "space";
+  scope_level: string;
+  equipment_type: string | null;
+  space_type: string | null;
   label: string;
   metric: string;
   min_value: number | null;
@@ -42,26 +47,86 @@ interface SiteInfo {
   timezone: string;
 }
 
-/** Determine the target sites for a config. */
+interface TargetUnit {
+  site: SiteInfo;
+  equipment_id: string | null;
+  space_id: string | null;
+}
+
+/**
+ * Fan out a config to its target (site, equipment, space) combinations.
+ * Equipment track: one compliance row per equipment unit.
+ * Space track: deferred (logged and skipped for now).
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getTargetSites(
+async function getTargets(
   supabase: any,
   config: SOPConfig,
   allSites: SiteInfo[]
-): Promise<SiteInfo[]> {
-  if (config.equipment_id) {
-    const { data } = await supabase
-      .from("a_equipments")
-      .select("site_id")
-      .eq("equipment_id", config.equipment_id)
-      .single();
-    if (!data) return [];
-    return allSites.filter((s) => s.site_id === data.site_id);
+): Promise<TargetUnit[]> {
+  // ── Space track: not yet wired ──
+  if (config.target_kind === "space") {
+    return []; // Space compliance cron wiring is a follow-on task
   }
-  if (config.site_id) {
-    return allSites.filter((s) => s.site_id === config.site_id);
+
+  // ── Equipment track ──
+  switch (config.scope_level) {
+    case "equipment": {
+      // Specific equipment unit
+      if (!config.equipment_id) return [];
+      const { data } = await supabase
+        .from("a_equipments")
+        .select("site_id")
+        .eq("equipment_id", config.equipment_id)
+        .single();
+      if (!data) return [];
+      const site = allSites.find((s) => s.site_id === data.site_id);
+      if (!site) return [];
+      return [{ site, equipment_id: config.equipment_id, space_id: null }];
+    }
+
+    case "equipment_type": {
+      // All equipment of this type in the org
+      if (!config.org_id || !config.equipment_type) return [];
+      const orgSites = allSites.filter((s) => s.org_id === config.org_id);
+      const siteIds = orgSites.map((s) => s.site_id);
+      if (!siteIds.length) return [];
+
+      const { data: eqs } = await supabase
+        .from("a_equipments")
+        .select("equipment_id, site_id")
+        .in("site_id", siteIds)
+        .eq("equipment_group", config.equipment_type)
+        .neq("status", "retired")
+        .neq("status", "dummy");
+
+      if (!eqs?.length) return [];
+      const siteMap = new Map(orgSites.map((s) => [s.site_id, s]));
+      return eqs
+        .filter((e: any) => siteMap.has(e.site_id))
+        .map((e: any) => ({
+          site: siteMap.get(e.site_id)!,
+          equipment_id: e.equipment_id,
+          space_id: null,
+        }));
+    }
+
+    case "org": {
+      // All equipment-relevant sites in the org (one row per site, no specific equipment)
+      if (!config.org_id) return [];
+      return allSites
+        .filter((s) => s.org_id === config.org_id)
+        .map((s) => ({ site: s, equipment_id: null, space_id: null }));
+    }
+
+    case "ssb": {
+      // All sites across all orgs (one row per site)
+      return allSites.map((s) => ({ site: s, equipment_id: null, space_id: null }));
+    }
+
+    default:
+      return [];
   }
-  return allSites.filter((s) => s.org_id === config.org_id);
 }
 
 /**
@@ -75,8 +140,6 @@ function getYesterdayBounds(tz: string): { start: string; end: string; localDate
   const localYesterday = siteLocalDate(yesterday, tz);
   const localToday = siteLocalDate(now, tz);
 
-  // Convert local midnight to UTC by parsing with timezone context
-  // Intl.DateTimeFormat gives us the UTC offset for a given timezone
   const startUTC = localMidnightToUTC(localYesterday, tz);
   const endUTC = localMidnightToUTC(localToday, tz);
 
@@ -91,7 +154,6 @@ function getYesterdayBounds(tz: string): { start: string; end: string; localDate
 function localMidnightToUTC(localDate: string, tz: string): string {
   const [y, m, d] = localDate.split("-").map(Number);
 
-  // Use Intl to get the UTC offset for this timezone on this date
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     timeZoneName: "shortOffset",
@@ -100,10 +162,8 @@ function localMidnightToUTC(localDate: string, tz: string): string {
   const parts = formatter.formatToParts(noonUTC);
   const tzPart = parts.find((p) => p.type === "timeZoneName")?.value || "";
 
-  // tzPart looks like "GMT-5", "GMT+5:30", or "GMT"
   const match = tzPart.match(/GMT([+-]?)(\d+)(?::(\d+))?/);
   if (!match || !match[2]) {
-    // GMT+0 or unparseable — treat as UTC
     return new Date(Date.UTC(y, m - 1, d)).toISOString();
   }
 
@@ -111,18 +171,17 @@ function localMidnightToUTC(localDate: string, tz: string): string {
   const offsetHours = parseInt(match[2]) * sign;
   const offsetMins = parseInt(match[3] || "0") * sign;
 
-  // Local midnight in UTC: subtract the offset
-  // e.g. CDT (GMT-5): midnight local = 05:00 UTC
   const midnightUTC = new Date(Date.UTC(y, m - 1, d, -offsetHours, -offsetMins));
   return midnightUTC.toISOString();
 }
 
-/** Pull readings and count compliance for a (config, site) pair. */
+/** Pull readings and count compliance for a (config, site, equipment) tuple. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function calcCompliance(
   supabase: any,
   config: SOPConfig,
   site: SiteInfo,
+  equipmentId: string | null,
   periodStart: string,
   periodEnd: string
 ): Promise<{ total: number; compliant: number }> {
@@ -137,11 +196,11 @@ async function calcCompliance(
       .lt("recorded_at", periodEnd)
       .not("zone_temp_f", "is", null);
 
-    if (config.equipment_id) {
+    if (equipmentId) {
       const { data: zones } = await supabase
         .from("a_hvac_zones")
         .select("hvac_zone_id")
-        .eq("equipment_id", config.equipment_id);
+        .eq("equipment_id", equipmentId);
       const zoneIds = (zones || []).map((z: any) => z.hvac_zone_id);
       if (zoneIds.length) query = query.in("hvac_zone_id", zoneIds);
       else return { total: 0, compliant: 0 };
@@ -166,11 +225,11 @@ async function calcCompliance(
       .lt("recorded_at", periodEnd)
       .not("zone_temp_f", "is", null);
 
-    if (config.equipment_id) {
+    if (equipmentId) {
       const { data: zones } = await supabase
         .from("a_hvac_zones")
         .select("hvac_zone_id")
-        .eq("equipment_id", config.equipment_id);
+        .eq("equipment_id", equipmentId);
       const zoneIds = (zones || []).map((z: any) => z.hvac_zone_id);
       if (zoneIds.length) query = query.in("hvac_zone_id", zoneIds);
       else return { total: 0, compliant: 0 };
@@ -235,10 +294,10 @@ async function handler(request: NextRequest) {
   const supabase = createClient(supabaseUrl, serviceKey);
   const today = new Date().toISOString().slice(0, 10);
 
-  // 1. Fetch all active SOP configs
+  // 1. Fetch all active SOP configs (with new discriminator columns)
   const { data: configs, error: configError } = await supabase
     .from("a_sop_configs")
-    .select("id, org_id, site_id, equipment_id, label, metric, min_value, max_value, evaluation_window, unit")
+    .select("id, org_id, site_id, equipment_id, space_id, target_kind, scope_level, equipment_type, space_type, label, metric, min_value, max_value, evaluation_window, unit")
     .or(`effective_from.is.null,effective_from.lte.${today}`)
     .or(`effective_to.is.null,effective_to.gte.${today}`);
 
@@ -253,24 +312,36 @@ async function handler(request: NextRequest) {
   }
 
   // 2. Fetch all sites (for timezone + org mapping)
-  const orgIds = [...new Set(configs.map((c) => c.org_id))];
-  const { data: sitesData } = await supabase
-    .from("a_sites")
-    .select("site_id, org_id, timezone")
-    .in("org_id", orgIds);
-  const allSites = (sitesData || []) as SiteInfo[];
+  // For SSB configs (org_id is null), we need ALL sites
+  const hasSSB = configs.some((c) => c.scope_level === "ssb");
+  const orgIds = [...new Set(configs.map((c) => c.org_id).filter(Boolean))] as string[];
+
+  let allSites: SiteInfo[] = [];
+  if (hasSSB) {
+    const { data } = await supabase.from("a_sites").select("site_id, org_id, timezone");
+    allSites = (data || []) as SiteInfo[];
+  } else if (orgIds.length) {
+    const { data } = await supabase.from("a_sites").select("site_id, org_id, timezone").in("org_id", orgIds);
+    allSites = (data || []) as SiteInfo[];
+  }
 
   let processed = 0;
   let skipped = 0;
   let errors = 0;
+  let spaceSkipped = 0;
 
   // 3. Process each config
   for (const config of configs as SOPConfig[]) {
-    const targetSites = await getTargetSites(supabase, config, allSites);
+    if (config.target_kind === "space") {
+      spaceSkipped++;
+      continue; // Space track cron wiring is a follow-on task
+    }
 
-    for (const site of targetSites) {
+    const targets = await getTargets(supabase, config, allSites);
+
+    for (const target of targets) {
       try {
-        const tz = site.timezone || "America/Chicago";
+        const tz = target.site.timezone || "America/Chicago";
         const { start, end } = getYesterdayBounds(tz);
 
         // Check for existing row (idempotency)
@@ -278,7 +349,7 @@ async function handler(request: NextRequest) {
           .from("b_sop_compliance_log")
           .select("id")
           .eq("sop_config_id", config.id)
-          .eq("site_id", site.site_id)
+          .eq("site_id", target.site.site_id)
           .eq("period_start", start)
           .limit(1);
 
@@ -288,7 +359,7 @@ async function handler(request: NextRequest) {
         }
 
         const { total, compliant } = await calcCompliance(
-          supabase, config, site, start, end
+          supabase, config, target.site, target.equipment_id, start, end
         );
 
         const { error: insertError } = await supabase
@@ -296,8 +367,9 @@ async function handler(request: NextRequest) {
           .upsert(
             {
               sop_config_id: config.id,
-              site_id: site.site_id,
-              equipment_id: config.equipment_id || null,
+              site_id: target.site.site_id,
+              equipment_id: target.equipment_id || null,
+              space_id: target.space_id || null,
               period_start: start,
               period_end: end,
               total_readings: total,
@@ -310,7 +382,7 @@ async function handler(request: NextRequest) {
 
         if (insertError) {
           console.error(
-            `[sop-compliance-calc] Insert error config=${config.id} site=${site.site_id}:`,
+            `[sop-compliance-calc] Insert error config=${config.id} site=${target.site.site_id}:`,
             insertError.message
           );
           errors++;
@@ -320,7 +392,7 @@ async function handler(request: NextRequest) {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
-          `[sop-compliance-calc] Error config=${config.id} site=${site.site_id}:`,
+          `[sop-compliance-calc] Error config=${config.id} site=${target.site.site_id}:`,
           message
         );
         errors++;
@@ -335,6 +407,7 @@ async function handler(request: NextRequest) {
     processed,
     skipped,
     errors,
+    spaceSkipped,
   };
   console.log("[sop-compliance-calc]", JSON.stringify(summary));
   return NextResponse.json(summary);

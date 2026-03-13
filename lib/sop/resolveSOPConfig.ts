@@ -2,9 +2,14 @@ import { SupabaseClient } from "@supabase/supabase-js";
 
 export interface SOPConfig {
   id: string;
-  org_id: string;
+  org_id: string | null;
   site_id: string | null;
   equipment_id: string | null;
+  space_id: string | null;
+  target_kind: "equipment" | "space";
+  scope_level: string;
+  equipment_type: string | null;
+  space_type: string | null;
   label: string;
   metric: string;
   min_value: number | null;
@@ -17,14 +22,65 @@ export interface SOPConfig {
 }
 
 /**
- * Resolve the effective SOP config for a given metric + scope.
- * Resolution order (most-specific wins):
- *   1. equipment-level (equipment_id + site_id match)
- *   2. site-level (site_id match, equipment_id null)
- *   3. org-level (org_id match, site_id null)
- *   4. null (no SOP defined)
- *
- * "Active" = effective_from <= today AND (effective_to IS NULL OR effective_to >= today)
+ * Resolve the effective SOP config for the equipment track.
+ * Resolution order: equipment → equipment_type → org → ssb
+ */
+export async function resolveSOPConfigEquipment(
+  supabase: SupabaseClient,
+  metric: string,
+  orgId: string,
+  equipmentType?: string | null,
+  equipmentId?: string | null,
+  asOf?: string
+): Promise<SOPConfig | null> {
+  const { data, error } = await supabase
+    .rpc("resolve_sop_config_equipment", {
+      p_metric: metric,
+      p_org_id: orgId,
+      p_equipment_type: equipmentType || null,
+      p_equipment_id: equipmentId || null,
+    });
+
+  if (error) {
+    console.error("[resolveSOPConfigEquipment] RPC error:", error.message);
+    return null;
+  }
+
+  return data?.[0] || null;
+}
+
+/**
+ * Resolve the effective SOP config for the space track.
+ * Resolution order: space → space_type → site → org → ssb
+ */
+export async function resolveSOPConfigSpace(
+  supabase: SupabaseClient,
+  metric: string,
+  orgId: string,
+  siteId?: string | null,
+  spaceType?: string | null,
+  spaceId?: string | null,
+  asOf?: string
+): Promise<SOPConfig | null> {
+  const { data, error } = await supabase
+    .rpc("resolve_sop_config_space", {
+      p_metric: metric,
+      p_org_id: orgId,
+      p_site_id: siteId || null,
+      p_space_type: spaceType || null,
+      p_space_id: spaceId || null,
+    });
+
+  if (error) {
+    console.error("[resolveSOPConfigSpace] RPC error:", error.message);
+    return null;
+  }
+
+  return data?.[0] || null;
+}
+
+/**
+ * @deprecated Use resolveSOPConfigEquipment or resolveSOPConfigSpace instead.
  */
 export async function resolveSOPConfig(
   supabase: SupabaseClient,
@@ -32,49 +88,7 @@ export async function resolveSOPConfig(
   orgId: string,
   siteId?: string | null,
   equipmentId?: string | null,
-  asOf?: string // YYYY-MM-DD, defaults to today
+  asOf?: string
 ): Promise<SOPConfig | null> {
-  const today = asOf || new Date().toISOString().slice(0, 10);
-
-  let query = supabase
-    .from("a_sop_configs")
-    .select("*")
-    .eq("org_id", orgId)
-    .eq("metric", metric)
-    .or(`effective_from.is.null,effective_from.lte.${today}`)
-    .or(`effective_to.is.null,effective_to.gte.${today}`);
-
-  const { data, error } = await query.order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("[resolveSOPConfig] Query error:", error.message);
-    return null;
-  }
-
-  if (!data || data.length === 0) return null;
-
-  // Most-specific-wins: equipment → site → org
-  const candidates = data as SOPConfig[];
-
-  // 1. Equipment-level match
-  if (equipmentId && siteId) {
-    const match = candidates.find(
-      (c) => c.equipment_id === equipmentId && c.site_id === siteId
-    );
-    if (match) return match;
-  }
-
-  // 2. Site-level match
-  if (siteId) {
-    const match = candidates.find(
-      (c) => c.site_id === siteId && c.equipment_id === null
-    );
-    if (match) return match;
-  }
-
-  // 3. Org-level match
-  const match = candidates.find(
-    (c) => c.site_id === null && c.equipment_id === null
-  );
-  return match || null;
+  return resolveSOPConfigEquipment(supabase, metric, orgId, null, equipmentId, asOf);
 }

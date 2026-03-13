@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUserEmail } from "@/lib/auth";
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import MarketingAdminCard from "@/components/MarketingAdminCard";
 import OrganizationsAdminCard from "@/components/OrganizationsAdminCard";
 import InternalTrackingPanel from "@/components/admin/InternalTrackingPanel";
@@ -47,6 +48,16 @@ export default async function AdminPage() {
         <p className="text-sm text-gray-500">
           Manage marketing, leads, and platform settings
         </p>
+      </div>
+
+      {/* Quick links */}
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href="/admin/sop-configs"
+          className="px-4 py-2 rounded-lg border border-gray-200 bg-white shadow-sm hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors"
+        >
+          SOP Configs
+        </Link>
       </div>
 
       <MarketingAdminCard userEmail={email} />
