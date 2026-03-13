@@ -29,7 +29,7 @@ function currentMonthStr(): string {
 }
 
 export default function TrustPage() {
-  const { selectedOrgId } = useOrg();
+  const { selectedOrgId, selectedOrg } = useOrg();
   const searchParams = useSearchParams();
   const router = useRouter();
   const activeTab = searchParams.get("tab") === "sop-standards" ? "sop-standards" : "health";
@@ -163,7 +163,7 @@ export default function TrustPage() {
       {/* Title */}
       <div className="text-center mb-4">
         <h1 className="text-4xl font-extrabold bg-gradient-to-r from-[#00a859] to-[#e0b53f] bg-clip-text text-transparent mb-1 drop-shadow-[0_0_6px_rgba(224,181,63,0.45)]">
-          Trust Dashboard
+          {selectedOrg?.org_identifier === "SSB1" ? "SSB1's Trust Dashboard" : "Trust Dashboard"}
         </h1>
         <p className="text-gray-500 text-sm">System health and reliability tracking</p>
       </div>

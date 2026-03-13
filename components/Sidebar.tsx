@@ -61,12 +61,15 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             ? activeMatch.some((path) => pathname.startsWith(path))
             : pathname.startsWith(href);
 
-          // Dynamic label: SSB org sees "SSB1's Journey"
+          // Dynamic label: SSB org sees "SSB1's Journey" / "SSB1's Trust Dashboard"
           const isSSBOrg = selectedOrg?.org_identifier === "SSB1";
-          const displayLabel = href === "/journey" && isSSBOrg ? "SSB1's Journey" : label;
+          const displayLabel =
+            href === "/journey" && isSSBOrg ? "SSB1's Journey" :
+            href === "/trust" && isSSBOrg ? "SSB1's Trust Dashboard" :
+            label;
 
           const alwaysEnabled = href === "/sites" && (isServiceProvider || hasOrgSelected);
-          const disabled = !hasOrgSelected || (isSSBOrg && href !== "/sites" && href !== "/journey" && href !== "/live");
+          const disabled = !hasOrgSelected || (isSSBOrg && href !== "/sites" && href !== "/journey" && href !== "/live" && href !== "/trust");
 
           if (disabled) {
             return (
