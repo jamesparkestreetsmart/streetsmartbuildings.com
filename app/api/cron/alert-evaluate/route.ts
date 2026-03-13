@@ -149,7 +149,7 @@ async function evaluateAlerts(supabase: SupabaseClient): Promise<{
     }
 
     // Fetch subscriptions for these definitions where sms_enabled
-    const { data: subscriptions, error: subErr } = await supabase
+    const { data: subscriptionsRaw, error: subErr } = await supabase
       .from("b_alert_subscriptions")
       .select("*")
       .in("alert_def_id", defIds)
@@ -160,7 +160,14 @@ async function evaluateAlerts(supabase: SupabaseClient): Promise<{
       continue;
     }
 
-    console.log(`[DEBUG] Org ${orgId}: fetched ${subscriptions?.length ?? 0} sms-enabled subscriptions`);
+    // Filter out muted/snoozed subscriptions from SMS delivery
+    const subscriptions = (subscriptionsRaw || []).filter((sub: any) => {
+      if (!sub.muted_at) return true; // not muted
+      if (sub.mute_until && new Date(sub.mute_until) <= new Date()) return true; // snooze expired
+      return false;
+    });
+
+    console.log(`[DEBUG] Org ${orgId}: fetched ${subscriptionsRaw?.length ?? 0} sms-enabled subscriptions (${subscriptions.length} active after mute filter)`);
     if (subscriptions?.length) {
       console.log(`[DEBUG] Subscription details:`, (subscriptions as Subscription[]).map(s => ({ alert_def_id: s.alert_def_id, user_id: s.user_id, sms_enabled: s.sms_enabled })));
     }

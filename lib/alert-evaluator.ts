@@ -635,7 +635,14 @@ async function dispatchNotifications(
     .eq("alert_def_id", def.id)
     .eq("enabled", true);
 
-  if (!subscriptions?.length) {
+  // Filter out muted/snoozed subscriptions from delivery
+  const activeSubs = (subscriptions || []).filter((sub: any) => {
+    if (!sub.muted_at) return true; // not muted
+    if (sub.mute_until && new Date(sub.mute_until) <= new Date()) return true; // snooze expired
+    return false;
+  });
+
+  if (!activeSubs?.length) {
     // No subscribers — still create a dashboard notification for org visibility
     const { title, message } = buildNotificationContent(def, notificationType, targetName, result);
     await supabase.from("b_alert_notifications").insert({
@@ -653,7 +660,7 @@ async function dispatchNotifications(
     return;
   }
 
-  for (const sub of subscriptions) {
+  for (const sub of activeSubs) {
     if (notificationType === "resolved" && !sub.send_resolved) continue;
     if (isInQuietHours(sub)) continue;
 
@@ -700,12 +707,19 @@ async function processRepeats(
   if (!activeInstances?.length) return;
 
   for (const instance of activeInstances) {
-    const { data: repeatSubs } = await supabase
+    const { data: repeatSubsRaw } = await supabase
       .from("b_alert_subscriptions")
       .select("*")
       .eq("alert_def_id", instance.alert_def_id)
       .eq("enabled", true)
       .eq("repeat_enabled", true);
+
+    // Filter out muted/snoozed subscriptions from repeat delivery
+    const repeatSubs = (repeatSubsRaw || []).filter((sub: any) => {
+      if (!sub.muted_at) return true;
+      if (sub.mute_until && new Date(sub.mute_until) <= new Date()) return true;
+      return false;
+    });
 
     if (!repeatSubs?.length) continue;
 

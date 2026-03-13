@@ -194,6 +194,10 @@ export async function POST(req: NextRequest) {
 }
 
 // DELETE: Unsubscribe
+// Bug fix: b_alert_notifications references subscription_id via FK.
+// Deleting a subscription with existing notifications fails with a FK
+// violation (500). Fix: null out subscription_id on related notifications
+// before deleting the subscription row, preserving notification history.
 export async function DELETE(req: NextRequest) {
   const subscriptionId = req.nextUrl.searchParams.get("subscription_id");
   if (!subscriptionId) return NextResponse.json({ error: "subscription_id required" }, { status: 400 });
@@ -201,12 +205,49 @@ export async function DELETE(req: NextRequest) {
   const userId = await getCallerUserId();
   if (!userId) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
+  // Verify ownership before modifying anything
+  const { data: sub } = await supabase
+    .from("b_alert_subscriptions")
+    .select("id")
+    .eq("id", subscriptionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!sub) {
+    return NextResponse.json({ error: "Subscription not found or not owned by you" }, { status: 404 });
+  }
+
+  // Detach notifications from this subscription (preserves notification history)
+  const { error: detachError } = await supabase
+    .from("b_alert_notifications")
+    .update({ subscription_id: null })
+    .eq("subscription_id", subscriptionId);
+
+  if (detachError) {
+    console.error("[SUBSCRIPTIONS] DELETE detach notifications error:", {
+      subscription_id: subscriptionId,
+      message: detachError.message,
+      code: detachError.code,
+    });
+    // Non-fatal: try deleting anyway (FK may not exist or may be SET NULL)
+  }
+
+  // Delete the subscription
   const { error } = await supabase
     .from("b_alert_subscriptions")
     .delete()
     .eq("id", subscriptionId)
     .eq("user_id", userId);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[SUBSCRIPTIONS] DELETE error:", {
+      subscription_id: subscriptionId,
+      user_id: userId,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+    });
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   return NextResponse.json({ success: true });
 }

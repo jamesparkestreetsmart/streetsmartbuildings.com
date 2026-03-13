@@ -2,6 +2,20 @@
 
 import { useState, useEffect, useCallback } from "react";
 
+interface Subscription {
+  id: string;
+  dashboard_enabled: boolean;
+  email_enabled: boolean;
+  sms_enabled: boolean;
+  repeat_enabled: boolean;
+  repeat_interval_min: number;
+  max_repeats: number | null;
+  send_resolved: boolean;
+  enabled: boolean;
+  muted_at: string | null;
+  mute_until: string | null;
+}
+
 interface SubscriptionDef {
   id: string;
   name: string;
@@ -26,17 +40,27 @@ interface SubscriptionDef {
   scope_mode: string | null;
   scope_ids: string[] | null;
   active_instances: number;
-  subscription: {
-    id: string;
-    dashboard_enabled: boolean;
-    email_enabled: boolean;
-    sms_enabled: boolean;
-    repeat_enabled: boolean;
-    repeat_interval_min: number;
-    max_repeats: number | null;
-    send_resolved: boolean;
-    enabled: boolean;
-  } | null;
+  subscription: Subscription | null;
+}
+
+type MuteState = "active" | "muted" | "snoozed";
+
+function getSubscriptionState(sub: Subscription): MuteState {
+  if (!sub.muted_at) return "active";
+  // Snooze expired → treat as active (Option A: lazy cleanup)
+  if (sub.mute_until && new Date(sub.mute_until) <= new Date()) return "active";
+  if (sub.mute_until) return "snoozed";
+  return "muted";
+}
+
+function formatSnoozeUntil(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 export default function AlertSubscriptions({
@@ -63,6 +87,14 @@ export default function AlertSubscriptions({
     send_resolved: boolean;
   } | null>(null);
 
+  // Inline action states
+  const [confirmingMute, setConfirmingMute] = useState<string | null>(null);
+  const [confirmingUnsub, setConfirmingUnsub] = useState<string | null>(null);
+  const [showSnooze, setShowSnooze] = useState<string | null>(null);
+  const [snoozeDate, setSnoozeDate] = useState("");
+  const [snoozeTime, setSnoozeTime] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+
   const fetchSubscriptions = useCallback(async () => {
     setLoading(true);
     try {
@@ -88,6 +120,9 @@ export default function AlertSubscriptions({
       return;
     }
     setExpandedId(def.id);
+    setConfirmingMute(null);
+    setConfirmingUnsub(null);
+    setShowSnooze(null);
     if (def.subscription) {
       setEditState({
         email_enabled: def.subscription.email_enabled,
@@ -126,15 +161,123 @@ export default function AlertSubscriptions({
 
   const unsubscribe = async (def: SubscriptionDef) => {
     if (!def.subscription) return;
-    if (!confirm("Unsubscribe from this alert? You can re-subscribe from Alert Definitions above.")) return;
-    await fetch(`/api/alerts/subscriptions?subscription_id=${def.subscription.id}`, { method: "DELETE" });
-    setDefinitions((prev) =>
-      prev.map((d) => (d.id === def.id ? { ...d, subscription: null } : d))
-    );
-    setExpandedId(null);
-    setEditState(null);
-    onSubscriptionChange?.();
+    setActionLoading(true);
+    try {
+      await fetch(`/api/alerts/subscriptions?subscription_id=${def.subscription.id}`, { method: "DELETE" });
+      setDefinitions((prev) =>
+        prev.map((d) => (d.id === def.id ? { ...d, subscription: null } : d))
+      );
+      setExpandedId(null);
+      setEditState(null);
+      setConfirmingUnsub(null);
+      onSubscriptionChange?.();
+    } catch (err) {
+      console.error("Failed to unsubscribe:", err);
+    } finally {
+      setActionLoading(false);
+    }
   };
+
+  const muteSubscription = async (def: SubscriptionDef) => {
+    if (!def.subscription) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/alerts/subscriptions/mute", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription_id: def.subscription.id }),
+      });
+      const data = await res.json();
+      if (data.subscription) {
+        setDefinitions((prev) =>
+          prev.map((d) => (d.id === def.id ? { ...d, subscription: data.subscription } : d))
+        );
+      }
+      setConfirmingMute(null);
+    } catch (err) {
+      console.error("Failed to mute:", err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const snoozeSubscription = async (def: SubscriptionDef, until: string) => {
+    if (!def.subscription) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/alerts/subscriptions/snooze", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription_id: def.subscription.id, snooze_until: until }),
+      });
+      const data = await res.json();
+      if (data.subscription) {
+        setDefinitions((prev) =>
+          prev.map((d) => (d.id === def.id ? { ...d, subscription: data.subscription } : d))
+        );
+      }
+      setShowSnooze(null);
+      setSnoozeDate("");
+      setSnoozeTime("");
+    } catch (err) {
+      console.error("Failed to snooze:", err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const unmuteSubscription = async (def: SubscriptionDef) => {
+    if (!def.subscription) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/alerts/subscriptions/unmute", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription_id: def.subscription.id }),
+      });
+      const data = await res.json();
+      if (data.subscription) {
+        setDefinitions((prev) =>
+          prev.map((d) => (d.id === def.id ? { ...d, subscription: data.subscription } : d))
+        );
+      }
+    } catch (err) {
+      console.error("Failed to unmute:", err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Snooze preset helpers
+  function getSnoozePreset(preset: string): string {
+    const now = new Date();
+    switch (preset) {
+      case "tonight": {
+        const d = new Date(now);
+        d.setHours(24, 0, 0, 0); // next midnight
+        return d.toISOString();
+      }
+      case "tomorrow": {
+        const d = new Date(now);
+        d.setDate(d.getDate() + 1);
+        d.setHours(8, 0, 0, 0);
+        return d.toISOString();
+      }
+      case "weekend": {
+        const d = new Date(now);
+        const day = d.getDay(); // 0=Sun ... 6=Sat
+        const daysUntilMon = day === 0 ? 1 : (8 - day);
+        d.setDate(d.getDate() + daysUntilMon);
+        d.setHours(8, 0, 0, 0);
+        return d.toISOString();
+      }
+      case "1week": {
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      }
+      default:
+        return now.toISOString();
+    }
+  }
 
   // ─── Display helpers ─────────────────────────────────────────────────────
 
@@ -170,7 +313,7 @@ export default function AlertSubscriptions({
     return `${what} ${condition}`.trim();
   };
 
-  const dispatchSummary = (sub: NonNullable<SubscriptionDef["subscription"]>) => {
+  const dispatchSummary = (sub: Subscription) => {
     const channels: string[] = [];
     if (sub.email_enabled) channels.push("Email");
     if (sub.sms_enabled) channels.push("SMS");
@@ -216,11 +359,18 @@ export default function AlertSubscriptions({
               {subscribedDefs.map((def) => {
                 const sub = def.subscription!;
                 const isExpanded = expandedId === def.id;
+                const muteState = getSubscriptionState(sub);
 
                 return (
                   <div
                     key={def.id}
-                    className="rounded-lg border border-indigo-200 bg-indigo-50/30 overflow-hidden"
+                    className={`rounded-lg border overflow-hidden ${
+                      muteState === "muted"
+                        ? "border-gray-300 bg-gray-50/30"
+                        : muteState === "snoozed"
+                        ? "border-yellow-300 bg-yellow-50/30"
+                        : "border-indigo-200 bg-indigo-50/30"
+                    }`}
                   >
                     {/* Collapsed row — click to expand */}
                     <div
@@ -228,9 +378,11 @@ export default function AlertSubscriptions({
                       className="p-3 cursor-pointer hover:bg-indigo-50/60 transition-colors"
                     >
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                            def.severity === "critical" ? "bg-red-500" : def.severity === "warning" ? "bg-amber-500" : "bg-blue-500"
+                            muteState !== "active"
+                              ? "bg-gray-400"
+                              : def.severity === "critical" ? "bg-red-500" : def.severity === "warning" ? "bg-amber-500" : "bg-blue-500"
                           }`} />
                           <span className="font-medium text-sm text-gray-900">{def.name}</span>
                           <span className={`px-1.5 py-0.5 text-xs rounded-full border ${severityColor(def.severity)}`}>
@@ -239,6 +391,17 @@ export default function AlertSubscriptions({
                           {def.active_instances > 0 && (
                             <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded-full font-medium">
                               {def.active_instances} active
+                            </span>
+                          )}
+                          {/* Mute/Snooze state badge */}
+                          {muteState === "muted" && (
+                            <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 text-xs rounded-full font-medium">
+                              Muted
+                            </span>
+                          )}
+                          {muteState === "snoozed" && (
+                            <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded-full font-medium">
+                              Snoozed until {formatSnoozeUntil(sub.mute_until!)}
                             </span>
                           )}
                         </div>
@@ -337,21 +500,167 @@ export default function AlertSubscriptions({
                           </div>
                         </div>
 
-                        {/* Actions */}
-                        <div className="flex items-center gap-2 pt-2 border-t border-indigo-200/50">
-                          <button
-                            onClick={() => saveDispatch(def.id)}
-                            disabled={saving}
-                            className="px-4 py-1.5 bg-indigo-500 text-white text-xs font-medium rounded-lg hover:bg-indigo-600 disabled:opacity-50"
-                          >
-                            {saving ? "Saving..." : "Save"}
-                          </button>
-                          <button
-                            onClick={() => unsubscribe(def)}
-                            className="px-3 py-1.5 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            Unsubscribe
-                          </button>
+                        {/* ─── Action Buttons ─── */}
+                        <div className="pt-2 border-t border-indigo-200/50 space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {/* Save */}
+                            <button
+                              onClick={() => saveDispatch(def.id)}
+                              disabled={saving}
+                              className="px-4 py-1.5 bg-indigo-500 text-white text-xs font-medium rounded-lg hover:bg-indigo-600 disabled:opacity-50"
+                            >
+                              {saving ? "Saving..." : "Save"}
+                            </button>
+
+                            {/* Mute / Unmute */}
+                            {muteState === "active" ? (
+                              <button
+                                onClick={() => { setConfirmingMute(def.id); setShowSnooze(null); setConfirmingUnsub(null); }}
+                                className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                              >
+                                Mute
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => unmuteSubscription(def)}
+                                disabled={actionLoading}
+                                className="px-3 py-1.5 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
+                              >
+                                Unmute
+                              </button>
+                            )}
+
+                            {/* Snooze / Adjust Snooze */}
+                            <button
+                              onClick={() => { setShowSnooze(showSnooze === def.id ? null : def.id); setConfirmingMute(null); setConfirmingUnsub(null); }}
+                              className="px-3 py-1.5 text-xs text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50 rounded-lg transition-colors"
+                            >
+                              {muteState === "snoozed" ? "Adjust Snooze" : "Snooze"}
+                            </button>
+
+                            {/* Unsubscribe */}
+                            <button
+                              onClick={() => { setConfirmingUnsub(def.id); setConfirmingMute(null); setShowSnooze(null); }}
+                              className="px-3 py-1.5 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              Unsubscribe
+                            </button>
+                          </div>
+
+                          {/* Mute confirmation */}
+                          {confirmingMute === def.id && (
+                            <div className="p-2 bg-gray-50 rounded-lg text-xs text-gray-600">
+                              <p>Mute this alert? You won&apos;t receive notifications until you unmute. Your settings will be saved.</p>
+                              <div className="flex gap-2 mt-2">
+                                <button
+                                  onClick={() => setConfirmingMute(null)}
+                                  className="px-3 py-1 rounded border border-gray-300 text-gray-500 hover:bg-gray-100"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => muteSubscription(def)}
+                                  disabled={actionLoading}
+                                  className="px-3 py-1 rounded bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-50"
+                                >
+                                  Mute
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Snooze picker */}
+                          {showSnooze === def.id && (
+                            <div className="p-2 bg-yellow-50 rounded-lg text-xs space-y-2">
+                              <p className="text-gray-600 font-medium">Snooze until:</p>
+                              <div className="flex flex-wrap gap-1">
+                                <button
+                                  onClick={() => snoozeSubscription(def, getSnoozePreset("tonight"))}
+                                  disabled={actionLoading}
+                                  className="px-2 py-1 rounded border border-yellow-300 text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
+                                >
+                                  Tonight
+                                </button>
+                                <button
+                                  onClick={() => snoozeSubscription(def, getSnoozePreset("tomorrow"))}
+                                  disabled={actionLoading}
+                                  className="px-2 py-1 rounded border border-yellow-300 text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
+                                >
+                                  Tomorrow 8 AM
+                                </button>
+                                <button
+                                  onClick={() => snoozeSubscription(def, getSnoozePreset("weekend"))}
+                                  disabled={actionLoading}
+                                  className="px-2 py-1 rounded border border-yellow-300 text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
+                                >
+                                  Monday 8 AM
+                                </button>
+                                <button
+                                  onClick={() => snoozeSubscription(def, getSnoozePreset("1week"))}
+                                  disabled={actionLoading}
+                                  className="px-2 py-1 rounded border border-yellow-300 text-yellow-700 hover:bg-yellow-100 disabled:opacity-50"
+                                >
+                                  1 week
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="date"
+                                  value={snoozeDate}
+                                  onChange={(e) => setSnoozeDate(e.target.value)}
+                                  className="border rounded px-2 py-1 text-xs"
+                                />
+                                <input
+                                  type="time"
+                                  value={snoozeTime}
+                                  onChange={(e) => setSnoozeTime(e.target.value)}
+                                  className="border rounded px-2 py-1 text-xs"
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (snoozeDate && snoozeTime) {
+                                      const dt = new Date(`${snoozeDate}T${snoozeTime}`);
+                                      if (dt > new Date()) {
+                                        snoozeSubscription(def, dt.toISOString());
+                                      }
+                                    }
+                                  }}
+                                  disabled={actionLoading || !snoozeDate || !snoozeTime}
+                                  className="px-3 py-1 rounded bg-yellow-500 text-white hover:bg-yellow-600 disabled:opacity-50"
+                                >
+                                  Snooze
+                                </button>
+                                <button
+                                  onClick={() => setShowSnooze(null)}
+                                  className="px-2 py-1 text-gray-400 hover:text-gray-600"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Unsubscribe confirmation */}
+                          {confirmingUnsub === def.id && (
+                            <div className="p-2 bg-red-50 rounded-lg text-xs text-gray-600">
+                              <p>Unsubscribe from this alert? This will remove all your settings for this alert.</p>
+                              <div className="flex gap-2 mt-2">
+                                <button
+                                  onClick={() => setConfirmingUnsub(null)}
+                                  className="px-3 py-1 rounded border border-gray-300 text-gray-500 hover:bg-gray-100"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => unsubscribe(def)}
+                                  disabled={actionLoading}
+                                  className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                                >
+                                  Unsubscribe
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
