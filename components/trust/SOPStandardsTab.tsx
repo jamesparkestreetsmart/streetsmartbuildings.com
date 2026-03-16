@@ -19,7 +19,7 @@ interface AssignmentRow {
   org_id: string | null;
   scope_level: string;
   site_id: string | null;
-  equipment_type: string | null;
+  equipment_type_id: string | null;
   equipment_id: string | null;
   space_type: string | null;
   space_id: string | null;
@@ -79,7 +79,7 @@ function scopeDetail(c: AssignmentRow): string {
     case "site": return c.site_name || "—";
     case "space_type": return `${c.space_type} spaces at ${c.site_name || "—"}`;
     case "space": return `${c.space_name || "—"} at ${c.site_name || "—"}`;
-    case "equipment_type": return `All ${c.equipment_type} in ${c.org_name || "—"}`;
+    case "equipment_type": return `All ${c.equipment_type_id} in ${c.org_name || "—"}`;
     case "equipment": return c.equipment_name || "—";
     default: return "—";
   }
@@ -527,7 +527,7 @@ function AssignmentModal({
 
   // Scope targeting
   const [formSiteId, setFormSiteId] = useState(editAssignment?.site_id || "");
-  const [formEquipType, setFormEquipType] = useState(editAssignment?.equipment_type || "");
+  const [formEquipType, setFormEquipType] = useState(editAssignment?.equipment_type_id || "");
   const [formEquipId, setFormEquipId] = useState(editAssignment?.equipment_id || "");
   const [formSpaceType, setFormSpaceType] = useState(editAssignment?.space_type || "");
   const [formSpaceId, setFormSpaceId] = useState(editAssignment?.space_id || "");
@@ -601,7 +601,7 @@ function AssignmentModal({
             scope_level: scopeLevel,
             org_id: scopeLevel === "ssb" ? null : selectedOrgId,
             site_id: ["site", "space_type", "space"].includes(scopeLevel) ? formSiteId || null : null,
-            equipment_type: ["equipment_type", "equipment"].includes(scopeLevel) ? formEquipType || null : null,
+            equipment_type_id: ["equipment_type", "equipment"].includes(scopeLevel) ? formEquipType || null : null,
             equipment_id: scopeLevel === "equipment" ? formEquipId || null : null,
             space_type: ["space_type", "space"].includes(scopeLevel) ? formSpaceType || null : null,
             space_id: scopeLevel === "space" ? formSpaceId || null : null,
@@ -641,7 +641,7 @@ function AssignmentModal({
             org_id: ownerKind === "ssb" ? null : selectedOrgId,
             scope_level: scopeLevel,
             site_id: ["site", "space_type", "space"].includes(scopeLevel) ? formSiteId || null : null,
-            equipment_type: ["equipment_type", "equipment"].includes(scopeLevel) ? formEquipType || null : null,
+            equipment_type_id: ["equipment_type", "equipment"].includes(scopeLevel) ? formEquipType || null : null,
             equipment_id: scopeLevel === "equipment" ? formEquipId || null : null,
             space_type: ["space_type", "space"].includes(scopeLevel) ? formSpaceType || null : null,
             space_id: scopeLevel === "space" ? formSpaceId || null : null,

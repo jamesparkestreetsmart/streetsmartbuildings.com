@@ -13,7 +13,7 @@ CREATE OR REPLACE VIEW v_sop_effective AS
     a.org_id,
     a.scope_level,
     a.site_id,
-    a.equipment_type,
+    a.equipment_type_id,
     a.equipment_id,
     a.space_type,
     a.space_id,
@@ -42,7 +42,7 @@ CREATE OR REPLACE VIEW v_sop_effective AS
 CREATE OR REPLACE FUNCTION resolve_sop_equipment(
   p_metric         text,
   p_org_id         uuid,
-  p_equipment_type text,
+  p_equipment_type_id text,
   p_equipment_id   uuid
 ) RETURNS SETOF v_sop_effective AS $$
   SELECT * FROM v_sop_effective
@@ -54,8 +54,8 @@ CREATE OR REPLACE FUNCTION resolve_sop_equipment(
         AND p_equipment_id IS NOT NULL)
       OR (scope_level = 'equipment_type'
         AND org_id = p_org_id
-        AND equipment_type = p_equipment_type
-        AND p_equipment_type IS NOT NULL)
+        AND equipment_type_id = p_equipment_type_id
+        AND p_equipment_type_id IS NOT NULL)
       OR (scope_level = 'org'
         AND org_id = p_org_id)
       OR (scope_level = 'ssb')

@@ -7,7 +7,7 @@ export interface EffectiveAssignment {
   org_id: string | null;
   scope_level: string;
   site_id: string | null;
-  equipment_type: string | null;
+  equipment_type_id: string | null;
   equipment_id: string | null;
   space_type: string | null;
   space_id: string | null;
@@ -33,14 +33,14 @@ export async function resolveSOPEquipment(
   supabase: SupabaseClient,
   metric: string,
   orgId: string,
-  equipmentType?: string | null,
+  equipmentTypeId?: string | null,
   equipmentId?: string | null,
 ): Promise<EffectiveAssignment | null> {
   const { data, error } = await supabase
     .rpc("resolve_sop_equipment", {
       p_metric: metric,
       p_org_id: orgId,
-      p_equipment_type: equipmentType || null,
+      p_equipment_type_id: equipmentTypeId || null,
       p_equipment_id: equipmentId || null,
     });
 

@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
       org_id: r.org_id,
       scope_level: r.scope_level,
       site_id: r.site_id,
-      equipment_type: r.equipment_type,
+      equipment_type_id: r.equipment_type_id,
       equipment_id: r.equipment_id,
       space_type: r.space_type,
       space_id: r.space_id,
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     org_id: body.org_id || null,
     scope_level: body.scope_level,
     site_id: body.site_id || null,
-    equipment_type: body.equipment_type || null,
+    equipment_type_id: body.equipment_type_id || null,
     equipment_id: body.equipment_id || null,
     space_type: body.space_type || null,
     space_id: body.space_id || null,
@@ -158,7 +158,7 @@ export async function PATCH(req: NextRequest) {
 
   const updates: Record<string, unknown> = {};
   for (const key of [
-    "scope_level", "org_id", "site_id", "equipment_type", "equipment_id",
+    "scope_level", "org_id", "site_id", "equipment_type_id", "equipment_id",
     "space_type", "space_id", "effective_from", "effective_to", "retired_at",
   ]) {
     if (fields[key] !== undefined) updates[key] = fields[key];

@@ -33,24 +33,25 @@ export async function GET(req: NextRequest) {
   // Fetch site IDs for equipment/space queries
   const orgSiteIds = sites.map((s: any) => s.site_id);
 
-  // Fetch distinct equipment types (equipment_group) across org
+  // Fetch distinct equipment types (equipment_type_id) across org
   let equipmentTypes: string[] = [];
-  let equipment: { equipment_id: string; equipment_name: string; equipment_group: string }[] = [];
+  let equipment: { equipment_id: string; equipment_name: string; equipment_type_id: string; equipment_group: string }[] = [];
 
   if (orgSiteIds.length) {
     const { data: eqRaw } = await supabase
       .from("a_equipments")
-      .select("equipment_id, equipment_name, equipment_group, site_id")
+      .select("equipment_id, equipment_name, equipment_type_id, equipment_group, site_id")
       .in("site_id", orgSiteIds)
       .neq("status", "retired")
       .neq("status", "dummy")
       .order("equipment_name");
 
     const eqs = eqRaw || [];
-    equipmentTypes = [...new Set(eqs.map((e: any) => e.equipment_group).filter(Boolean))].sort();
+    equipmentTypes = [...new Set(eqs.map((e: any) => e.equipment_type_id).filter(Boolean))].sort();
     equipment = eqs.map((e: any) => ({
       equipment_id: e.equipment_id,
       equipment_name: e.equipment_name,
+      equipment_type_id: e.equipment_type_id || "",
       equipment_group: e.equipment_group || "Uncategorized",
     }));
   }

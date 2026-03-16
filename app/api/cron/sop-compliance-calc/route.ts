@@ -50,7 +50,7 @@ interface EffectiveAssignment {
   org_id: string | null;
   scope_level: string;
   site_id: string | null;
-  equipment_type: string | null;
+  equipment_type_id: string | null;
   equipment_id: string | null;
   space_type: string | null;
   space_id: string | null;
@@ -106,7 +106,7 @@ async function getEquipmentTargets(
     }
 
     case "equipment_type": {
-      if (!assignment.org_id || !assignment.equipment_type) return [];
+      if (!assignment.org_id || !assignment.equipment_type_id) return [];
       const orgSites = allSites.filter((s) => s.org_id === assignment.org_id);
       const siteIds = orgSites.map((s) => s.site_id);
       if (!siteIds.length) return [];
@@ -115,7 +115,7 @@ async function getEquipmentTargets(
         .from("a_equipments")
         .select("equipment_id, site_id")
         .in("site_id", siteIds)
-        .eq("equipment_group", assignment.equipment_type)
+        .eq("equipment_type_id", assignment.equipment_type_id)
         .neq("status", "retired")
         .neq("status", "dummy");
 
@@ -466,7 +466,7 @@ async function handler(request: NextRequest) {
       org_id,
       scope_level,
       site_id,
-      equipment_type,
+      equipment_type_id,
       equipment_id,
       space_type,
       space_id,
@@ -500,7 +500,7 @@ async function handler(request: NextRequest) {
       org_id: r.org_id,
       scope_level: r.scope_level,
       site_id: r.site_id,
-      equipment_type: r.equipment_type,
+      equipment_type_id: r.equipment_type_id,
       equipment_id: r.equipment_id,
       space_type: r.space_type,
       space_id: r.space_id,

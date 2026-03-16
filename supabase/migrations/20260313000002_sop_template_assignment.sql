@@ -82,7 +82,7 @@ CREATE TABLE a_sop_assignments (
   org_id          uuid REFERENCES a_organizations(org_id) ON DELETE CASCADE,
   scope_level     text NOT NULL,
   site_id         uuid REFERENCES a_sites(site_id) ON DELETE CASCADE,
-  equipment_type  text,
+  equipment_type_id  text,
   equipment_id    uuid REFERENCES a_equipments(equipment_id) ON DELETE CASCADE,
   space_type      text,
   space_id        uuid REFERENCES a_spaces(space_id) ON DELETE CASCADE,
@@ -111,32 +111,32 @@ CREATE TABLE a_sop_assignments (
   CONSTRAINT sop_assignment_scope_validity CHECK (
     (scope_level = 'ssb'
       AND org_id IS NULL AND site_id IS NULL
-      AND equipment_type IS NULL AND equipment_id IS NULL
+      AND equipment_type_id IS NULL AND equipment_id IS NULL
       AND space_type IS NULL AND space_id IS NULL)
     OR (scope_level = 'org'
       AND org_id IS NOT NULL AND site_id IS NULL
-      AND equipment_type IS NULL AND equipment_id IS NULL
+      AND equipment_type_id IS NULL AND equipment_id IS NULL
       AND space_type IS NULL AND space_id IS NULL)
     OR (scope_level = 'equipment_type'
-      AND org_id IS NOT NULL AND equipment_type IS NOT NULL
+      AND org_id IS NOT NULL AND equipment_type_id IS NOT NULL
       AND equipment_id IS NULL AND site_id IS NULL
       AND space_type IS NULL AND space_id IS NULL)
     OR (scope_level = 'equipment'
-      AND org_id IS NOT NULL AND equipment_type IS NOT NULL
+      AND org_id IS NOT NULL AND equipment_type_id IS NOT NULL
       AND equipment_id IS NOT NULL AND site_id IS NULL
       AND space_type IS NULL AND space_id IS NULL)
     OR (scope_level = 'site'
       AND org_id IS NOT NULL AND site_id IS NOT NULL
-      AND equipment_type IS NULL AND equipment_id IS NULL
+      AND equipment_type_id IS NULL AND equipment_id IS NULL
       AND space_type IS NULL AND space_id IS NULL)
     OR (scope_level = 'space_type'
       AND org_id IS NOT NULL AND site_id IS NOT NULL
       AND space_type IS NOT NULL AND space_id IS NULL
-      AND equipment_type IS NULL AND equipment_id IS NULL)
+      AND equipment_type_id IS NULL AND equipment_id IS NULL)
     OR (scope_level = 'space'
       AND org_id IS NOT NULL AND site_id IS NOT NULL
       AND space_type IS NOT NULL AND space_id IS NOT NULL
-      AND equipment_type IS NULL AND equipment_id IS NULL)
+      AND equipment_type_id IS NULL AND equipment_id IS NULL)
   )
 );
 
@@ -155,8 +155,8 @@ CREATE INDEX idx_sop_assignments_ssb
   ON a_sop_assignments(scope_level)
   WHERE owner_kind = 'ssb';
 CREATE INDEX idx_sop_assignments_equipment_type
-  ON a_sop_assignments(org_id, equipment_type)
-  WHERE equipment_type IS NOT NULL;
+  ON a_sop_assignments(org_id, equipment_type_id)
+  WHERE equipment_type_id IS NOT NULL;
 CREATE INDEX idx_sop_assignments_space_type
   ON a_sop_assignments(org_id, site_id, space_type)
   WHERE space_type IS NOT NULL;
@@ -168,7 +168,7 @@ CREATE UNIQUE INDEX uq_sop_assignment
     COALESCE(org_id, '00000000-0000-0000-0000-000000000000'),
     scope_level,
     COALESCE(site_id, '00000000-0000-0000-0000-000000000000'),
-    COALESCE(equipment_type, ''),
+    COALESCE(equipment_type_id, ''),
     COALESCE(equipment_id, '00000000-0000-0000-0000-000000000000'),
     COALESCE(space_type, ''),
     COALESCE(space_id, '00000000-0000-0000-0000-000000000000')
