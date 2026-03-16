@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
         `id, sop_assignment_id, site_id, equipment_id, space_id,
          period_start, period_end, total_readings, compliant_readings, compliance_pct,
          a_sop_assignments!inner (
-           id, org_id, scope_level,
+           id, org_id, scope_level, site_id,
+           equipment_id, effective_from, effective_to,
            a_sop_templates (
              label, metric, min_value, max_value,
              evaluation_window, unit, notes
@@ -132,7 +133,11 @@ export async function GET(req: NextRequest) {
         notes: template?.notes || null,
         // Assignment fields
         config_org_id: assignment?.org_id || null,
+        config_site_id: assignment?.site_id || null,
+        config_equipment_id: assignment?.equipment_id || null,
         scope_level: assignment?.scope_level || null,
+        effective_from: assignment?.effective_from || null,
+        effective_to: assignment?.effective_to || null,
         // Resolved names
         equipment_name: r.equipment_id ? equipMap[r.equipment_id]?.name || "" : null,
         equipment_group: r.equipment_id ? equipMap[r.equipment_id]?.group || "Uncategorized" : null,
