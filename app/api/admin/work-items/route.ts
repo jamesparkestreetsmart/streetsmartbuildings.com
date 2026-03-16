@@ -40,7 +40,6 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from("c_work_items")
     .select("*")
-    .eq("org_id", SSB_ORG_ID)
     .order("created_at", { ascending: false });
 
   if (status) query = query.eq("status", status);
@@ -61,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
-  const insertPayload = { ...body, org_id: SSB_ORG_ID };
+  const insertPayload = { ...body, org_id: body.org_id || SSB_ORG_ID };
   console.log("[work-items] POST payload keys:", Object.keys(insertPayload));
 
   const { data, error } = await supabase

@@ -37,7 +37,6 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from("c_learnings")
     .select("*")
-    .eq("org_id", SSB_ORG_ID)
     .order("created_at", { ascending: false });
 
   if (category) query = query.eq("category", category);
@@ -55,7 +54,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
-  const insertPayload = { ...body, org_id: SSB_ORG_ID };
+  const insertPayload = { ...body, org_id: body.org_id || SSB_ORG_ID };
 
   const { data, error } = await supabase
     .from("c_learnings")

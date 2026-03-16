@@ -237,6 +237,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   // Related item dropdowns
   const [allIssues, setAllIssues] = useState<{ id: string; title: string }[]>([]);
   const [allWorkItems, setAllWorkItems] = useState<{ id: string; title: string }[]>([]);
+  const [allOrgs, setAllOrgs] = useState<{ id: string; title: string }[]>([]);
 
   // ---------------------------------------------------------------------------
   // Fetch data
@@ -295,9 +296,10 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
 
   const fetchRelatedDropdowns = useCallback(async () => {
     try {
-      const [issuesRes, workRes] = await Promise.all([
+      const [issuesRes, workRes, orgsRes] = await Promise.all([
         fetch("/api/admin/platform-issues"),
         fetch("/api/admin/work-items"),
+        fetch("/api/admin/organizations"),
       ]);
       if (issuesRes.ok) {
         const data = await issuesRes.json();
@@ -306,6 +308,16 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
       if (workRes.ok) {
         const data = await workRes.json();
         setAllWorkItems(data.map((i: any) => ({ id: i.work_item_id, title: i.title })));
+      }
+      if (orgsRes.ok) {
+        const data = await orgsRes.json();
+        const orgs = data.organizations || data;
+        setAllOrgs([
+          { id: "79fab5fe-5fcf-4d84-ac1f-40348ebc160c", title: "Platform-wide (SSB)" },
+          ...orgs
+            .filter((o: any) => o.org_id !== "79fab5fe-5fcf-4d84-ac1f-40348ebc160c")
+            .map((o: any) => ({ id: o.org_id, title: o.org_name })),
+        ]);
       }
     } catch {
       // ignore
@@ -984,6 +996,12 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
             className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+        <FieldRelatedSelect
+          label="Related Org (optional — tag to a customer org if relevant)"
+          value={modalItem?.org_id ?? "79fab5fe-5fcf-4d84-ac1f-40348ebc160c"}
+          onChange={(v) => setField("org_id", v || "79fab5fe-5fcf-4d84-ac1f-40348ebc160c")}
+          options={allOrgs}
+        />
       </>
     );
   }
@@ -1021,6 +1039,12 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
           value={modalItem?.related_work_item_id ?? ""}
           onChange={(v) => setField("related_work_item_id", v || null)}
           options={allWorkItems}
+        />
+        <FieldRelatedSelect
+          label="Related Org (optional — tag to a customer org if relevant)"
+          value={modalItem?.org_id ?? "79fab5fe-5fcf-4d84-ac1f-40348ebc160c"}
+          onChange={(v) => setField("org_id", v || "79fab5fe-5fcf-4d84-ac1f-40348ebc160c")}
+          options={allOrgs}
         />
       </>
     );
