@@ -438,6 +438,8 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
                         ? "bg-purple-100 text-purple-700"
                         : record.event_type.includes("retired") || record.event_type.includes("failed")
                         ? "bg-red-100 text-red-700"
+                        : record.event_type === "ha_connectivity_alert"
+                        ? "bg-orange-100 text-orange-700"
                         : record.event_type.includes("restored")
                         ? "bg-blue-100 text-blue-700"
                         : "bg-gray-100 text-gray-600"
@@ -468,6 +470,26 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
                     </td>
                   )}
                   <td className="px-3 py-2 text-gray-700 text-xs max-w-[400px] truncate" title={record.message}>
+                    {record.event_type === "thermostat_push_failed" && record.metadata?.failure_reason && (
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium mr-1.5 ${
+                        record.metadata.failure_reason === "timeout"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : record.metadata.failure_reason === "auth_failed"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-red-100 text-red-600"
+                      }`}>
+                        {record.metadata.failure_reason === "timeout" ? "Timeout"
+                          : record.metadata.failure_reason === "auth_failed" ? "Auth Failed"
+                          : record.metadata.failure_reason === "network_error" ? "Network Error"
+                          : record.metadata.failure_reason.startsWith("http_") ? `HTTP ${record.metadata.failure_reason.slice(5)}`
+                          : record.metadata.failure_reason}
+                      </span>
+                    )}
+                    {record.event_type === "ha_connectivity_alert" && (
+                      <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium mr-1.5 bg-orange-100 text-orange-700">
+                        {record.metadata?.failure_count ?? "3"}+ consecutive failures
+                      </span>
+                    )}
                     {record.message}
                   </td>
                   <td className="px-3 py-2 text-gray-600 text-xs whitespace-nowrap">

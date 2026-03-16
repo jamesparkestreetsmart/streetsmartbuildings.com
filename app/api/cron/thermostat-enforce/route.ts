@@ -252,7 +252,7 @@ export async function GET(req: NextRequest) {
     const errors: { site_id: string; error: string }[] = [];
 
     // ─── Per-site processing function ─────────────────────────────────────────
-    const PER_SITE_TIMEOUT_MS = 15_000;
+    const PER_SITE_TIMEOUT_MS = 20_000;
 
     async function processSite(
       site: { site_id: string; org_id: string; timezone: string | null; ha_url: string | null; ha_token: string | null; status: string | null; has_managed: boolean },

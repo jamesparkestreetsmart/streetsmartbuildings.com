@@ -150,18 +150,129 @@ async function readBackThermostatState(
 
 /**
  * Check if Home Assistant is reachable and the token is valid.
+ * Returns structured result with failure reason for diagnostics.
  */
 export async function checkHAConnection(
   haUrl: string,
-  haToken: string
-): Promise<boolean> {
+  haToken: string,
+  timeoutMs = 12000
+): Promise<{ connected: boolean; failureReason?: string }> {
   try {
-    const res = await haFetch(`${haUrl}/api/`, haToken, { method: "GET" }, 5000);
-    return res.status === 200;
-  } catch {
-    return false;
+    const res = await haFetch(`${haUrl}/api/`, haToken, { method: "GET" }, timeoutMs);
+    if (res.status === 200) {
+      return { connected: true };
+    }
+    if (res.status === 401) {
+      console.error("[ha-push] HA auth failed — token invalid or expired");
+      return { connected: false, failureReason: "auth_failed" };
+    }
+    if (res.status === 502 || res.status === 503) {
+      console.error(`[ha-push] HA gateway/availability error: HTTP ${res.status}`);
+      return { connected: false, failureReason: `http_${res.status}` };
+    }
+    if (res.status === 404) {
+      console.error("[ha-push] HA API path not found — ha_url may be wrong or HA version changed");
+      return { connected: false, failureReason: "entity_not_found" };
+    }
+    console.error(`[ha-push] HA connection check returned HTTP ${res.status}`);
+    return { connected: false, failureReason: `http_${res.status}` };
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      console.error(`[ha-push] HA connection check timed out after ${timeoutMs / 1000}s`);
+      return { connected: false, failureReason: "timeout" };
+    }
+    console.error("[ha-push] HA connection check failed:", err?.message);
+    return { connected: false, failureReason: "network_error" };
   }
 }
+
+/**
+ * Check HA connection with one retry. Uses shorter timeout on first attempt.
+ * Total worst case: 6s + 2s delay + 8s = 16s (fits within 20s per-site budget).
+ */
+export async function checkHAConnectionWithRetry(
+  haUrl: string,
+  haToken: string,
+  retries = 1,
+  retryDelayMs = 2000
+): Promise<{ connected: boolean; failureReason?: string }> {
+  // First attempt: 6s timeout (fast check)
+  let lastResult = await checkHAConnection(haUrl, haToken, 6000);
+  if (lastResult.connected) return lastResult;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    console.log(`[ha-push] Retrying HA connection check (attempt ${attempt + 1})...`);
+    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    // Retry with longer timeout: 8s
+    lastResult = await checkHAConnection(haUrl, haToken, 8000);
+    if (lastResult.connected) return lastResult;
+  }
+  return lastResult;
+}
+
+const CONSECUTIVE_FAILURE_THRESHOLD = 3;
+
+async function checkAndAlertConsecutiveFailures(
+  supabase: SupabaseClient,
+  siteId: string,
+  orgId: string,
+  failureReason: string
+): Promise<void> {
+  try {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+    const { count } = await supabase
+      .from("b_records_log")
+      .select("id", { count: "exact", head: true })
+      .eq("site_id", siteId)
+      .eq("event_type", "thermostat_push_failed")
+      .gte("created_at", twoHoursAgo);
+
+    if ((count ?? 0) >= CONSECUTIVE_FAILURE_THRESHOLD) {
+      // Check if we already fired an alert recently (don't spam)
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { count: recentAlerts } = await supabase
+        .from("b_records_log")
+        .select("id", { count: "exact", head: true })
+        .eq("site_id", siteId)
+        .eq("event_type", "ha_connectivity_alert")
+        .gte("created_at", oneHourAgo);
+
+      if ((recentAlerts ?? 0) === 0) {
+        await supabase.from("b_records_log").insert({
+          site_id: siteId,
+          org_id: orgId,
+          event_type: "ha_connectivity_alert",
+          message: `HA unreachable for ${count} consecutive attempts. `
+            + `Last failure reason: ${failureReason}. `
+            + `Thermostat enforcement is not functioning.`,
+          source: "ha_push",
+          created_by: "system",
+          metadata: {
+            failure_count: count,
+            failure_reason: failureReason,
+            threshold: CONSECUTIVE_FAILURE_THRESHOLD,
+          },
+        });
+        console.error(
+          `[ha-push] ALERT: Site ${siteId} has ${count} consecutive HA failures — ha_connectivity_alert logged`
+        );
+      }
+    }
+  } catch (err: any) {
+    console.error("[ha-push] Consecutive failure check error:", err?.message);
+  }
+}
+
+const HA_FAILURE_MESSAGES: Record<string, string> = {
+  timeout:          "HA push failed: connection timed out (tunnel may be slow)",
+  auth_failed:      "HA push failed: authentication rejected — token may be invalid or expired",
+  network_error:    "HA push failed: network error — DNS or routing failure",
+  http_502:         "HA push failed: bad gateway (502) — tunnel or proxy issue",
+  http_503:         "HA push failed: HA unavailable (503) — instance may be restarting",
+  webhook_rejected: "HA push failed: webhook rejected — check webhook URL and HA config",
+  entity_not_found: "HA push failed: climate entity not found — device mapping may be stale",
+};
 
 /**
  * Push desired thermostat state to HA, respecting guardrails and skip-if-already-at-target logic.
@@ -422,11 +533,12 @@ export async function executePushForSite(
     return { results: [], ha_connected: false, trigger };
   }
 
-  // Test connection
-  const connected = await checkHAConnection(haUrl, haToken);
-  if (!connected) {
-    console.error("[ha-push] HA unreachable");
-    // Log failed push
+  // Test connection with retry
+  const connResult = await checkHAConnectionWithRetry(haUrl, haToken);
+  if (!connResult.connected) {
+    const failureReason = connResult.failureReason || "unknown";
+    console.error(`[ha-push] HA unreachable: ${failureReason}`);
+    // Log failed push with specific reason
     try {
       const { data: siteInfo } = await supabase
         .from("a_sites")
@@ -436,15 +548,22 @@ export async function executePushForSite(
       const localDate = new Date().toLocaleDateString("en-CA", {
         timeZone: siteInfo?.timezone || "America/Chicago",
       });
+      const logMessage = HA_FAILURE_MESSAGES[failureReason]
+        ?? `HA push failed: ${failureReason} (trigger: ${trigger})`;
       await supabase.from("b_records_log").insert({
         site_id: siteId,
         org_id: siteInfo?.org_id || null,
         event_type: "thermostat_push_failed",
         event_date: localDate,
-        message: `HA push failed: Home Assistant unreachable (trigger: ${trigger})`,
+        message: `${logMessage} (trigger: ${trigger})`,
         source: "ha_push",
         created_by: triggeredBy || "system",
+        metadata: { failure_reason: failureReason },
       });
+      // Check for consecutive failures and alert
+      await checkAndAlertConsecutiveFailures(
+        supabase, siteId, siteInfo?.org_id || "", failureReason
+      );
     } catch (logErr) {
       console.error("[ha-push] Failed to log HA unreachable:", logErr);
     }
