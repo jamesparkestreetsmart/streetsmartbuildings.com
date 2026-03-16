@@ -7,6 +7,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ ruleId: string }> }
+) {
+  const { ruleId } = await params;
+  if (!ruleId) {
+    return NextResponse.json({ error: "Missing ruleId" }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
+    .from("b_store_hours_exception_rules")
+    .select("*")
+    .eq("rule_id", ruleId)
+    .single();
+
+  if (error || !data) {
+    return NextResponse.json({ error: "Rule not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(data);
+}
+
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ ruleId: string }> }

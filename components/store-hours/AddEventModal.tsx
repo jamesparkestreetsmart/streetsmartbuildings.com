@@ -165,17 +165,34 @@ export default function AddEventModal({
     // Hydrate edit mode from the event data
     setName(initialData.event_name || initialData.name || "");
     setEventType(initialData.event_type || "store_hours_schedule");
-    setRuleType("single_date");
-    setSingleDate(initialData.event_date || "");
 
-    if (initialData.is_closed) {
-      setHoursType("closed");
-      setOpenTime("");
-      setCloseTime("");
+    // Hotel occupancy: fetch rule to get date range and times
+    if (initialData.event_type === "hotel_occupancy" && initialData.rule_id) {
+      fetch(`/api/store-hours/rules/${initialData.rule_id}`)
+        .then((res) => res.ok ? res.json() : null)
+        .then((rule) => {
+          if (rule) {
+            setHotelStartDate(rule.effective_from_date?.split("T")[0] || "");
+            setHotelEndDate(rule.effective_to_date?.split("T")[0] || "");
+            setCheckInTime(rule.start_day_open || "15:00");
+            setCheckOutTime(rule.end_day_close || "11:00");
+          }
+        })
+        .catch((err) => console.error("[AddEventModal] Failed to fetch rule for edit:", err));
     } else {
-      setHoursType("special");
-      setOpenTime(initialData.open_time || "");
-      setCloseTime(initialData.close_time || "");
+      // Store hours / other event types
+      setRuleType("single_date");
+      setSingleDate(initialData.event_date?.split("T")[0] || "");
+
+      if (initialData.is_closed) {
+        setHoursType("closed");
+        setOpenTime("");
+        setCloseTime("");
+      } else {
+        setHoursType("special");
+        setOpenTime(initialData.open_time || "");
+        setCloseTime(initialData.close_time || "");
+      }
     }
 
   }, [open, mode, initialData]);
@@ -267,16 +284,23 @@ export default function AddEventModal({
      Trigger immediate manifest push for same-day events
   ====================================================== */
 
-  async function triggerManifestPush(targetDate: string) {
+  async function triggerManifestPush(targetDate: string, endDate?: string) {
     const siteToday = todayInTimezone(timezone);
-    if (targetDate !== siteToday) return;
+
+    // For date ranges (hotel events), push manifest for today if it falls within range
+    const pushDate = siteToday;
+    const inRange = endDate
+      ? pushDate >= targetDate && pushDate <= endDate
+      : pushDate === targetDate;
+
+    if (!inRange) return;
 
     try {
-      console.log("Same-day event detected, pushing updated manifest...");
+      console.log("Event affects today, pushing updated manifest...");
       await fetch("/api/manifest/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteId, date: targetDate }),
+        body: JSON.stringify({ site_id: siteId, date: pushDate }),
       });
     } catch (err) {
       console.error("Manifest push failed (non-blocking):", err);
@@ -309,9 +333,11 @@ export default function AddEventModal({
 
       let payload: Record<string, any>;
       let eventDate: string = "";
+      let eventEndDate: string | undefined;
 
       if (eventType === "hotel_occupancy") {
         eventDate = hotelStartDate;
+        eventEndDate = hotelEndDate;
         payload = {
           site_id: siteId,
           name: name.trim(),
@@ -418,7 +444,7 @@ export default function AddEventModal({
       }
 
       // Trigger immediate manifest push if this affects today
-      await triggerManifestPush(eventDate);
+      await triggerManifestPush(eventDate, eventEndDate);
 
       onSaved();
     } catch (err) {

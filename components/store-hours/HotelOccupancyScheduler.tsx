@@ -92,6 +92,16 @@ export default function HotelOccupancyScheduler({
           <li>• Check-out day: occupied from midnight until {checkOutTime || "check-out time"}</li>
         </ul>
       </div>
+
+      {/* Relationship to store hours */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+        <p className="text-xs text-gray-600">
+          Hotel Occupancy events track guest stays for extended HVAC comfort.
+          The store&apos;s regular operating hours still apply &mdash; this event
+          extends occupied comfort hours outside normal store hours
+          (e.g. overnight when a guest is present).
+        </p>
+      </div>
     </div>
   );
 }
