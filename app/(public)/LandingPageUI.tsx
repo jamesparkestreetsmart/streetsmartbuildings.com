@@ -178,8 +178,10 @@ export default function LandingPageUI() {
           <p className="text-white/90 text-sm tracking-widest uppercase font-semibold">
             Eagle Eyes Building Solutions LLC
           </p>
-          <p className="text-white/60 text-sm italic mb-1">— presents —</p>
           <h1 className="text-4xl font-bold mb-1">Street Smart Buildings</h1>
+          <p className="text-white/70 text-sm italic mb-1">
+            The remote monitoring platform built by Eagle Eyes Building Solutions LLC.
+          </p>
           <p className="text-lg font-semibold">
             <span className="text-yellow-300">most Reliable</span>
             {" & "}
@@ -343,6 +345,8 @@ export default function LandingPageUI() {
           <a href="/privacy-policy" className="hover:text-gray-700 underline">Privacy Policy</a>
           <span className="mx-2">|</span>
           <a href="/terms" className="hover:text-gray-700 underline">Terms</a>
+          <span className="mx-2">|</span>
+          <a href="/company" className="hover:text-gray-700 underline">Eagle Eyes Building Solutions LLC</a>
         </p>
       </footer>
     </div>
