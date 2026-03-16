@@ -1056,6 +1056,49 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── Reconciliation: check if any synced climate entities are unmapped ──
+  // Catches ha_device_id mismatches proactively at sync time
+  try {
+    const climateRows = rows.filter((r: any) => r.domain === "climate" && r.ha_device_id);
+    for (const cr of climateRows) {
+      const { count: matchCount } = await supabase
+        .from("a_devices")
+        .select("device_id", { count: "exact", head: true })
+        .eq("site_id", cr.site_id)
+        .eq("ha_device_id", cr.ha_device_id);
+
+      if (!matchCount || matchCount === 0) {
+        // Check dedup: only log once per hour per entity
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { count: recentLogs } = await supabase
+          .from("b_records_log")
+          .select("id", { count: "exact", head: true })
+          .eq("site_id", cr.site_id)
+          .eq("event_type", "entity_sync_unmapped_climate")
+          .gte("created_at", oneHourAgo);
+
+        if (!recentLogs || recentLogs === 0) {
+          console.warn(
+            `[entity-sync] Climate entity ${cr.entity_id} (ha_device_id: ${cr.ha_device_id}) has no matching device in a_devices for site ${cr.site_id}`
+          );
+          await supabase.from("b_records_log").insert({
+            site_id: cr.site_id,
+            event_type: "entity_sync_unmapped_climate",
+            message: `Climate entity "${cr.entity_id}" synced from HA but no matching a_devices record found. Thermostat enforcement will fail until device mapping is updated.`,
+            source: "entity_sync",
+            created_by: "system",
+            metadata: {
+              entity_id: cr.entity_id,
+              ha_device_id: cr.ha_device_id,
+            },
+          });
+        }
+      }
+    }
+  } catch (reconErr: any) {
+    console.error("[entity-sync] Reconciliation check failed:", reconErr?.message);
+  }
+
   return NextResponse.json({
     ok: true,
     message: "Entities synced successfully",

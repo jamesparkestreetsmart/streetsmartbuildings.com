@@ -907,7 +907,110 @@ export async function executePushForSite(
     }
 
     if (!climateEntityId) {
-      console.log(`[ha-push] No climate entity found for device: ${device.device_name}`);
+      console.error(
+        `[ha-push] No climate entity found for device: `
+        + `${device.device_name} (ha_device_id: ${device.ha_device_id}). `
+        + `Zone "${zone.name}" will not be controlled until this is resolved.`
+      );
+
+      // Log to b_records_log with 1-hour dedup to avoid 288 events/day
+      try {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { count: recentMissing } = await supabase
+          .from("b_records_log")
+          .select("id", { count: "exact", head: true })
+          .eq("site_id", siteId)
+          .eq("event_type", "thermostat_entity_missing")
+          .eq("device_id", zone.thermostat_device_id)
+          .gte("created_at", oneHourAgo);
+
+        if (!recentMissing || recentMissing === 0) {
+          const { data: candidateEntities } = await supabase
+            .from("b_entity_sync")
+            .select("entity_id, ha_device_id")
+            .eq("site_id", siteId)
+            .ilike("entity_id", "climate.%");
+
+          await supabase.from("b_records_log").insert({
+            site_id: siteId,
+            org_id: site?.org_id || null,
+            equipment_id: zone.equipment_id || null,
+            device_id: zone.thermostat_device_id,
+            event_type: "thermostat_entity_missing",
+            event_date: targetDate,
+            message: `Zone "${zone.name}": no climate entity found for `
+              + `device "${device.device_name}" `
+              + `(ha_device_id: ${device.ha_device_id}). `
+              + `Thermostat enforcement is not functioning for this zone.`,
+            source: "ha_push",
+            created_by: triggeredBy || "system",
+            metadata: {
+              zone_name: zone.name,
+              hvac_zone_id: zone.hvac_zone_id,
+              device_name: device.device_name,
+              ha_device_id: device.ha_device_id,
+              candidate_entities: (candidateEntities || []).map((e: any) => ({
+                entity_id: e.entity_id,
+                ha_device_id: e.ha_device_id,
+              })),
+              trigger,
+            },
+          });
+
+          // Check for consecutive misses → alert
+          const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+          const { count: missCount } = await supabase
+            .from("b_records_log")
+            .select("id", { count: "exact", head: true })
+            .eq("site_id", siteId)
+            .eq("event_type", "thermostat_entity_missing")
+            .eq("device_id", zone.thermostat_device_id)
+            .gte("created_at", twoHoursAgo);
+
+          if ((missCount ?? 0) >= 3) {
+            const { count: recentAlerts } = await supabase
+              .from("b_records_log")
+              .select("id", { count: "exact", head: true })
+              .eq("site_id", siteId)
+              .eq("event_type", "thermostat_entity_alert")
+              .eq("device_id", zone.thermostat_device_id)
+              .gte("created_at", oneHourAgo);
+
+            if ((recentAlerts ?? 0) === 0) {
+              await supabase.from("b_records_log").insert({
+                site_id: siteId,
+                org_id: site?.org_id || null,
+                device_id: zone.thermostat_device_id,
+                event_type: "thermostat_entity_alert",
+                message: `Zone "${zone.name}": climate entity missing for ${missCount}+ consecutive checks. `
+                  + `ha_device_id "${device.ha_device_id}" has no match in b_entity_sync. `
+                  + `Thermostat enforcement is blocked.`,
+                source: "ha_push",
+                created_by: "system",
+                metadata: {
+                  failure_count: missCount,
+                  ha_device_id: device.ha_device_id,
+                  device_name: device.device_name,
+                },
+              });
+              console.error(
+                `[ha-push] ALERT: Zone "${zone.name}" has ${missCount} consecutive entity_missing — thermostat_entity_alert logged`
+              );
+            }
+          }
+        }
+      } catch (logErr) {
+        console.error("[ha-push] Failed to log thermostat_entity_missing:", logErr);
+      }
+
+      results.push({
+        zone_name: zone.name || "",
+        hvac_zone_id: zone.hvac_zone_id,
+        entity_id: "",
+        pushed: false,
+        reason: "No climate entity found — ha_device_id mismatch",
+        actions: [],
+      });
       continue;
     }
 

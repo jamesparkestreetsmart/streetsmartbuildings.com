@@ -438,8 +438,10 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
                         ? "bg-purple-100 text-purple-700"
                         : record.event_type.includes("retired") || record.event_type.includes("failed")
                         ? "bg-red-100 text-red-700"
-                        : record.event_type === "ha_connectivity_alert"
+                        : record.event_type === "ha_connectivity_alert" || record.event_type === "thermostat_entity_alert"
                         ? "bg-orange-100 text-orange-700"
+                        : record.event_type === "thermostat_entity_missing" || record.event_type === "entity_sync_unmapped_climate"
+                        ? "bg-yellow-100 text-yellow-700"
                         : record.event_type.includes("restored")
                         ? "bg-blue-100 text-blue-700"
                         : "bg-gray-100 text-gray-600"
