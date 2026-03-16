@@ -327,6 +327,22 @@ export async function GET(req: NextRequest) {
         // Check for >24hr compressor cycle gaps (active sites only)
         try {
           heartbeat("compressor_cycle_check");
+
+          // Skip compressor gap check if site has no compressor sensor entities
+          const { count: compressorEntityCount } = await supabase
+            .from("b_entity_sync")
+            .select("entity_id", { count: "exact", head: true })
+            .eq("site_id", site.site_id)
+            .or(
+              "entity_id.ilike.%compressor%,"
+              + "device_class.eq.running,"
+              + "sensor_type.eq.compressor"
+            );
+
+          if (!compressorEntityCount || compressorEntityCount === 0) {
+            console.log(`[cron/thermostat-enforce][${runId}] [${site.site_id}] no compressor sensor entities found — skipping cycle gap check`);
+          } else {
+
           console.log(`[cron/thermostat-enforce][${runId}] [${site.site_id}] fetching zones for compressor gap check`);
           const t4 = Date.now();
           const { data: siteZones } = await supabase
@@ -379,6 +395,7 @@ export async function GET(req: NextRequest) {
               console.log(`[cron/thermostat-enforce][${runId}] [${site.site_id}] compressor gap health update done in ${Date.now() - t5}ms`);
             }
           }
+          } // end else (has compressor entities)
         } catch (cycleErr: any) {
           console.error(`[cron/thermostat-enforce][${runId}] Compressor cycle gap check failed for ${site.site_id}:`, cycleErr.message);
         }
