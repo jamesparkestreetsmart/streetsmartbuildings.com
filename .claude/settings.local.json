@@ -46,7 +46,8 @@
       "Bash(grep -r \"\\\\.not\\\\\\(\" \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app\" --include=\"*.ts\" --include=\"*.tsx\" 2>/dev/null | grep -i \"status\\\\|dummy\\\\|retired\" | head -15)",
       "Bash(npx supabase:*)",
       "Bash(cd \"C:/Projects/EagleEyes/eagle-eyes-dashboard\" && node -e \"\nconst { createClient } = require\\('@supabase/supabase-js'\\);\nrequire\\('dotenv'\\).config\\({ path: '.env.local' }\\);\nconst supabase = createClient\\(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY\\);\n\\(async \\(\\) => {\n  // Get smoke test config IDs\n  const { data: configs } = await supabase.from\\('a_sop_configs'\\).select\\('id'\\).like\\('notes', 'SMOKE TEST%'\\);\n  const ids = \\(configs || []\\).map\\(c => c.id\\);\n\n  // Delete compliance rows first \\(FK\\)\n  const { count: c1 } = await supabase.from\\('b_sop_compliance_log'\\).delete\\({ count: 'exact' }\\).in\\('sop_config_id', ids\\);\n  console.log\\('Deleted compliance rows:', c1\\);\n\n  // Delete configs\n  const { count: c2 } = await supabase.from\\('a_sop_configs'\\).delete\\({ count: 'exact' }\\).like\\('notes', 'SMOKE TEST%'\\);\n  console.log\\('Deleted configs:', c2\\);\n\n  // Confirm clean\n  const { count: remaining } = await supabase.from\\('a_sop_configs'\\).select\\('id', { count: 'exact', head: true }\\).like\\('notes', 'SMOKE TEST%'\\);\n  console.log\\('Remaining smoke test configs:', remaining, remaining === 0 ? '- CLEAN' : '- NOT CLEAN'\\);\n}\\)\\(\\);\n\" 2>&1)",
-      "Bash(ls \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/admin/sop-configs/\")"
+      "Bash(ls \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/admin/sop-configs/\")",
+      "Bash(git diff:*)"
     ]
   }
 }

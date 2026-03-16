@@ -598,7 +598,7 @@ export default function CompliancePage() {
             No SOP configs have generated compliance data for this site in the selected period.
           </p>
           {isServiceProvider && (
-            <Link href="/admin/sop-configs" className="inline-block mt-3 text-sm text-blue-600 hover:underline">
+            <Link href="/trust?tab=sop-standards" className="inline-block mt-3 text-sm text-blue-600 hover:underline">
               Manage Configs →
             </Link>
           )}
@@ -790,7 +790,7 @@ export default function CompliancePage() {
                     Space compliance can track dining room temperature, kitchen humidity, and more.
                   </p>
                   {isServiceProvider ? (
-                    <Link href="/admin/sop-configs" className="inline-block mt-2 text-sm text-blue-600 hover:underline">
+                    <Link href="/trust?tab=sop-standards" className="inline-block mt-2 text-sm text-blue-600 hover:underline">
                       Add Config →
                     </Link>
                   ) : (
@@ -840,7 +840,7 @@ export default function CompliancePage() {
               {retiredConfigs.length > 0 ? ` · ${retiredConfigs.length} retired` : ""})
               {isServiceProvider && (
                 <Link
-                  href="/admin/sop-configs"
+                  href="/trust?tab=sop-standards"
                   onClick={(e) => e.stopPropagation()}
                   className="text-xs text-blue-600 hover:underline font-normal ml-2"
                 >
