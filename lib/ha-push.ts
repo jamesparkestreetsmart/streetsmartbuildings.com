@@ -101,7 +101,8 @@ async function readBackThermostatState(
   config: HAConfig,
   entityId: string,
   siteId: string,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  desired?: DesiredState
 ): Promise<void> {
   try {
     // Wait a moment for HA to settle after the push
@@ -141,6 +142,50 @@ async function readBackThermostatState(
       })
       .eq("entity_id", entityId)
       .eq("site_id", siteId);
+
+    // Post-push verification: compare actual HA state against desired
+    if (desired) {
+      const modeMatch = state.state === desired.hvac_mode;
+      const heatMatch = desired.hvac_mode === "heat"
+        ? attrs.temperature === desired.heat_setpoint_f
+        : attrs.target_temp_low === desired.heat_setpoint_f;
+      const coolMatch = desired.hvac_mode === "cool"
+        ? attrs.temperature === desired.cool_setpoint_f
+        : attrs.target_temp_high === desired.cool_setpoint_f;
+      const verified = modeMatch && heatMatch && coolMatch;
+
+      console.log(
+        `[ha-push] Post-push verification ${entityId}: `
+        + `${verified ? "CONFIRMED" : "MISMATCH"} — `
+        + `mode=${state.state}(want ${desired.hvac_mode}), `
+        + `heat=${attrs.target_temp_low ?? attrs.temperature}(want ${desired.heat_setpoint_f}), `
+        + `cool=${attrs.target_temp_high ?? attrs.temperature}(want ${desired.cool_setpoint_f})`
+      );
+
+      if (!verified) {
+        try {
+          await supabase.from("b_records_log").insert({
+            site_id: siteId,
+            event_type: "thermostat_push_unverified",
+            message: `Post-push state mismatch for ${entityId}: HA reports mode=${state.state} but desired=${desired.hvac_mode}`,
+            source: "ha_push",
+            created_by: "system",
+            metadata: {
+              entity_id: entityId,
+              desired_mode: desired.hvac_mode,
+              actual_mode: state.state,
+              desired_heat: desired.heat_setpoint_f,
+              actual_heat: attrs.target_temp_low ?? attrs.temperature,
+              desired_cool: desired.cool_setpoint_f,
+              actual_cool: attrs.target_temp_high,
+              verified,
+            },
+          });
+        } catch (logErr) {
+          console.error("[ha-push] Failed to log post-push mismatch:", logErr);
+        }
+      }
+    }
   } catch (err) {
     console.error(`[ha-push] Read-back error for ${entityId}:`, err);
   }
@@ -1313,7 +1358,65 @@ export async function executePushForSite(
       max_f: gMax,
     };
 
-    const current: CurrentState = {
+    // ── Live HA state read before skip decision ──
+    // Enforcement must never trust cached state for correctness.
+    // Webhooks can lag, fail, or arrive out of order.
+    let liveState: CurrentState | null = null;
+    try {
+      const liveRes = await haFetch(
+        `${config.haUrl}/api/states/${climateEntityId}`,
+        config.haToken,
+        { method: "GET" },
+        8000
+      );
+      if (liveRes.ok) {
+        const liveData = await liveRes.json();
+        const attrs = liveData.attributes || {};
+        liveState = {
+          hvac_mode:            liveData.state,
+          current_setpoint_f:   attrs.temperature ?? null,
+          target_temp_high_f:   attrs.target_temp_high ?? null,
+          target_temp_low_f:    attrs.target_temp_low ?? null,
+          fan_mode:             attrs.fan_mode ?? null,
+          current_temperature_f: attrs.current_temperature ?? null,
+          battery_level:        attrs.battery_level ?? null,
+        };
+        console.log(
+          `[ha-push] Zone "${zone.name}": live HA state — `
+          + `mode=${liveState.hvac_mode}, `
+          + `temp=${liveState.current_temperature_f}, `
+          + `low=${liveState.target_temp_low_f}, `
+          + `high=${liveState.target_temp_high_f}`
+        );
+
+        // Update b_thermostat_state with live observed fields ONLY
+        // (never overwrite push history fields like last_pushed_*)
+        await supabase
+          .from("b_thermostat_state")
+          .update({
+            hvac_mode:             liveState.hvac_mode,
+            current_temperature_f: liveState.current_temperature_f,
+            current_setpoint_f:    liveState.current_setpoint_f,
+            target_temp_high_f:    liveState.target_temp_high_f,
+            target_temp_low_f:     liveState.target_temp_low_f,
+            fan_mode:              liveState.fan_mode,
+            last_synced_at:        new Date().toISOString(),
+          })
+          .eq("entity_id", climateEntityId)
+          .eq("site_id", siteId);
+      } else {
+        console.warn(
+          `[ha-push] Zone "${zone.name}": live state fetch returned HTTP ${liveRes.status} — falling back to cache`
+        );
+      }
+    } catch (liveErr: any) {
+      console.warn(
+        `[ha-push] Zone "${zone.name}": live state fetch failed (${liveErr?.message}) — falling back to cache`
+      );
+    }
+
+    const usedLiveState = liveState !== null;
+    const current: CurrentState = liveState ?? {
       hvac_mode: thermoState?.hvac_mode || "",
       current_setpoint_f: thermoState?.current_setpoint_f ?? null,
       target_temp_high_f: thermoState?.target_temp_high_f ?? null,
@@ -1323,9 +1426,16 @@ export async function executePushForSite(
       battery_level: thermoState?.battery_level ?? null,
     };
 
+    // Mode mismatch always forces push — log for visibility
+    if (current.hvac_mode !== desired.hvac_mode) {
+      console.log(
+        `[ha-push] Mode mismatch: HA=${current.hvac_mode} vs desired=${desired.hvac_mode} — forcing push`
+      );
+    }
+
     // Execute the push
     console.log(
-      `[ha-push] Zone "${zone.name}" (${climateEntityId}): ${phase} → base=${baseHeat}/${baseCool}, final=${desired.heat_setpoint_f}/${desired.cool_setpoint_f}, mode=${desired.hvac_mode}, fan=${desired.fan_mode}`
+      `[ha-push] Zone "${zone.name}" (${climateEntityId}): ${phase} → base=${baseHeat}/${baseCool}, final=${desired.heat_setpoint_f}/${desired.cool_setpoint_f}, mode=${desired.hvac_mode}, fan=${desired.fan_mode} [state_source=${usedLiveState ? "live_ha" : "cache"}]`
     );
 
     const pushResult = await pushThermostatState(config, desired, current, guardrails, { zone_id: zone.hvac_zone_id, zone_name: zone.name });
@@ -1399,7 +1509,7 @@ export async function executePushForSite(
 
     // Read back actual state from HA to confirm push took effect
     if (pushResult.pushed && climateEntityId) {
-      await readBackThermostatState(config, climateEntityId, siteId, supabase);
+      await readBackThermostatState(config, climateEntityId, siteId, supabase, desired);
     }
 
     // Log full resolution chain to b_records_log (queryable forever)
@@ -1438,6 +1548,23 @@ export async function executePushForSite(
           entity_id: climateEntityId,
           profile: resolved.profile_name || resolved.source,
           trigger,
+          pre_push_actual: {
+            source: usedLiveState ? "live_ha" : "cache",
+            hvac_mode: current.hvac_mode,
+            heat_f: current.target_temp_low_f ?? current.current_setpoint_f,
+            cool_f: current.target_temp_high_f,
+          },
+          desired: {
+            hvac_mode: desired.hvac_mode,
+            heat_f: desired.heat_setpoint_f,
+            cool_f: desired.cool_setpoint_f,
+          },
+          mode_mismatch: current.hvac_mode !== desired.hvac_mode,
+          push_decision_reason: guardrailClamped ? "guardrail_override"
+            : current.hvac_mode !== desired.hvac_mode ? "mode_mismatch"
+            : pushResult.pushed ? "setpoint_mismatch"
+            : !usedLiveState ? "live_read_failed_cache_used"
+            : "already_at_target",
         },
         created_by: triggeredBy || "system",
       });
