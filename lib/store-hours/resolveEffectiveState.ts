@@ -95,6 +95,7 @@ export async function resolveEffectiveState(
       // Fetch rule details for date_range_daily handling
       let eventOpen = event.open_time;
       let eventClose = event.close_time;
+      let isDateRangeDaily = false;
 
       if (event.rule_id) {
         const { data: rule } = await supabase
@@ -104,6 +105,7 @@ export async function resolveEffectiveState(
           .single();
 
         if (rule?.rule_type === "date_range_daily") {
+          isDateRangeDaily = true;
           if (localDate === rule.effective_from_date) {
             eventOpen = rule.start_day_open;
             eventClose = rule.start_day_close;
@@ -120,10 +122,49 @@ export async function resolveEffectiveState(
         }
       }
 
+      // For date_range_daily (hotel-style) rules: merge exception times
+      // with base schedule — use the earlier open and later close.
+      // Hotel exceptions are overlays, not replacements.
+      if (isDateRangeDaily) {
+        const { data: baseHours } = await supabase
+          .from("b_store_hours")
+          .select("open_time, close_time, is_closed")
+          .eq("site_id", siteId)
+          .eq("day_of_week", dayOfWeek)
+          .single();
+
+        if (baseHours && !baseHours.is_closed) {
+          const baseOpen = baseHours.open_time;
+          const baseClose = baseHours.close_time;
+          const baseOpenMins = timeToMinutes(baseOpen);
+          const baseCloseMins = timeToMinutes(baseClose);
+          const excOpenMins = timeToMinutes(eventOpen);
+          const excCloseMins = timeToMinutes(eventClose);
+
+          // Use whichever opens earlier and closes later
+          if (baseOpenMins !== null && excOpenMins !== null) {
+            effectiveOpen = baseOpenMins <= excOpenMins ? baseOpen : eventOpen;
+          } else {
+            effectiveOpen = baseOpen || eventOpen || null;
+          }
+          if (baseCloseMins !== null && excCloseMins !== null) {
+            effectiveClose = baseCloseMins >= excCloseMins ? baseClose : eventClose;
+          } else {
+            effectiveClose = baseClose || eventClose || null;
+          }
+
+          console.log(`[resolveEffectiveState] date_range_daily merge: base=${baseOpen}-${baseClose} exception=${eventOpen}-${eventClose} → effective=${effectiveOpen}-${effectiveClose}`);
+        } else {
+          effectiveOpen = eventOpen || null;
+          effectiveClose = eventClose || null;
+        }
+      } else {
+        effectiveOpen = eventOpen || null;
+        effectiveClose = eventClose || null;
+      }
+
       operatingStatus = "open";
       source = "exception";
-      effectiveOpen = eventOpen || null;
-      effectiveClose = eventClose || null;
       exceptionEventId = event.event_id;
       exceptionName = event.event_name || null;
     }

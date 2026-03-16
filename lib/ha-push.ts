@@ -1233,14 +1233,14 @@ export async function executePushForSite(
     const profileHeat = isOccupied ? resolved.occupied_heat_f : resolved.unoccupied_heat_f;
     const profileCool = isOccupied ? resolved.occupied_cool_f : resolved.unoccupied_cool_f;
 
-    // Feels Like adjustment
+    // Feels Like adjustment — occupied hours only
     let feelsLikeAdj = 0;
-    if (flEnabled && sensorReading.zone_temp_f !== null && sensorReading.feels_like_temp_f !== null) {
+    if (isOccupied && flEnabled && sensorReading.zone_temp_f !== null && sensorReading.feels_like_temp_f !== null) {
       const delta = sensorReading.feels_like_temp_f - sensorReading.zone_temp_f;
       feelsLikeAdj = Math.max(-flMaxAdj, Math.min(flMaxAdj, Math.round(delta)));
     }
 
-    // Smart Start adjustment
+    // Smart Start adjustment — unchanged (already gates on pre-open window)
     let smartStartAdj = 0;
     const ssOffset = ssByDevice[zone.thermostat_device_id];
     if (ssProfileEnabled && ssOffset && ssOffset > 0 && openMins !== null) {
@@ -1255,14 +1255,19 @@ export async function executePushForSite(
       }
     }
 
-    // Occupancy adjustment
+    // Occupancy adjustment — occupied hours only
     const occupancyReading = await getOccupancyReading(supabase, siteId, zone.equipment_id);
-    const occupancyAdj = occEnabled ? Math.max(-occMaxAdj, occupancyReading.occupancy_adj) : 0;
+    const occupancyAdj = (isOccupied && occEnabled) ? Math.max(-occMaxAdj, occupancyReading.occupancy_adj) : 0;
 
     // Total adjustment (feels_like + smart_start + occupancy)
     const totalAdj = feelsLikeAdj + smartStartAdj + occupancyAdj;
+    if (!isOccupied) {
+      console.log(
+        `[ha-push] Zone "${zone.name}": unoccupied phase — feels_like and occupancy adjustments zeroed. Base setpoint: ${profileHeat}/${profileCool}°F`
+      );
+    }
     console.log(
-      `[ha-push] Zone "${zone.name}" adjustments: feels_like=${feelsLikeAdj}, smart_start=${smartStartAdj}, occupancy=${occupancyAdj}, total=${totalAdj}`
+      `[ha-push] Zone "${zone.name}" adjustments: feels_like=${feelsLikeAdj}, smart_start=${smartStartAdj}, occupancy=${occupancyAdj}, total=${totalAdj}${!isOccupied ? " [unoccupied: adj suppressed]" : ""}`
     );
 
     // STEP 1 — Base: Select occupied/unoccupied profile setpoints
