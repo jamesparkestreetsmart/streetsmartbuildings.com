@@ -23,6 +23,26 @@ import { siteLocalDate } from "@/lib/utils/site-date";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// ── Space Track Metric Sources ─────────────────────────────────────────
+// Maps space-track metrics to their data source in b_zone_setpoint_log.
+// Space readings are derived from zone-level data via a_spaces.hvac_zone_id.
+// The zone-setpoint-logger computes zone_temp_f as a weighted average of
+// space sensors, so querying by hvac_zone_id gives the best available
+// space-level temperature data.
+const SPACE_METRIC_SOURCES: Record<string, {
+  valueColumn: string;
+  selectColumns: string;
+}> = {
+  space_temp: {
+    valueColumn: "zone_temp_f",
+    selectColumns: "zone_temp_f, recorded_at, phase",
+  },
+  humidity: {
+    valueColumn: "zone_humidity",
+    selectColumns: "zone_humidity, recorded_at, phase",
+  },
+};
+
 interface EffectiveAssignment {
   assignment_id: string;
   template_id: string;
@@ -56,21 +76,21 @@ interface TargetUnit {
   space_id: string | null;
 }
 
-/**
- * Fan out an assignment to its target (site, equipment, space) combinations.
- */
+interface SpaceRow {
+  space_id: string;
+  site_id: string;
+  space_type: string | null;
+  hvac_zone_id: string | null;
+}
+
+// ── Equipment Track Fan-Out ────────────────────────────────────────────
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getTargets(
+async function getEquipmentTargets(
   supabase: any,
   assignment: EffectiveAssignment,
   allSites: SiteInfo[]
 ): Promise<TargetUnit[]> {
-  // Space track: not yet wired
-  if (assignment.target_kind === "space") {
-    return [];
-  }
-
-  // Equipment track
   switch (assignment.scope_level) {
     case "equipment": {
       if (!assignment.equipment_id) return [];
@@ -127,6 +147,102 @@ async function getTargets(
   }
 }
 
+// ── Space Track Fan-Out ────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getSpaceTargets(
+  supabase: any,
+  assignment: EffectiveAssignment,
+  allSites: SiteInfo[]
+): Promise<TargetUnit[]> {
+  switch (assignment.scope_level) {
+    case "space": {
+      // Single specific space
+      if (!assignment.space_id) return [];
+      const { data } = await supabase
+        .from("a_spaces")
+        .select("space_id, site_id, space_type, hvac_zone_id")
+        .eq("space_id", assignment.space_id)
+        .single();
+      if (!data) return [];
+      const site = allSites.find((s) => s.site_id === data.site_id);
+      if (!site) return [];
+      return [{ site, equipment_id: null, space_id: data.space_id }];
+    }
+
+    case "space_type": {
+      // All spaces of a type at a specific site
+      if (!assignment.site_id || !assignment.space_type) return [];
+      const site = allSites.find((s) => s.site_id === assignment.site_id);
+      if (!site) return [];
+
+      const { data: spaces } = await supabase
+        .from("a_spaces")
+        .select("space_id, site_id, space_type, hvac_zone_id")
+        .eq("site_id", assignment.site_id)
+        .eq("space_type", assignment.space_type);
+
+      if (!spaces?.length) return [];
+      return spaces.map((sp: SpaceRow) => ({
+        site,
+        equipment_id: null,
+        space_id: sp.space_id,
+      }));
+    }
+
+    case "site": {
+      // All spaces at a specific site
+      if (!assignment.site_id) return [];
+      const site = allSites.find((s) => s.site_id === assignment.site_id);
+      if (!site) return [];
+
+      const { data: spaces } = await supabase
+        .from("a_spaces")
+        .select("space_id, site_id, space_type, hvac_zone_id")
+        .eq("site_id", assignment.site_id);
+
+      if (!spaces?.length) return [];
+      return spaces.map((sp: SpaceRow) => ({
+        site,
+        equipment_id: null,
+        space_id: sp.space_id,
+      }));
+    }
+
+    case "org": {
+      // All spaces at all sites within the org
+      if (!assignment.org_id) return [];
+      const orgSites = allSites.filter((s) => s.org_id === assignment.org_id);
+      const siteIds = orgSites.map((s) => s.site_id);
+      if (!siteIds.length) return [];
+
+      const { data: spaces } = await supabase
+        .from("a_spaces")
+        .select("space_id, site_id, space_type, hvac_zone_id")
+        .in("site_id", siteIds);
+
+      if (!spaces?.length) return [];
+      const siteMap = new Map(orgSites.map((s) => [s.site_id, s]));
+      return spaces
+        .filter((sp: SpaceRow) => siteMap.has(sp.site_id))
+        .map((sp: SpaceRow) => ({
+          site: siteMap.get(sp.site_id)!,
+          equipment_id: null,
+          space_id: sp.space_id,
+        }));
+    }
+
+    case "ssb": {
+      // All spaces across all sites (v1: skip — no SSB space assignments exist yet)
+      console.log(`[sop-compliance-calc] SSB-level space fan-out not yet implemented, skipping assignment ${assignment.assignment_id}`);
+      return [];
+    }
+
+    default:
+      return [];
+  }
+}
+
 function getYesterdayBounds(tz: string): { start: string; end: string; localDate: string } {
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -167,8 +283,10 @@ function localMidnightToUTC(localDate: string, tz: string): string {
   return midnightUTC.toISOString();
 }
 
+// ── Equipment Track Compliance Calculation ──────────────────────────────
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function calcCompliance(
+async function calcEquipmentCompliance(
   supabase: any,
   assignment: EffectiveAssignment,
   site: SiteInfo,
@@ -248,37 +366,81 @@ async function calcCompliance(
       else if (cool != null && temp > cool) delta = temp - cool;
       return { value: delta, recorded_at: r.recorded_at };
     });
-  } else if (assignment.metric === "space_temp") {
-    const query = supabase
-      .from("b_zone_setpoint_log")
-      .select("zone_temp_f, recorded_at, phase")
-      .eq("site_id", site.site_id)
-      .gte("recorded_at", periodStart)
-      .lt("recorded_at", periodEnd)
-      .not("zone_temp_f", "is", null);
-
-    const { data } = await query.order("recorded_at");
-    if (!data) return { total: 0, compliant: 0 };
-
-    const filtered = assignment.evaluation_window === "occupied_hours_only"
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ? data.filter((r: any) => r.phase === "occupied")
-      : data;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    readings = filtered.map((r: any) => ({ value: r.zone_temp_f, recorded_at: r.recorded_at }));
   } else {
-    console.warn(`[sop-compliance-calc] Unknown metric "${assignment.metric}" for assignment ${assignment.assignment_id}`);
+    console.warn(`[sop-compliance-calc] Unknown equipment metric "${assignment.metric}" for assignment ${assignment.assignment_id}`);
     return { total: 0, compliant: 0 };
   }
 
+  return countCompliant(readings, assignment);
+}
+
+// ── Space Track Compliance Calculation ──────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function calcSpaceCompliance(
+  supabase: any,
+  assignment: EffectiveAssignment,
+  site: SiteInfo,
+  spaceId: string,
+  periodStart: string,
+  periodEnd: string
+): Promise<{ total: number; compliant: number }> {
+  const source = SPACE_METRIC_SOURCES[assignment.metric];
+  if (!source) {
+    console.warn(`[sop-compliance-calc] Unknown space metric "${assignment.metric}" for assignment ${assignment.assignment_id}`);
+    return { total: 0, compliant: 0 };
+  }
+
+  // Resolve space → hvac_zone_id for querying b_zone_setpoint_log
+  const { data: space } = await supabase
+    .from("a_spaces")
+    .select("hvac_zone_id")
+    .eq("space_id", spaceId)
+    .single();
+
+  if (!space?.hvac_zone_id) {
+    // Space has no linked HVAC zone — no readings available
+    return { total: 0, compliant: 0 };
+  }
+
+  const query = supabase
+    .from("b_zone_setpoint_log")
+    .select(source.selectColumns)
+    .eq("site_id", site.site_id)
+    .eq("hvac_zone_id", space.hvac_zone_id)
+    .gte("recorded_at", periodStart)
+    .lt("recorded_at", periodEnd)
+    .not(source.valueColumn, "is", null);
+
+  const { data } = await query.order("recorded_at");
+  if (!data) return { total: 0, compliant: 0 };
+
+  const filtered = assignment.evaluation_window === "occupied_hours_only"
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? data.filter((r: any) => r.phase === "occupied")
+    : data;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const readings = filtered.map((r: any) => ({
+    value: r[source.valueColumn],
+    recorded_at: r.recorded_at,
+  }));
+
+  return countCompliant(readings, assignment);
+}
+
+// ── Shared Compliance Counter ──────────────────────────────────────────
+
+function countCompliant(
+  readings: { value: number; recorded_at: string }[],
+  assignment: EffectiveAssignment
+): { total: number; compliant: number } {
   let compliant = 0;
   for (const r of readings) {
     const aboveMin = assignment.min_value == null || r.value >= assignment.min_value;
     const belowMax = assignment.max_value == null || r.value <= assignment.max_value;
     if (aboveMin && belowMax) compliant++;
   }
-
   return { total: readings.length, compliant };
 }
 
@@ -352,6 +514,10 @@ async function handler(request: NextRequest) {
     };
   }).filter((a: EffectiveAssignment) => a.metric); // Skip if template join failed
 
+  // Split by track
+  const equipmentAssignments = assignments.filter((a) => a.target_kind === "equipment");
+  const spaceAssignments = assignments.filter((a) => a.target_kind === "space");
+
   // 2. Fetch all sites
   const hasSSB = assignments.some((a) => a.scope_level === "ssb");
   const orgIds = [...new Set(assignments.map((a) => a.org_id).filter(Boolean))] as string[];
@@ -365,19 +531,15 @@ async function handler(request: NextRequest) {
     allSites = (data || []) as SiteInfo[];
   }
 
-  let processed = 0;
-  let skipped = 0;
-  let errors = 0;
-  let spaceSkipped = 0;
+  const equipStats = { configs: equipmentAssignments.length, processed: 0, skipped: 0, errors: 0 };
+  const spaceStats = { configs: spaceAssignments.length, processed: 0, skipped: 0, errors: 0 };
 
-  // 3. Process each assignment
-  for (const assignment of assignments) {
-    if (assignment.target_kind === "space") {
-      spaceSkipped++;
-      continue;
-    }
+  // ── EQUIPMENT TRACK ────────────────────────────────────────────────
+  // Processes equipment-scoped SOP assignments
+  // Sources: b_zone_setpoint_log (zone_temp, setpoint_delta)
 
-    const targets = await getTargets(supabase, assignment, allSites);
+  for (const assignment of equipmentAssignments) {
+    const targets = await getEquipmentTargets(supabase, assignment, allSites);
 
     for (const target of targets) {
       try {
@@ -394,60 +556,119 @@ async function handler(request: NextRequest) {
           .limit(1);
 
         if (existing && existing.length > 0) {
-          skipped++;
+          equipStats.skipped++;
           continue;
         }
 
-        const { total, compliant } = await calcCompliance(
+        const { total, compliant } = await calcEquipmentCompliance(
           supabase, assignment, target.site, target.equipment_id, start, end
         );
 
         const { error: insertError } = await supabase
           .from("b_sop_compliance_log")
-          .upsert(
-            {
-              sop_assignment_id: assignment.assignment_id,
-              site_id: target.site.site_id,
-              equipment_id: target.equipment_id || null,
-              space_id: target.space_id || null,
-              period_start: start,
-              period_end: end,
-              total_readings: total,
-              compliant_readings: compliant,
-            },
-            {
-              onConflict: "sop_assignment_id,site_id,equipment_id,period_start,period_end",
-            }
-          );
+          .insert({
+            sop_assignment_id: assignment.assignment_id,
+            site_id: target.site.site_id,
+            equipment_id: target.equipment_id || null,
+            space_id: null,
+            period_start: start,
+            period_end: end,
+            total_readings: total,
+            compliant_readings: compliant,
+          });
 
         if (insertError) {
           console.error(
-            `[sop-compliance-calc] Insert error assignment=${assignment.assignment_id} site=${target.site.site_id}:`,
+            `[sop-compliance-calc] Equipment insert error assignment=${assignment.assignment_id} site=${target.site.site_id}:`,
             insertError.message
           );
-          errors++;
+          equipStats.errors++;
         } else {
-          processed++;
+          equipStats.processed++;
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
-          `[sop-compliance-calc] Error assignment=${assignment.assignment_id} site=${target.site.site_id}:`,
+          `[sop-compliance-calc] Equipment error assignment=${assignment.assignment_id} site=${target.site.site_id}:`,
           message
         );
-        errors++;
+        equipStats.errors++;
+      }
+    }
+  }
+
+  // ── SPACE TRACK ────────────────────────────────────────────────────
+  // Processes space-scoped SOP assignments
+  // Sources: b_zone_setpoint_log via a_spaces.hvac_zone_id (space_temp, humidity)
+
+  for (const assignment of spaceAssignments) {
+    const targets = await getSpaceTargets(supabase, assignment, allSites);
+
+    for (const target of targets) {
+      try {
+        const tz = target.site.timezone || "America/Chicago";
+        const { start, end } = getYesterdayBounds(tz);
+
+        // Idempotency check — space track uses space_id in the check
+        const { data: existing } = await supabase
+          .from("b_sop_compliance_log")
+          .select("id")
+          .eq("sop_assignment_id", assignment.assignment_id)
+          .eq("site_id", target.site.site_id)
+          .eq("space_id", target.space_id)
+          .eq("period_start", start)
+          .limit(1);
+
+        if (existing && existing.length > 0) {
+          spaceStats.skipped++;
+          continue;
+        }
+
+        const { total, compliant } = await calcSpaceCompliance(
+          supabase, assignment, target.site, target.space_id!, start, end
+        );
+
+        const { error: insertError } = await supabase
+          .from("b_sop_compliance_log")
+          .insert({
+            sop_assignment_id: assignment.assignment_id,
+            site_id: target.site.site_id,
+            equipment_id: null,
+            space_id: target.space_id,
+            period_start: start,
+            period_end: end,
+            total_readings: total,
+            compliant_readings: compliant,
+          });
+
+        if (insertError) {
+          console.error(
+            `[sop-compliance-calc] Space insert error assignment=${assignment.assignment_id} space=${target.space_id}:`,
+            insertError.message
+          );
+          spaceStats.errors++;
+        } else {
+          spaceStats.processed++;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[sop-compliance-calc] Space error assignment=${assignment.assignment_id} space=${target.space_id}:`,
+          message
+        );
+        spaceStats.errors++;
       }
     }
   }
 
   const summary = {
-    message: "SOP compliance calculation complete",
-    assignments: assignments.length,
-    sites: allSites.length,
-    processed,
-    skipped,
-    errors,
-    spaceSkipped,
+    success: true,
+    summary: {
+      equipment: equipStats,
+      space: spaceStats,
+    },
+    totalAssignments: assignments.length,
+    totalSites: allSites.length,
   };
   console.log("[sop-compliance-calc]", JSON.stringify(summary));
   return NextResponse.json(summary);
