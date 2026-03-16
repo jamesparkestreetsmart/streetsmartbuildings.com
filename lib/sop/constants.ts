@@ -47,6 +47,19 @@ export const SOP_SCOPE_LEVELS = [
 /** @deprecated Use SOP_SCOPE_LEVELS instead */
 export const SOP_SCOPE_RANK = { org: 1, site: 2, equipment: 3 } as const;
 
+// ── Metric → default unit derivation ─────────────────────────
+
+export const METRIC_DEFAULT_UNIT: Record<string, string> = {
+  zone_temp:             "F",
+  space_temp:            "F",
+  cooler_temp:           "F",
+  freezer_temp:          "F",
+  setpoint_delta:        "F",
+  humidity:              "percent",
+  power_kw:              "kW",
+  pressure_differential: "Pa",
+};
+
 // ── Track-specific metric sets ───────────────────────────────
 
 export const EQUIPMENT_TRACK_METRICS = [
@@ -97,4 +110,23 @@ export function scopeLevelsForTrack(targetKind: string, isSSB: boolean): typeof 
     if (s.value === "ssb" && !isSSB) return false;
     return s.track === "both" || s.track === targetKind;
   });
+}
+
+/** "Applies To" plain-language labels for the modal. */
+export const APPLIES_TO_LABELS: Record<string, string> = {
+  ssb:            "Platform Default",
+  org:            "Entire Organization",
+  site:           "Specific Site",
+  equipment_type: "Equipment Type",
+  equipment:      "Specific Equipment",
+  space_type:     "Space Type",
+  space:          "Specific Space",
+};
+
+export function appliesToLabel(scopeLevel: string): string {
+  return APPLIES_TO_LABELS[scopeLevel] || scopeLevel;
+}
+
+export function unitLabel(unit: string): string {
+  return SOP_UNITS.find((u) => u.value === unit)?.label || unit;
 }

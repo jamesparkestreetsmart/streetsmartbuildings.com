@@ -24,16 +24,18 @@ export async function GET(req: NextRequest) {
     const startUTC = `${range_start}T00:00:00Z`;
     const endUTC = `${range_end}T23:59:59Z`;
 
-    // Fetch compliance log rows with config details
+    // Fetch compliance log rows with assignment → template details
     const { data: logRows, error: logError } = await supabase
       .from("b_sop_compliance_log")
       .select(
-        `id, sop_config_id, site_id, equipment_id, space_id,
+        `id, sop_assignment_id, site_id, equipment_id, space_id,
          period_start, period_end, total_readings, compliant_readings, compliance_pct,
-         a_sop_configs!inner (
-           id, org_id, site_id, equipment_id, label, metric,
-           min_value, max_value, evaluation_window, unit, notes,
-           effective_from, effective_to, created_at
+         a_sop_assignments!inner (
+           id, org_id, scope_level,
+           a_sop_templates (
+             label, metric, min_value, max_value,
+             evaluation_window, unit, notes
+           )
          )`
       )
       .eq("site_id", site_id)
@@ -108,10 +110,11 @@ export async function GET(req: NextRequest) {
     // Build normalized response rows
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const normalized = rows.map((r: any) => {
-      const config = r.a_sop_configs;
+      const assignment = r.a_sop_assignments;
+      const template = assignment?.a_sop_templates;
       return {
         log_id: r.id,
-        sop_config_id: r.sop_config_id,
+        sop_assignment_id: r.sop_assignment_id,
         equipment_id: r.equipment_id,
         space_id: r.space_id,
         period_start: r.period_start,
@@ -119,19 +122,17 @@ export async function GET(req: NextRequest) {
         total_readings: r.total_readings,
         compliant_readings: r.compliant_readings,
         compliance_pct: r.compliance_pct != null ? Number(r.compliance_pct) : null,
-        // Config fields
-        config_label: config?.label || "",
-        metric: config?.metric || "",
-        min_value: config?.min_value != null ? Number(config.min_value) : null,
-        max_value: config?.max_value != null ? Number(config.max_value) : null,
-        evaluation_window: config?.evaluation_window || "all_hours",
-        unit: config?.unit || "F",
-        notes: config?.notes || null,
-        effective_from: config?.effective_from || null,
-        effective_to: config?.effective_to || null,
-        config_org_id: config?.org_id || null,
-        config_site_id: config?.site_id || null,
-        config_equipment_id: config?.equipment_id || null,
+        // Template fields
+        config_label: template?.label || "",
+        metric: template?.metric || "",
+        min_value: template?.min_value != null ? Number(template.min_value) : null,
+        max_value: template?.max_value != null ? Number(template.max_value) : null,
+        evaluation_window: template?.evaluation_window || "all_hours",
+        unit: template?.unit || "F",
+        notes: template?.notes || null,
+        // Assignment fields
+        config_org_id: assignment?.org_id || null,
+        scope_level: assignment?.scope_level || null,
         // Resolved names
         equipment_name: r.equipment_id ? equipMap[r.equipment_id]?.name || "" : null,
         equipment_group: r.equipment_id ? equipMap[r.equipment_id]?.group || "Uncategorized" : null,

@@ -1,40 +1,43 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 
-export interface SOPConfig {
-  id: string;
+export interface EffectiveAssignment {
+  assignment_id: string;
+  template_id: string;
+  owner_kind: string;
   org_id: string | null;
-  site_id: string | null;
-  equipment_id: string | null;
-  space_id: string | null;
-  target_kind: "equipment" | "space";
   scope_level: string;
+  site_id: string | null;
   equipment_type: string | null;
+  equipment_id: string | null;
   space_type: string | null;
+  space_id: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  retired_at: string | null;
+  // Template fields
+  target_kind: "equipment" | "space";
   label: string;
   metric: string;
+  unit: string;
   min_value: number | null;
   max_value: number | null;
   evaluation_window: string;
-  unit: string;
   notes: string | null;
-  effective_from: string | null;
-  effective_to: string | null;
 }
 
 /**
- * Resolve the effective SOP config for the equipment track.
+ * Resolve the effective SOP assignment for the equipment track.
  * Resolution order: equipment → equipment_type → org → ssb
  */
-export async function resolveSOPConfigEquipment(
+export async function resolveSOPEquipment(
   supabase: SupabaseClient,
   metric: string,
   orgId: string,
   equipmentType?: string | null,
   equipmentId?: string | null,
-  asOf?: string
-): Promise<SOPConfig | null> {
+): Promise<EffectiveAssignment | null> {
   const { data, error } = await supabase
-    .rpc("resolve_sop_config_equipment", {
+    .rpc("resolve_sop_equipment", {
       p_metric: metric,
       p_org_id: orgId,
       p_equipment_type: equipmentType || null,
@@ -42,7 +45,7 @@ export async function resolveSOPConfigEquipment(
     });
 
   if (error) {
-    console.error("[resolveSOPConfigEquipment] RPC error:", error.message);
+    console.error("[resolveSOPEquipment] RPC error:", error.message);
     return null;
   }
 
@@ -50,20 +53,19 @@ export async function resolveSOPConfigEquipment(
 }
 
 /**
- * Resolve the effective SOP config for the space track.
+ * Resolve the effective SOP assignment for the space track.
  * Resolution order: space → space_type → site → org → ssb
  */
-export async function resolveSOPConfigSpace(
+export async function resolveSOPSpace(
   supabase: SupabaseClient,
   metric: string,
   orgId: string,
   siteId?: string | null,
   spaceType?: string | null,
   spaceId?: string | null,
-  asOf?: string
-): Promise<SOPConfig | null> {
+): Promise<EffectiveAssignment | null> {
   const { data, error } = await supabase
-    .rpc("resolve_sop_config_space", {
+    .rpc("resolve_sop_space", {
       p_metric: metric,
       p_org_id: orgId,
       p_site_id: siteId || null,
@@ -72,23 +74,9 @@ export async function resolveSOPConfigSpace(
     });
 
   if (error) {
-    console.error("[resolveSOPConfigSpace] RPC error:", error.message);
+    console.error("[resolveSOPSpace] RPC error:", error.message);
     return null;
   }
 
   return data?.[0] || null;
-}
-
-/**
- * @deprecated Use resolveSOPConfigEquipment or resolveSOPConfigSpace instead.
- */
-export async function resolveSOPConfig(
-  supabase: SupabaseClient,
-  metric: string,
-  orgId: string,
-  siteId?: string | null,
-  equipmentId?: string | null,
-  asOf?: string
-): Promise<SOPConfig | null> {
-  return resolveSOPConfigEquipment(supabase, metric, orgId, null, equipmentId, asOf);
 }

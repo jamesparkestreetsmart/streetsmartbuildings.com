@@ -11,7 +11,7 @@ import { SOP_METRICS, SOP_EVALUATION_WINDOWS } from "@/lib/sop/constants";
 
 interface ComplianceRow {
   log_id: string;
-  sop_config_id: string;
+  sop_assignment_id: string;
   equipment_id: string | null;
   space_id: string | null;
   period_start: string;
@@ -274,11 +274,11 @@ export default function CompliancePage() {
   // Overall score (unfiltered, excludes zero-reading rows)
   const overallPct = useMemo(() => avgPct(rows), [rows]);
   const equipConfigCount = useMemo(
-    () => new Set(rows.filter((r) => r.equipment_id).map((r) => r.sop_config_id)).size,
+    () => new Set(rows.filter((r) => r.equipment_id).map((r) => r.sop_assignment_id)).size,
     [rows]
   );
   const spaceConfigCount = useMemo(
-    () => new Set(rows.filter((r) => r.space_id).map((r) => r.sop_config_id)).size,
+    () => new Set(rows.filter((r) => r.space_id).map((r) => r.sop_assignment_id)).size,
     [rows]
   );
   const dayCount = useMemo(
@@ -446,7 +446,7 @@ export default function CompliancePage() {
   const configDefs = useMemo(() => {
     const seen = new Map<string, ComplianceRow>();
     for (const r of rows) {
-      if (!seen.has(r.sop_config_id)) seen.set(r.sop_config_id, r);
+      if (!seen.has(r.sop_assignment_id)) seen.set(r.sop_assignment_id, r);
     }
     return [...seen.values()];
   }, [rows]);
@@ -860,7 +860,7 @@ export default function CompliancePage() {
 
                   return (
                     <div
-                      key={c.sop_config_id}
+                      key={c.sop_assignment_id}
                       className={`border rounded-lg p-3 text-sm ${isRetired ? "opacity-50" : ""}`}
                     >
                       <div className="flex items-start justify-between">
