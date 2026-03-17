@@ -153,7 +153,8 @@ export async function GET(req: NextRequest) {
     >();
     for (const s of sites) {
       const existing = uniqueSites.get(s.site_id);
-      const zones = Array.isArray(s.a_hvac_zones) ? s.a_hvac_zones : [s.a_hvac_zones];
+      const zones = (Array.isArray(s.a_hvac_zones) ? s.a_hvac_zones : [s.a_hvac_zones])
+        .filter((z: any) => z.thermostat_device_id !== null);
       const hasManaged = zones.some((z: any) => z.control_scope === "managed");
       if (!existing) {
         uniqueSites.set(s.site_id, {
