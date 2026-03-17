@@ -178,9 +178,12 @@ export async function POST(req: NextRequest) {
       const openMins = timeToMinutes(openTime);
       const closeMins = timeToMinutes(closeTime);
       // Determine current time in site timezone
-      const nowInTz = new Date().toLocaleString("en-US", { timeZone: tz });
-      const nowDate = new Date(nowInTz);
-      const currentMins = nowDate.getHours() * 60 + nowDate.getMinutes();
+      const _tzParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(new Date());
+      const currentMins =
+        Number(_tzParts.find(p => p.type === "hour")?.value ?? "0") * 60 +
+        Number(_tzParts.find(p => p.type === "minute")?.value ?? "0");
 
       const isOccupied = !isClosed && openMins !== null && closeMins !== null && currentMins >= openMins && currentMins < closeMins;
 

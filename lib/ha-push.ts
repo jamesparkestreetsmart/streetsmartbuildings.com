@@ -627,9 +627,12 @@ export async function executePushForSite(
   const tz = site?.timezone || "America/Chicago";
 
   // Determine current phase (occupied / unoccupied)
-  const nowInTz = new Date().toLocaleString("en-US", { timeZone: tz });
-  const nowDate = new Date(nowInTz);
-  const currentMins = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const _tzParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const currentMins =
+    Number(_tzParts.find(p => p.type === "hour")?.value ?? "0") * 60 +
+    Number(_tzParts.find(p => p.type === "minute")?.value ?? "0");
 
   const targetDate = siteLocalDate(new Date(), tz);
 
