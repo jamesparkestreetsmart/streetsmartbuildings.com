@@ -7,12 +7,13 @@ const supabase = createClient(
 );
 
 /**
- * GET /api/sop-standards/dropdowns?org_id=...&site_id=...
+ * GET /api/sop-standards/dropdowns?org_id=...&site_id=...&equipment_type_id=...
  * Returns dropdown options for the SOP Standards add/edit modal.
  */
 export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("org_id");
   const siteId = req.nextUrl.searchParams.get("site_id");
+  const equipTypeFilter = req.nextUrl.searchParams.get("equipment_type_id");
 
   if (!orgId) {
     return NextResponse.json({ error: "org_id required" }, { status: 400 });
@@ -30,15 +31,15 @@ export async function GET(req: NextRequest) {
     site_name: s.site_name,
   }));
 
-  // Fetch site IDs for equipment/space queries
   const orgSiteIds = sites.map((s: any) => s.site_id);
+  const siteNameMap = new Map(sites.map((s: any) => [s.site_id, s.site_name]));
 
-  // Fetch distinct equipment types (equipment_type_id) across org
+  // Fetch equipment with site names for display labels
   let equipmentTypes: string[] = [];
-  let equipment: { equipment_id: string; equipment_name: string; equipment_type_id: string; equipment_group: string }[] = [];
+  let equipment: { equipment_id: string; equipment_name: string; equipment_type_id: string; equipment_group: string; site_name: string; display_label: string }[] = [];
 
   if (orgSiteIds.length) {
-    const { data: eqRaw } = await supabase
+    let eqQuery = supabase
       .from("a_equipments")
       .select("equipment_id, equipment_name, equipment_type_id, equipment_group, site_id")
       .in("site_id", orgSiteIds)
@@ -46,20 +47,52 @@ export async function GET(req: NextRequest) {
       .neq("status", "dummy")
       .order("equipment_name");
 
+    // Filter by equipment_type_id if provided
+    if (equipTypeFilter) {
+      eqQuery = eqQuery.eq("equipment_type_id", equipTypeFilter);
+    }
+
+    const { data: eqRaw } = await eqQuery;
     const eqs = eqRaw || [];
     equipmentTypes = [...new Set(eqs.map((e: any) => e.equipment_type_id).filter(Boolean))].sort();
-    equipment = eqs.map((e: any) => ({
-      equipment_id: e.equipment_id,
-      equipment_name: e.equipment_name,
-      equipment_type_id: e.equipment_type_id || "",
-      equipment_group: e.equipment_group || "Uncategorized",
-    }));
+    equipment = eqs.map((e: any) => {
+      const siteName = siteNameMap.get(e.site_id) || "";
+      return {
+        equipment_id: e.equipment_id,
+        equipment_name: e.equipment_name,
+        equipment_type_id: e.equipment_type_id || "",
+        equipment_group: e.equipment_group || "Uncategorized",
+        site_name: siteName,
+        display_label: siteName ? `${e.equipment_name} — ${siteName}` : e.equipment_name,
+      };
+    });
+
+    // If we filtered by type, still return all equipment types for the dropdown
+    if (equipTypeFilter) {
+      const { data: allEqTypes } = await supabase
+        .from("a_equipments")
+        .select("equipment_type_id")
+        .in("site_id", orgSiteIds)
+        .neq("status", "retired")
+        .neq("status", "dummy")
+        .not("equipment_type_id", "is", null);
+      equipmentTypes = [...new Set((allEqTypes || []).map((e: any) => e.equipment_type_id))].sort();
+    }
   }
 
-  // Fetch spaces — filtered by site if provided
-  let spaceTypes: string[] = [];
-  let spaces: { space_id: string; name: string; space_type: string }[] = [];
+  // Fetch space types from library (not from instances)
+  const { data: librarySpaceTypes } = await supabase
+    .from("library_space_types")
+    .select("space_type, description")
+    .order("space_type");
 
+  const spaceTypes = (librarySpaceTypes || []).map((st: any) => ({
+    value: st.space_type,
+    label: st.description || st.space_type,
+  }));
+
+  // Fetch spaces — filtered by site if provided
+  let spaces: { space_id: string; name: string; space_type: string }[] = [];
   const spaceSiteIds = siteId ? [siteId] : orgSiteIds;
   if (spaceSiteIds.length) {
     const { data: spRaw } = await supabase
@@ -68,13 +101,24 @@ export async function GET(req: NextRequest) {
       .in("site_id", spaceSiteIds)
       .order("name");
 
-    const sps = spRaw || [];
-    spaceTypes = [...new Set(sps.map((s: any) => s.space_type).filter(Boolean))].sort();
-    spaces = sps.map((s: any) => ({
+    spaces = (spRaw || []).map((s: any) => ({
       space_id: s.space_id,
       name: s.name || "Unnamed",
       space_type: s.space_type || "Uncategorized",
     }));
+  }
+
+  // Fetch HVAC zone types for the zone type scope
+  let hvacZoneTypes: string[] = [];
+  const zoneSiteIds = siteId ? [siteId] : orgSiteIds;
+  if (zoneSiteIds.length) {
+    const { data: zoneRaw } = await supabase
+      .from("a_hvac_zones")
+      .select("zone_type")
+      .in("site_id", zoneSiteIds)
+      .not("zone_type", "is", null);
+
+    hvacZoneTypes = [...new Set((zoneRaw || []).map((z: any) => z.zone_type))].sort();
   }
 
   return NextResponse.json({
@@ -83,5 +127,6 @@ export async function GET(req: NextRequest) {
     equipment,
     space_types: spaceTypes,
     spaces,
+    hvac_zone_types: hvacZoneTypes,
   });
 }

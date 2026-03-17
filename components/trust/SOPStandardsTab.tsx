@@ -548,9 +548,10 @@ function AssignmentModal({
   // Dropdown data
   const [sites, setSites] = useState<{ site_id: string; site_name: string }[]>([]);
   const [equipTypes, setEquipTypes] = useState<string[]>([]);
-  const [equipment, setEquipment] = useState<{ equipment_id: string; equipment_name: string; equipment_group: string }[]>([]);
-  const [spaceTypes, setSpaceTypes] = useState<string[]>([]);
+  const [equipment, setEquipment] = useState<{ equipment_id: string; equipment_name: string; equipment_type_id: string; equipment_group: string; display_label: string }[]>([]);
+  const [spaceTypes, setSpaceTypes] = useState<{ value: string; label: string }[]>([]);
   const [spaces, setSpaces] = useState<{ space_id: string; name: string; space_type: string }[]>([]);
+  const [hvacZoneTypes, setHvacZoneTypes] = useState<string[]>([]);
 
   const [saving, setSaving] = useState(false);
 
@@ -573,6 +574,7 @@ function AssignmentModal({
         setEquipment(data.equipment || []);
         setSpaceTypes(data.space_types || []);
         setSpaces(data.spaces || []);
+        setHvacZoneTypes(data.hvac_zone_types || []);
       })
       .catch(() => {});
   }, [selectedOrgId, formSiteId]);
@@ -797,7 +799,7 @@ function AssignmentModal({
                 <option value="">Select...</option>
                 {equipment.map((e) => (
                   <option key={e.equipment_id} value={e.equipment_id}>
-                    {e.equipment_name} ({e.equipment_group})
+                    {e.display_label || `${e.equipment_name} (${e.equipment_group})`}
                   </option>
                 ))}
               </select>
@@ -813,7 +815,7 @@ function AssignmentModal({
               <label className="text-xs font-medium text-gray-700 block mb-1">Space Type *</label>
               <select value={formSpaceType} onChange={(e) => setFormSpaceType(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm">
                 <option value="">Select...</option>
-                {spaceTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                {spaceTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
           )}
