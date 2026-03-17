@@ -693,14 +693,19 @@ async function handler(request: NextRequest) {
         const tz = target.site.timezone || "America/Chicago";
         const { start, end } = getYesterdayBounds(tz);
 
-        // Idempotency check
-        const { data: existing } = await supabase
+        // Idempotency check — must include equipment_id for per-unit fan-out
+        let idempQuery = supabase
           .from("b_sop_compliance_log")
           .select("id")
           .eq("sop_assignment_id", assignment.assignment_id)
           .eq("site_id", target.site.site_id)
-          .eq("period_start", start)
-          .limit(1);
+          .eq("period_start", start);
+
+        if (target.equipment_id) {
+          idempQuery = idempQuery.eq("equipment_id", target.equipment_id);
+        }
+
+        const { data: existing } = await idempQuery.limit(1);
 
         if (existing && existing.length > 0) {
           equipStats.skipped++;
