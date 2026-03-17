@@ -541,8 +541,13 @@ function AssignmentModal({
 
   const [saving, setSaving] = useState(false);
 
-  // Derived unit from metric
-  const derivedUnit = metric ? (METRIC_DEFAULT_UNIT[metric] || "F") : "";
+  // Eligible metrics from library (replaces hardcoded list)
+  const [eligibleMetrics, setEligibleMetrics] = useState<{ sop_metric: string; display_name: string; unit: string }[]>([]);
+
+  // Derived unit from eligible metrics response
+  const derivedUnit = metric
+    ? (eligibleMetrics.find((m) => m.sop_metric === metric)?.unit || METRIC_DEFAULT_UNIT[metric] || "F")
+    : "";
 
   // Fetch dropdown data
   useEffect(() => {
@@ -559,14 +564,21 @@ function AssignmentModal({
       .catch(() => {});
   }, [selectedOrgId, formSiteId]);
 
+  // Fetch eligible metrics from library when target kind or type changes
+  useEffect(() => {
+    if (!targetKind) { setEligibleMetrics([]); return; }
+    const params = new URLSearchParams({ target_kind: targetKind });
+    if (targetKind === "equipment" && formEquipType) params.set("type_id", formEquipType);
+    if (targetKind === "space" && formSpaceType) params.set("space_type", formSpaceType);
+    fetch(`/api/sop-standards/eligible-metrics?${params}`)
+      .then((r) => r.json())
+      .then((data) => setEligibleMetrics(data.metrics || []))
+      .catch(() => setEligibleMetrics([]));
+  }, [targetKind, formEquipType, formSpaceType]);
+
   const availableScopes = useMemo(
     () => scopeLevelsForTrack(targetKind, isServiceProvider),
     [targetKind, isServiceProvider]
-  );
-
-  const availableMetrics = useMemo(
-    () => metricsForTrack(targetKind),
-    [targetKind]
   );
 
   async function handleSave() {
@@ -574,7 +586,7 @@ function AssignmentModal({
     setSaving(true);
 
     try {
-      const unit = METRIC_DEFAULT_UNIT[metric] || "F";
+      const unit = eligibleMetrics.find((m) => m.sop_metric === metric)?.unit || METRIC_DEFAULT_UNIT[metric] || "F";
 
       if (isEdit) {
         // Update template
@@ -744,8 +756,8 @@ function AssignmentModal({
                 value={formEquipId}
                 onChange={(e) => {
                   setFormEquipId(e.target.value);
-                  const eq = equipment.find((x) => x.equipment_id === e.target.value);
-                  if (eq) setFormEquipType(eq.equipment_group);
+                  const eq = equipment.find((x: any) => x.equipment_id === e.target.value);
+                  if (eq) setFormEquipType((eq as any).equipment_type_id || eq.equipment_group);
                 }}
                 className="w-full border rounded px-2 py-1.5 text-sm"
               >
@@ -799,9 +811,14 @@ function AssignmentModal({
           <div>
             <label className="text-xs font-medium text-gray-700 block mb-1">Metric *</label>
             <div className="flex items-center gap-2">
-              <select value={metric} onChange={(e) => setMetric(e.target.value)} className="flex-1 border rounded px-2 py-1.5 text-sm">
-                <option value="">Select...</option>
-                {availableMetrics.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              <select
+                value={metric}
+                onChange={(e) => setMetric(e.target.value)}
+                disabled={eligibleMetrics.length === 0}
+                className="flex-1 border rounded px-2 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-400"
+              >
+                <option value="">{eligibleMetrics.length === 0 ? "Select target kind first" : "Select..."}</option>
+                {eligibleMetrics.map((m) => <option key={m.sop_metric} value={m.sop_metric}>{m.display_name}</option>)}
               </select>
               {derivedUnit && (
                 <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded border">
