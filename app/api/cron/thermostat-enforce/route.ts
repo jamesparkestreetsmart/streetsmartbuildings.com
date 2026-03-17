@@ -5,10 +5,7 @@ import { updateDailyHealth } from "@/lib/daily-health";
 import { logZoneSetpointSnapshot } from "@/lib/zone-setpoint-logger";
 import { siteLocalDate } from "@/lib/utils/site-date";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+let supabase: ReturnType<typeof createClient<any>>;
 
 function verifyCronSecret(req: NextRequest): boolean {
   const authHeader = req.headers.get("authorization");
@@ -48,6 +45,10 @@ async function crumb(
 }
 
 export async function GET(req: NextRequest) {
+  supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
   await crumb("cron_entry", "Cron handler entered");
   console.log("[cron/thermostat-enforce] ENTRY", new Date().toISOString());
   const startMs = Date.now();
@@ -114,20 +115,6 @@ export async function GET(req: NextRequest) {
   }
 
   await crumb("cron_lock_acquired", "Lock acquired");
-try {
-  await supabase.from("b_records_log").insert({
-    org_id: DEBUG_ORG_ID,
-    site_id: null,
-    event_type: "cron_lock_acquired_direct",
-    source: "cron_debug",
-    message: "Lock acquired direct insert",
-    event_date: new Date().toISOString().slice(0, 10),
-    created_by: "system",
-    metadata: { ts: new Date().toISOString() },
-  });
-} catch (e: any) {
-  console.error("[direct crumb] cron_lock_acquired_direct failed:", e?.message);
-}
 
   // ─── Soft timeout: release the lock before Vercel's hard 60s kill ────────
   let softTimedOut = false;
