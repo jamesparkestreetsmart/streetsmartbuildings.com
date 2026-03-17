@@ -14,8 +14,9 @@ export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("org_id");
   const siteId = req.nextUrl.searchParams.get("site_id");
   const equipTypeFilter = req.nextUrl.searchParams.get("equipment_type_id");
+  const scope = req.nextUrl.searchParams.get("scope"); // "ssb" for platform-wide
 
-  if (!orgId) {
+  if (!orgId && scope !== "ssb") {
     return NextResponse.json({ error: "org_id required" }, { status: 400 });
   }
 
@@ -80,6 +81,32 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // For SSB scope: populate equipment types from library instead of a_equipments
+  let equipmentTypeOptions: { value: string; label: string }[] = [];
+  if (scope === "ssb") {
+    const { data: libTypes } = await supabase
+      .from("library_equipment_sop_metrics")
+      .select("equipment_type_id")
+      .eq("enabled", true);
+
+    const uniqueTypeIds = [...new Set((libTypes || []).map((r: any) => r.equipment_type_id))];
+
+    if (uniqueTypeIds.length) {
+      const { data: typeNames } = await supabase
+        .from("library_equipment_types")
+        .select("equipment_type_id, name")
+        .in("equipment_type_id", uniqueTypeIds)
+        .order("name");
+
+      equipmentTypeOptions = (typeNames || []).map((t: any) => ({
+        value: t.equipment_type_id,
+        label: t.name || t.equipment_type_id,
+      }));
+    }
+  } else {
+    equipmentTypeOptions = equipmentTypes.map((t) => ({ value: t, label: t }));
+  }
+
   // Fetch space types from library (not from instances)
   const { data: librarySpaceTypes } = await supabase
     .from("library_space_types")
@@ -124,6 +151,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     sites,
     equipment_types: equipmentTypes,
+    equipment_type_options: equipmentTypeOptions,
     equipment,
     space_types: spaceTypes,
     spaces,

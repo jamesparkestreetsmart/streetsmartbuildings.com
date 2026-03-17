@@ -548,6 +548,7 @@ function AssignmentModal({
   // Dropdown data
   const [sites, setSites] = useState<{ site_id: string; site_name: string }[]>([]);
   const [equipTypes, setEquipTypes] = useState<string[]>([]);
+  const [equipTypeOptions, setEquipTypeOptions] = useState<{ value: string; label: string }[]>([]);
   const [equipment, setEquipment] = useState<{ equipment_id: string; equipment_name: string; equipment_type_id: string; equipment_group: string; display_label: string }[]>([]);
   const [spaceTypes, setSpaceTypes] = useState<{ value: string; label: string }[]>([]);
   const [spaces, setSpaces] = useState<{ space_id: string; name: string; space_type: string }[]>([]);
@@ -565,19 +566,21 @@ function AssignmentModal({
 
   // Fetch dropdown data
   useEffect(() => {
-    if (!selectedOrgId) return;
-    fetch(`/api/sop-standards/dropdowns?org_id=${selectedOrgId}${formSiteId ? `&site_id=${formSiteId}` : ""}`)
+    const scopeParam = scopeLevel === "ssb" ? "&scope=ssb" : "";
+    if (!selectedOrgId && scopeLevel !== "ssb") return;
+    fetch(`/api/sop-standards/dropdowns?org_id=${selectedOrgId || ""}${formSiteId ? `&site_id=${formSiteId}` : ""}${scopeParam}`)
       .then((r) => r.json())
       .then((data) => {
         setSites(data.sites || []);
         setEquipTypes(data.equipment_types || []);
+        setEquipTypeOptions(data.equipment_type_options || data.equipment_types?.map((t: string) => ({ value: t, label: t })) || []);
         setEquipment(data.equipment || []);
         setSpaceTypes(data.space_types || []);
         setSpaces(data.spaces || []);
         setHvacZoneTypes(data.hvac_zone_types || []);
       })
       .catch(() => {});
-  }, [selectedOrgId, formSiteId]);
+  }, [selectedOrgId, formSiteId, scopeLevel]);
 
   // Fetch eligible metrics from library when target kind or type changes
   useEffect(() => {
@@ -774,7 +777,7 @@ function AssignmentModal({
                 className="w-full border rounded px-2 py-1.5 text-sm"
               >
                 <option value="">Select...</option>
-                {equipTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                {equipTypeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
           )}
