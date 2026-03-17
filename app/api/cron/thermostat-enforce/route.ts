@@ -69,14 +69,23 @@ export async function GET(req: NextRequest) {
     .eq("cron_name", LOCK_NAME)
     .maybeSingle();
 
-  const { data: lockRows } = await supabase
+  const { error: updateErr } = await supabase
     .from("b_cron_locks")
     .update({ locked_at: now, last_started_at: now })
     .eq("cron_name", LOCK_NAME)
-    .or(`locked_at.is.null,locked_at.lte.${staleThreshold}`)
-    .select("locked_at");
+    .or(`locked_at.is.null,locked_at.lte.${staleThreshold}`);
 
-  if (lockRows && lockRows.length > 0) {
+  // Check if our UPDATE actually acquired the lock by reading back locked_at.
+  // If it matches `now`, we won the race. If it doesn't, another instance beat us.
+  const { data: postUpdate } = await supabase
+    .from("b_cron_locks")
+    .select("locked_at")
+    .eq("cron_name", LOCK_NAME)
+    .maybeSingle();
+
+  const lockAcquiredViaUpdate = !updateErr && postUpdate?.locked_at === now;
+
+  if (lockAcquiredViaUpdate) {
     // We acquired the lock via atomic UPDATE.
     if (preLock?.locked_at && preLock.locked_at <= staleThreshold) {
       const staleAge = Math.round((Date.now() - new Date(preLock.locked_at).getTime()) / 1000);
