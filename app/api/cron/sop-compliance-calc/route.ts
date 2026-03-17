@@ -368,12 +368,29 @@ async function calcLogTableCompliance(
     return { total: 0, compliant: 0 };
   }
 
-  // Step 2: Resolve entity_id from a_sensors via requirement join
+  // Step 2: Resolve entity_id from a_sensors via requirement_id
+  // a_sensors doesn't have sensor_role directly — it joins through
+  // library_equipment_sensor_requirements via requirement_id
+
+  // First, find the requirement_id(s) for this equipment_type + sensor_role
+  const { data: requirements } = await supabase
+    .from("library_equipment_sensor_requirements")
+    .select("requirement_id")
+    .eq("equipment_type_id", assignment.equipment_type_id)
+    .eq("sensor_role", metricInfo.sensor_role);
+
+  const reqIds = (requirements || []).map((r: any) => r.requirement_id);
+  if (reqIds.length === 0) {
+    console.log(`[sop-compliance-calc] No requirement for type=${assignment.equipment_type_id} role=${metricInfo.sensor_role}`);
+    return { total: 0, compliant: 0 };
+  }
+
+  // Then find sensors matching those requirements for this equipment
   const { data: sensors } = await supabase
     .from("a_sensors")
-    .select("entity_id, label, library_equipment_sensor_requirements!inner(sensor_role)")
+    .select("entity_id, label")
     .eq("equipment_id", equipmentId)
-    .eq("library_equipment_sensor_requirements.sensor_role", metricInfo.sensor_role)
+    .in("requirement_id", reqIds)
     .order("created_at", { ascending: true });
 
   if (!sensors || sensors.length === 0) {
