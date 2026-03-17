@@ -327,8 +327,11 @@ export async function pushThermostatState(
   desired: DesiredState,
   current: CurrentState,
   guardrails: Guardrails,
-  context?: { zone_id?: string; zone_name?: string }
+  context?: { zone_id?: string; zone_name?: string },
+  options?: { pushTimeoutMs?: number; modeChangeDelayMs?: number }
 ): Promise<PushResult> {
+  const pushTimeoutMs = options?.pushTimeoutMs ?? 8000;
+  const modeChangeDelayMs = options?.modeChangeDelayMs ?? 1500;
   const actions: string[] = [];
   const previous_state: Partial<CurrentState> = { ...current };
   let effectiveDesired = { ...desired };
@@ -426,7 +429,8 @@ export async function pushThermostatState(
         {
           method: "POST",
           body: JSON.stringify(modePayload),
-        }
+        },
+        pushTimeoutMs
       );
       let resBody: string | null = null;
       try { resBody = await res.text(); } catch { /* ignore */ }
@@ -442,8 +446,8 @@ export async function pushThermostatState(
       actions.push(`set_hvac_mode:${effectiveDesired.hvac_mode}:FAILED`);
     }
 
-    // 2. Wait 1500ms for Z-Wave thermostat to process mode change
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // Wait for Z-Wave thermostat to process mode change
+    await new Promise((resolve) => setTimeout(resolve, modeChangeDelayMs));
   }
 
   // 3. Set temperature
@@ -481,7 +485,8 @@ export async function pushThermostatState(
       const res = await haFetch(
         `${baseUrl}/api/services/climate/set_temperature`,
         config.haToken,
-        { method: "POST", body: JSON.stringify(tempBody) }
+        { method: "POST", body: JSON.stringify(tempBody) },
+        pushTimeoutMs
       );
       let resBody: string | null = null;
       try { resBody = await res.text(); } catch { /* ignore */ }
@@ -513,7 +518,8 @@ export async function pushThermostatState(
             entity_id: effectiveDesired.entity_id,
             fan_mode: effectiveDesired.fan_mode,
           }),
-        }
+        },
+        pushTimeoutMs
       );
       let fanResBody: string | null = null;
       try { fanResBody = await res.text(); } catch { /* ignore */ }
@@ -578,8 +584,14 @@ export async function executePushForSite(
     return { results: [], ha_connected: false, trigger };
   }
 
-  // Test connection with retry
-  const connResult = await checkHAConnectionWithRetry(haUrl, haToken);
+  const isCron = trigger === "cron_enforce";
+  const startMs = Date.now();
+
+  // Test connection — cron path uses single attempt with 5s timeout to save time
+  const connResult = isCron
+    ? await checkHAConnection(haUrl, haToken, 5000)
+    : await checkHAConnectionWithRetry(haUrl, haToken);
+  console.log(`[ha-push] HA connection check: connected=${connResult.connected}, trigger=${trigger}, elapsed=${Date.now() - startMs}ms`);
   if (!connResult.connected) {
     const failureReason = connResult.failureReason || "unknown";
     console.error(`[ha-push] HA unreachable: ${failureReason}`);
@@ -767,7 +779,7 @@ export async function executePushForSite(
     currentMins < closeMins;
 
   const phase = isOccupied ? "occupied" : "unoccupied";
-  console.log(`[ha-push] Phase: ${phase} (time: ${currentMins}min, open: ${openMins}, close: ${closeMins}, closed: ${isClosed}, source: ${hoursSource})`);
+  console.log(`[ha-push] Site ${siteId}: phase=${phase}, currentMins=${currentMins}, openMins=${openMins}, closeMins=${closeMins}, isClosed=${isClosed}, source=${hoursSource}, elapsed=${Date.now() - startMs}ms`);
 
   // Log occupancy state changes (deduplicated via metadata, cross-midnight safe)
   try {
@@ -1468,12 +1480,28 @@ export async function executePushForSite(
     // Enforcement must never trust cached state for correctness.
     // Webhooks can lag, fail, or arrive out of order.
     let liveState: CurrentState | null = null;
+
+    // Change #6: Elapsed-time guard — abort if we've used too much time
+    const elapsedBeforeLive = Date.now() - startMs;
+    if (isCron && elapsedBeforeLive > 40000) {
+      console.warn(`[ha-push] Zone "${zone.name}": elapsed ${elapsedBeforeLive}ms > 40s guard — aborting remaining zones`);
+      results.push({
+        zone_name: zone.name || "",
+        hvac_zone_id: zone.hvac_zone_id,
+        entity_id: climateEntityId,
+        pushed: false,
+        reason: "Elapsed time guard (>40s)",
+        actions: [],
+      });
+      break;
+    }
+
     try {
       const liveRes = await haFetch(
         `${config.haUrl}/api/states/${climateEntityId}`,
         config.haToken,
         { method: "GET" },
-        8000
+        isCron ? 5000 : 8000
       );
       if (liveRes.ok) {
         const liveData = await liveRes.json();
@@ -1517,7 +1545,7 @@ export async function executePushForSite(
       }
     } catch (liveErr: any) {
       console.warn(
-        `[ha-push] Zone "${zone.name}": live state fetch failed (${liveErr?.message}) — falling back to cache`
+        `[ha-push] Zone "${zone.name}": live state fetch failed (${liveErr?.message}) — falling back to cache, elapsed=${Date.now() - startMs}ms`
       );
     }
 
@@ -1544,7 +1572,26 @@ export async function executePushForSite(
       `[ha-push] Zone "${zone.name}" (${climateEntityId}): ${phase} → base=${baseHeat}/${baseCool}, final=${desired.heat_setpoint_f}/${desired.cool_setpoint_f}, mode=${desired.hvac_mode}, fan=${desired.fan_mode} [state_source=${usedLiveState ? "live_ha" : "cache"}]`
     );
 
-    const pushResult = await pushThermostatState(config, desired, current, guardrails, { zone_id: zone.hvac_zone_id, zone_name: zone.name });
+    // Change #6: Elapsed-time guard before push
+    const elapsedBeforePush = Date.now() - startMs;
+    if (isCron && elapsedBeforePush > 40000) {
+      console.warn(`[ha-push] Zone "${zone.name}": elapsed ${elapsedBeforePush}ms > 40s guard — aborting remaining zones`);
+      results.push({
+        zone_name: zone.name || "",
+        hvac_zone_id: zone.hvac_zone_id,
+        entity_id: climateEntityId,
+        pushed: false,
+        reason: "Elapsed time guard (>40s)",
+        actions: [],
+      });
+      break;
+    }
+
+    const pushResult = await pushThermostatState(
+      config, desired, current, guardrails,
+      { zone_id: zone.hvac_zone_id, zone_name: zone.name },
+      isCron ? { pushTimeoutMs: 5000, modeChangeDelayMs: 800 } : undefined
+    );
 
     // Update b_thermostat_state with directive — always recalculate from current state
     const zoneTemp = thermoState?.current_temperature_f ?? current.current_temperature_f;
@@ -1614,8 +1661,11 @@ export async function executePushForSite(
     }
 
     // Read back actual state from HA to confirm push took effect
-    if (pushResult.pushed && climateEntityId) {
+    // Skip on cron path — saves ~11s per zone (1s sleep + 10s fetch)
+    if (pushResult.pushed && climateEntityId && !isCron) {
       await readBackThermostatState(config, climateEntityId, siteId, supabase, desired);
+    } else if (pushResult.pushed && isCron) {
+      console.log(`[ha-push] Zone "${zone.name}": read-back skipped (cron path)`);
     }
 
     // Log full resolution chain to b_records_log (queryable forever)
@@ -1722,6 +1772,6 @@ export async function executePushForSite(
     });
   }
 
-  console.log(`[ha-push] Push complete for site ${siteId}: ${results.length} zone(s) processed`);
+  console.log(`[ha-push] Push complete for site ${siteId}: ${results.length} zone(s) processed, elapsed=${Date.now() - startMs}ms`);
   return { results, ha_connected: true, trigger };
 }

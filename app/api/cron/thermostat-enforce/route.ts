@@ -18,7 +18,7 @@ function verifyCronSecret(req: NextRequest): boolean {
 }
 
 const LOCK_NAME = "thermostat-enforce";
-const MAX_LOCK_AGE_MS = 4 * 60 * 1000; // 4 minutes — safely under the 5-min cron interval
+const MAX_LOCK_AGE_MS = 75 * 1000; // 75s — any lock older than Vercel's 60s kill + overhead is definitionally stale
 const SOFT_TIMEOUT_MS = 50_000; // 50s — release lock before Vercel's 60s hard kill
 
 export async function GET(req: NextRequest) {
