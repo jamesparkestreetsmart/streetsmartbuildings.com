@@ -114,6 +114,20 @@ export async function GET(req: NextRequest) {
   }
 
   await crumb("cron_lock_acquired", "Lock acquired");
+try {
+  await supabase.from("b_records_log").insert({
+    org_id: DEBUG_ORG_ID,
+    site_id: null,
+    event_type: "cron_lock_acquired_direct",
+    source: "cron_debug",
+    message: "Lock acquired direct insert",
+    event_date: new Date().toISOString().slice(0, 10),
+    created_by: "system",
+    metadata: { ts: new Date().toISOString() },
+  });
+} catch (e: any) {
+  console.error("[direct crumb] cron_lock_acquired_direct failed:", e?.message);
+}
 
   // ─── Soft timeout: release the lock before Vercel's hard 60s kill ────────
   let softTimedOut = false;
