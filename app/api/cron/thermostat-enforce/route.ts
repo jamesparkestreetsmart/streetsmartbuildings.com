@@ -5,8 +5,6 @@ import { updateDailyHealth } from "@/lib/daily-health";
 import { logZoneSetpointSnapshot } from "@/lib/zone-setpoint-logger";
 import { siteLocalDate } from "@/lib/utils/site-date";
 
-let supabase: ReturnType<typeof createClient<any>>;
-
 function verifyCronSecret(req: NextRequest): boolean {
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
@@ -22,13 +20,14 @@ const DEBUG_ORG_ID  = "75d9a833-0359-4042-b760-4e5d587798e6";  // PARK org
 const DEBUG_SITE_ID = "aebd4fdf-2f60-4e6d-b08e-46ebc199555e";  // Oneida site
 
 async function crumb(
+  sb: ReturnType<typeof createClient<any>>,
   eventType: string,
   message: string,
   siteId?: string,
   extra?: Record<string, unknown>
 ): Promise<void> {
   try {
-    await supabase.from("b_records_log").insert({
+    await sb.from("b_records_log").insert({
       org_id:     DEBUG_ORG_ID,
       site_id:    siteId ?? null,
       event_type: eventType,
@@ -45,11 +44,11 @@ async function crumb(
 }
 
 export async function GET(req: NextRequest) {
-  supabase = createClient(
+  const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-  await crumb("cron_entry", "Cron handler entered");
+  await crumb(supabase, "cron_entry", "Cron handler entered");
   console.log("[cron/thermostat-enforce] ENTRY", new Date().toISOString());
   const startMs = Date.now();
 
@@ -114,7 +113,7 @@ export async function GET(req: NextRequest) {
     console.log("[cron/thermostat-enforce] Lock created and acquired");
   }
 
-  await crumb("cron_lock_acquired", "Lock acquired");
+  await crumb(supabase, "cron_lock_acquired", "Lock acquired");
 
   // ─── Soft timeout: release the lock before Vercel's hard 60s kill ────────
   let softTimedOut = false;
@@ -140,7 +139,7 @@ export async function GET(req: NextRequest) {
         console.error("[cron/thermostat-enforce] FAILED to release lock:", result.error.message);
       } else {
         console.log("[cron/thermostat-enforce] lock released");
-        await crumb("cron_lock_released", "Lock released");
+        await crumb(supabase, "cron_lock_released", "Lock released");
       }
     } catch (releaseEx: any) {
       // Catch absolutely everything — the lock release must never throw
@@ -160,6 +159,7 @@ export async function GET(req: NextRequest) {
       .eq("status", "Active");
       console.log("[cron/thermostat-enforce] Sites query returned:", sites?.length ?? 0);
       await crumb(
+        supabase,
         "cron_sites_found",
         `Sites query returned ${sites?.length ?? 0} rows`,
         undefined,
@@ -258,12 +258,14 @@ export async function GET(req: NextRequest) {
       try {
         console.log(`[cron/thermostat-enforce] Calling logZoneSetpointSnapshot for site ${site.site_id}`);
         await crumb(
+          supabase,
           "cron_snapshot_start",
           `logZoneSetpointSnapshot starting for site ${site.site_id}`,
           site.site_id
         );
         await logZoneSetpointSnapshot(supabase, site.site_id);
         await crumb(
+          supabase,
           "cron_snapshot_done",
           `logZoneSetpointSnapshot completed for site ${site.site_id}`,
           site.site_id
@@ -357,6 +359,7 @@ export async function GET(req: NextRequest) {
       const siteStartMs = Date.now();
       console.log(`[cron/thermostat-enforce] ▶ Starting site ${siteIndex}/${uniqueSites.size}: ${site.site_id} (status=${site.status}, has_managed=${site.has_managed})`);
       await crumb(
+        supabase,
         "cron_site_start",
         `Starting site ${site.site_id} (${siteIndex}/${uniqueSites.size})`,
         site.site_id,
@@ -374,6 +377,7 @@ export async function GET(req: NextRequest) {
         ]);
 
         await crumb(
+          supabase,
           "cron_site_done",
           `Site ${site.site_id} completed: pushed=${siteResult.pushed}`,
           site.site_id,
@@ -388,6 +392,7 @@ export async function GET(req: NextRequest) {
         );
       } catch (err: any) {
         await crumb(
+          supabase,
           "cron_site_error",
           `Site ${site.site_id} error: ${err?.message ?? String(err)}`,
           site.site_id,
