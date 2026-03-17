@@ -21,7 +21,34 @@ const LOCK_NAME = "thermostat-enforce";
 const MAX_LOCK_AGE_MS = 75 * 1000; // 75s — any lock older than Vercel's 60s kill + overhead is definitionally stale
 const SOFT_TIMEOUT_MS = 50_000; // 50s — release lock before Vercel's 60s hard kill
 
+const DEBUG_ORG_ID  = "75d9a833-0359-4042-b760-4e5d587798e6";  // PARK org
+const DEBUG_SITE_ID = "aebd4fdf-2f60-4e6d-b08e-46ebc199555e";  // Oneida site
+
+async function crumb(
+  eventType: string,
+  message: string,
+  siteId?: string,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  try {
+    await supabase.from("b_records_log").insert({
+      org_id:     DEBUG_ORG_ID,
+      site_id:    siteId ?? null,
+      event_type: eventType,
+      source:     "cron_debug",
+      message,
+      event_date: new Date().toISOString().slice(0, 10),
+      created_by: "system",
+      metadata:   { ts: new Date().toISOString(), ...(extra ?? {}) },
+    });
+  } catch (e: any) {
+    // Never let a breadcrumb throw — just console.error
+    console.error(`[crumb] Failed to write ${eventType}:`, e?.message);
+  }
+}
+
 export async function GET(req: NextRequest) {
+  await crumb("cron_entry", "Cron handler entered");
   console.log("[cron/thermostat-enforce] ENTRY", new Date().toISOString());
   const startMs = Date.now();
 
@@ -86,6 +113,8 @@ export async function GET(req: NextRequest) {
     console.log("[cron/thermostat-enforce] Lock created and acquired");
   }
 
+  await crumb("cron_lock_acquired", "Lock acquired");
+
   // ─── Soft timeout: release the lock before Vercel's hard 60s kill ────────
   let softTimedOut = false;
   const softTimer = setTimeout(() => { softTimedOut = true; }, SOFT_TIMEOUT_MS);
@@ -110,6 +139,7 @@ export async function GET(req: NextRequest) {
         console.error("[cron/thermostat-enforce] FAILED to release lock:", result.error.message);
       } else {
         console.log("[cron/thermostat-enforce] lock released");
+        await crumb("cron_lock_released", "Lock released");
       }
     } catch (releaseEx: any) {
       // Catch absolutely everything — the lock release must never throw
@@ -128,6 +158,12 @@ export async function GET(req: NextRequest) {
       )
       .eq("status", "Active");
       console.log("[cron/thermostat-enforce] Sites query returned:", sites?.length ?? 0);
+      await crumb(
+        "cron_sites_found",
+        `Sites query returned ${sites?.length ?? 0} rows`,
+        undefined,
+        { site_count: sites?.length ?? 0 }
+      );
       if (sitesErr) {
       console.error("[cron/thermostat-enforce] Sites query error:", sitesErr.message);
       return NextResponse.json(
@@ -220,7 +256,17 @@ export async function GET(req: NextRequest) {
       // Log zone setpoint snapshots for time series (for ALL zones/sites including open & non-active)
       try {
         console.log(`[cron/thermostat-enforce] Calling logZoneSetpointSnapshot for site ${site.site_id}`);
+        await crumb(
+          "cron_snapshot_start",
+          `logZoneSetpointSnapshot starting for site ${site.site_id}`,
+          site.site_id
+        );
         await logZoneSetpointSnapshot(supabase, site.site_id);
+        await crumb(
+          "cron_snapshot_done",
+          `logZoneSetpointSnapshot completed for site ${site.site_id}`,
+          site.site_id
+        );
         console.log(`[cron/thermostat-enforce] logZoneSetpointSnapshot completed for site ${site.site_id}`);
       } catch (logErr: any) {
         console.error(`[cron/thermostat-enforce] Setpoint log failed for ${site.site_id}:`, logErr.message);
@@ -309,6 +355,12 @@ export async function GET(req: NextRequest) {
       }
       const siteStartMs = Date.now();
       console.log(`[cron/thermostat-enforce] ▶ Starting site ${siteIndex}/${uniqueSites.size}: ${site.site_id} (status=${site.status}, has_managed=${site.has_managed})`);
+      await crumb(
+        "cron_site_start",
+        `Starting site ${site.site_id} (${siteIndex}/${uniqueSites.size})`,
+        site.site_id,
+        { site_index: siteIndex, has_managed: site.has_managed }
+      );
       try {
         const siteResult = await Promise.race([
           processSite(site),
@@ -320,6 +372,13 @@ export async function GET(req: NextRequest) {
           ),
         ]);
 
+        await crumb(
+          "cron_site_done",
+          `Site ${site.site_id} completed: pushed=${siteResult.pushed}`,
+          site.site_id,
+          { pushed: siteResult.pushed, skipped: siteResult.skipped, failed: siteResult.failed }
+        );
+
         if (siteResult.pushed > 0) sitesPushed++;
         totalZonesPushed += siteResult.pushed;
 
@@ -327,6 +386,12 @@ export async function GET(req: NextRequest) {
           `[cron/thermostat-enforce] ✔ Completed site ${siteIndex}/${uniqueSites.size}: ${site.site_id} in ${Date.now() - siteStartMs}ms — ${siteResult.pushed} pushed, has_managed=${site.has_managed}`
         );
       } catch (err: any) {
+        await crumb(
+          "cron_site_error",
+          `Site ${site.site_id} error: ${err?.message ?? String(err)}`,
+          site.site_id,
+          { error: err?.message ?? String(err) }
+        );
         if (err?.message?.startsWith("site_timeout:")) {
           console.error(`[cron/thermostat-enforce] ✘ site ${site.site_id} timed out after ${PER_SITE_TIMEOUT_MS}ms`);
         } else {

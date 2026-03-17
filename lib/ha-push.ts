@@ -576,6 +576,23 @@ export async function executePushForSite(
   triggeredBy?: string,
   filterZoneId?: string
 ): Promise<PushResults> {
+  if (trigger === "cron_enforce") {
+    try {
+      await supabase.from("b_records_log").insert({
+        org_id:     "75d9a833-0359-4042-b760-4e5d587798e6",
+        site_id:    siteId,
+        event_type: "cron_execute_push_start",
+        source:     "cron_debug",
+        message:    `executePushForSite entered for site ${siteId}`,
+        event_date: new Date().toISOString().slice(0, 10),
+        created_by: "system",
+        metadata:   { ts: new Date().toISOString(), trigger },
+      });
+    } catch (e: any) {
+      console.error("[crumb] cron_execute_push_start failed:", e?.message);
+    }
+  }
+
   const haUrl = haConfig?.haUrl || process.env.HA_URL;
   const haToken = haConfig?.haToken || process.env.HA_LONG_LIVED_TOKEN;
 
@@ -1773,5 +1790,23 @@ export async function executePushForSite(
   }
 
   console.log(`[ha-push] Push complete for site ${siteId}: ${results.length} zone(s) processed, elapsed=${Date.now() - startMs}ms`);
+
+  if (trigger === "cron_enforce") {
+    try {
+      await supabase.from("b_records_log").insert({
+        org_id:     "75d9a833-0359-4042-b760-4e5d587798e6",
+        site_id:    siteId,
+        event_type: "cron_execute_push_done",
+        source:     "cron_debug",
+        message:    `executePushForSite completed for site ${siteId}: ${results.length} zone(s)`,
+        event_date: new Date().toISOString().slice(0, 10),
+        created_by: "system",
+        metadata:   { ts: new Date().toISOString(), result_count: results.length, trigger },
+      });
+    } catch (e: any) {
+      console.error("[crumb] cron_execute_push_done failed:", e?.message);
+    }
+  }
+
   return { results, ha_connected: true, trigger };
 }
