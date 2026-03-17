@@ -283,6 +283,112 @@ function localMidnightToUTC(localDate: string, tz: string): string {
   return midnightUTC.toISOString();
 }
 
+// ── Library-Driven Log Table Compliance (cooler_temp, freezer_temp, humidity, power_kw) ──
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function calcLogTableCompliance(
+  supabase: any,
+  assignment: EffectiveAssignment,
+  site: SiteInfo,
+  equipmentId: string | null,
+  periodStart: string,
+  periodEnd: string
+): Promise<{ total: number; compliant: number }> {
+  if (!equipmentId) {
+    console.warn(`[sop-compliance-calc] Log table metric "${assignment.metric}" requires equipment_id`);
+    return { total: 0, compliant: 0 };
+  }
+
+  // Step 1: Resolve sensor_role and log_table from library
+  const { data: metricInfo } = await supabase
+    .from("library_equipment_sop_metrics")
+    .select("sensor_role, sensor_type")
+    .eq("equipment_type_id", assignment.equipment_type_id || "")
+    .eq("sop_metric", assignment.metric)
+    .eq("enabled", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (!metricInfo) {
+    console.warn(`[sop-compliance-calc] No library entry for metric="${assignment.metric}" equipment_type="${assignment.equipment_type_id}"`);
+    return { total: 0, compliant: 0 };
+  }
+
+  // Get log_table from library_sensor_type_mapping
+  const { data: mapping } = await supabase
+    .from("library_sensor_type_mapping")
+    .select("log_table")
+    .eq("sensor_type", metricInfo.sensor_type)
+    .limit(1)
+    .maybeSingle();
+
+  if (!mapping?.log_table) {
+    console.warn(`[sop-compliance-calc] No log_table mapping for sensor_type="${metricInfo.sensor_type}"`);
+    return { total: 0, compliant: 0 };
+  }
+
+  // Step 2: Resolve entity_id from a_sensors via requirement join
+  const { data: sensors } = await supabase
+    .from("a_sensors")
+    .select("entity_id, label, library_equipment_sensor_requirements!inner(sensor_role)")
+    .eq("equipment_id", equipmentId)
+    .eq("library_equipment_sensor_requirements.sensor_role", metricInfo.sensor_role)
+    .order("created_at", { ascending: true });
+
+  if (!sensors || sensors.length === 0) {
+    console.log(`[sop-compliance-calc] No sensor for equipment=${equipmentId} role=${metricInfo.sensor_role}`);
+    return { total: 0, compliant: 0 };
+  }
+
+  if (sensors.length > 1) {
+    console.warn(`[sop-compliance-calc] Multiple sensors for equipment=${equipmentId} role=${metricInfo.sensor_role} — using oldest (${sensors[0].entity_id})`);
+  }
+
+  const entityId = sensors[0].entity_id;
+
+  // Step 3: Fetch readings from log table
+  const { data: readings } = await supabase
+    .from(mapping.log_table)
+    .select("value, ts")
+    .eq("entity_id", entityId)
+    .eq("site_id", site.site_id)
+    .gte("ts", periodStart)
+    .lt("ts", periodEnd)
+    .order("ts");
+
+  if (!readings || readings.length === 0) {
+    return { total: 0, compliant: 0 };
+  }
+
+  // Step 4: Filter by occupied hours if needed
+  let filtered = readings;
+  if (assignment.evaluation_window === "occupied_hours_only") {
+    const tz = site.timezone || "America/Chicago";
+    filtered = readings.filter((r: any) => {
+      const localTime = new Date(r.ts).toLocaleString("en-US", { timeZone: tz });
+      const localDate = new Date(localTime);
+      const rMins = localDate.getHours() * 60 + localDate.getMinutes();
+      // Basic occupied filter: 5AM-11PM for now
+      // TODO: use manifest for precise occupied hours
+      return rMins >= 300 && rMins < 1380;
+    });
+  }
+
+  // Step 5: Evaluate compliance
+  let compliant = 0;
+  let validCount = 0;
+  for (const r of filtered) {
+    const val = parseFloat(String((r as any).value));
+    if (r.value == null || r.value === "" || isNaN(val)) continue;
+    validCount++;
+    const minOk = assignment.min_value == null || val >= assignment.min_value;
+    const maxOk = assignment.max_value == null || val <= assignment.max_value;
+    if (minOk && maxOk) compliant++;
+  }
+
+  return { total: validCount, compliant };
+}
+
 // ── Equipment Track Compliance Calculation ──────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -367,8 +473,8 @@ async function calcEquipmentCompliance(
       return { value: delta, recorded_at: r.recorded_at };
     });
   } else {
-    console.warn(`[sop-compliance-calc] Unknown equipment metric "${assignment.metric}" for assignment ${assignment.assignment_id}`);
-    return { total: 0, compliant: 0 };
+    // Library-driven path: resolve sensor → log table from library
+    return calcLogTableCompliance(supabase, assignment, site, equipmentId, periodStart, periodEnd);
   }
 
   return countCompliant(readings, assignment);
