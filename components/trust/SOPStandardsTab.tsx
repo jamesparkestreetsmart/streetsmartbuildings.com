@@ -73,14 +73,15 @@ function assignmentStatus(c: AssignmentRow): "active" | "future" | "expired" | "
 }
 
 function scopeDetail(c: AssignmentRow): string {
+  const typeName = c.equipment_type_id || "equipment";
   switch (c.scope_level) {
-    case "ssb": return "All organizations";
-    case "org": return c.org_name || "—";
-    case "site": return c.site_name || "—";
+    case "ssb": return `All ${typeName} in all organizations`;
+    case "org": return `All ${typeName} in ${c.org_name || "—"}`;
+    case "site": return `All spaces at ${c.site_name || "—"}`;
     case "space_type": return `${c.space_type} spaces at ${c.site_name || "—"}`;
     case "space": return `${c.space_name || "—"} at ${c.site_name || "—"}`;
-    case "equipment_type": return `All ${c.equipment_type_id} in ${c.org_name || "—"}`;
-    case "equipment": return c.equipment_name || "—";
+    case "equipment_type": return `All ${typeName} at ${c.site_name || "—"}`;
+    case "equipment": return `${c.equipment_name || "—"} at ${c.site_name || "—"}`;
     default: return "—";
   }
 }
@@ -532,6 +533,9 @@ function AssignmentModal({
   const [formSpaceType, setFormSpaceType] = useState(editAssignment?.space_type || "");
   const [formSpaceId, setFormSpaceId] = useState(editAssignment?.space_id || "");
 
+  // Track initial equipment type for dirty-field metric reset
+  const [initialEquipType] = useState(editAssignment?.equipment_type_id || "");
+
   // Dropdown data
   const [sites, setSites] = useState<{ site_id: string; site_name: string }[]>([]);
   const [equipTypes, setEquipTypes] = useState<string[]>([]);
@@ -612,8 +616,9 @@ function AssignmentModal({
             id: editAssignment!.id,
             scope_level: scopeLevel,
             org_id: scopeLevel === "ssb" ? null : selectedOrgId,
-            site_id: ["site", "space_type", "space"].includes(scopeLevel) ? formSiteId || null : null,
-            equipment_type_id: ["equipment_type", "equipment"].includes(scopeLevel) ? formEquipType || null : null,
+            site_id: scopeLevel === "equipment_type" ? formSiteId || null
+              : ["site", "space_type", "space"].includes(scopeLevel) ? formSiteId || null : null,
+            equipment_type_id: targetKind === "equipment" ? formEquipType || null : null,
             equipment_id: scopeLevel === "equipment" ? formEquipId || null : null,
             space_type: ["space_type", "space"].includes(scopeLevel) ? formSpaceType || null : null,
             space_id: scopeLevel === "space" ? formSpaceId || null : null,
@@ -652,8 +657,9 @@ function AssignmentModal({
             owner_kind: ownerKind,
             org_id: ownerKind === "ssb" ? null : selectedOrgId,
             scope_level: scopeLevel,
-            site_id: ["site", "space_type", "space"].includes(scopeLevel) ? formSiteId || null : null,
-            equipment_type_id: ["equipment_type", "equipment"].includes(scopeLevel) ? formEquipType || null : null,
+            site_id: scopeLevel === "equipment_type" ? formSiteId || null
+              : ["site", "space_type", "space"].includes(scopeLevel) ? formSiteId || null : null,
+            equipment_type_id: targetKind === "equipment" ? formEquipType || null : null,
             equipment_id: scopeLevel === "equipment" ? formEquipId || null : null,
             space_type: ["space_type", "space"].includes(scopeLevel) ? formSpaceType || null : null,
             space_id: scopeLevel === "space" ? formSpaceId || null : null,
@@ -729,9 +735,12 @@ function AssignmentModal({
           </div>
 
           {/* Scope-specific targeting */}
-          {["site", "space_type", "space"].includes(scopeLevel) && (
+
+          {/* Site dropdown: space track scopes + equipment_type scope */}
+          {(["site", "space_type", "space"].includes(scopeLevel) ||
+            (targetKind === "equipment" && scopeLevel === "equipment_type")) && (
             <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Site</label>
+              <label className="text-xs font-medium text-gray-700 block mb-1">Site *</label>
               <select value={formSiteId} onChange={(e) => setFormSiteId(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm">
                 <option value="">Select...</option>
                 {sites.map((s) => <option key={s.site_id} value={s.site_id}>{s.site_name}</option>)}
@@ -739,25 +748,40 @@ function AssignmentModal({
             </div>
           )}
 
-          {scopeLevel === "equipment_type" && (
+          {/* Equipment Type: always required for equipment track (except specific equipment) */}
+          {targetKind === "equipment" && scopeLevel !== "equipment" && (
             <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Equipment Type</label>
-              <select value={formEquipType} onChange={(e) => setFormEquipType(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm">
+              <label className="text-xs font-medium text-gray-700 block mb-1">Equipment Type *</label>
+              <select
+                value={formEquipType}
+                onChange={(e) => {
+                  const newType = e.target.value;
+                  setFormEquipType(newType);
+                  // Only reset metric if type actually changed from initial (edit mode)
+                  if (newType !== initialEquipType) setMetric("");
+                }}
+                className="w-full border rounded px-2 py-1.5 text-sm"
+              >
                 <option value="">Select...</option>
                 {equipTypes.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
           )}
 
-          {scopeLevel === "equipment" && (
+          {/* Specific Equipment: auto-fills equipment type */}
+          {targetKind === "equipment" && scopeLevel === "equipment" && (
             <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Equipment</label>
+              <label className="text-xs font-medium text-gray-700 block mb-1">Equipment *</label>
               <select
                 value={formEquipId}
                 onChange={(e) => {
                   setFormEquipId(e.target.value);
                   const eq = equipment.find((x: any) => x.equipment_id === e.target.value);
-                  if (eq) setFormEquipType((eq as any).equipment_type_id || eq.equipment_group);
+                  if (eq) {
+                    const newType = (eq as any).equipment_type_id || eq.equipment_group;
+                    setFormEquipType(newType);
+                    if (newType !== initialEquipType) setMetric("");
+                  }
                 }}
                 className="w-full border rounded px-2 py-1.5 text-sm"
               >
@@ -768,12 +792,16 @@ function AssignmentModal({
                   </option>
                 ))}
               </select>
+              {formEquipType && (
+                <p className="text-xs text-gray-500 mt-1">Equipment Type: {formEquipType}</p>
+              )}
             </div>
           )}
 
-          {scopeLevel === "space_type" && (
+          {/* Space track: Space Type */}
+          {targetKind === "space" && ["space_type", "space"].includes(scopeLevel) && (
             <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Space Type</label>
+              <label className="text-xs font-medium text-gray-700 block mb-1">Space Type *</label>
               <select value={formSpaceType} onChange={(e) => setFormSpaceType(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm">
                 <option value="">Select...</option>
                 {spaceTypes.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -781,9 +809,10 @@ function AssignmentModal({
             </div>
           )}
 
-          {scopeLevel === "space" && (
+          {/* Space track: Specific Space */}
+          {targetKind === "space" && scopeLevel === "space" && (
             <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Space</label>
+              <label className="text-xs font-medium text-gray-700 block mb-1">Space *</label>
               <select
                 value={formSpaceId}
                 onChange={(e) => {
@@ -814,10 +843,15 @@ function AssignmentModal({
               <select
                 value={metric}
                 onChange={(e) => setMetric(e.target.value)}
-                disabled={eligibleMetrics.length === 0}
+                disabled={eligibleMetrics.length === 0 && !metric}
                 className="flex-1 border rounded px-2 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-400"
               >
-                <option value="">{eligibleMetrics.length === 0 ? "Select target kind first" : "Select..."}</option>
+                <option value="">
+                  {!targetKind ? "Select target kind first"
+                    : targetKind === "equipment" && !formEquipType ? "Select equipment type first"
+                    : eligibleMetrics.length === 0 ? "Loading metrics..."
+                    : "Select metric"}
+                </option>
                 {eligibleMetrics.map((m) => <option key={m.sop_metric} value={m.sop_metric}>{m.display_name}</option>)}
               </select>
               {derivedUnit && (

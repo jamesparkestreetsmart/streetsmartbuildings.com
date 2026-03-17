@@ -117,7 +117,7 @@ export const APPLIES_TO_LABELS: Record<string, string> = {
   ssb:            "Platform Default",
   org:            "Entire Organization",
   site:           "Specific Site",
-  equipment_type: "Equipment Type",
+  equipment_type: "Site Equipment Type",
   equipment:      "Specific Equipment",
   space_type:     "Space Type",
   space:          "Specific Space",
