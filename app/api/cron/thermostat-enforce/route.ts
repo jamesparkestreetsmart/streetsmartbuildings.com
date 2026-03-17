@@ -127,7 +127,8 @@ export async function GET(req: NextRequest) {
         "site_id, org_id, timezone, ha_url, ha_token, status, a_hvac_zones!inner(hvac_zone_id, thermostat_device_id, control_scope)"
       )
       .eq("status", "Active");
-    if (sitesErr) {
+      console.log("[cron/thermostat-enforce] Sites query returned:", sites?.length ?? 0);
+      if (sitesErr) {
       console.error("[cron/thermostat-enforce] Sites query error:", sitesErr.message);
       return NextResponse.json(
         { error: sitesErr.message },
