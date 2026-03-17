@@ -133,12 +133,53 @@ async function getEquipmentTargets(
 
     case "org": {
       if (!assignment.org_id) return [];
-      return allSites
-        .filter((s) => s.org_id === assignment.org_id)
-        .map((s) => ({ site: s, equipment_id: null, space_id: null }));
+      const orgSites = allSites.filter((s) => s.org_id === assignment.org_id);
+
+      // If equipment_type_id is set, fan out to individual equipment units
+      if (assignment.equipment_type_id) {
+        const siteIds = orgSites.map((s) => s.site_id);
+        if (!siteIds.length) return [];
+        const { data: eqs } = await supabase
+          .from("a_equipments")
+          .select("equipment_id, site_id")
+          .in("site_id", siteIds)
+          .eq("equipment_type_id", assignment.equipment_type_id)
+          .neq("status", "retired")
+          .neq("status", "dummy");
+        if (!eqs?.length) {
+          console.warn(`[sop-compliance-calc] No equipment targets for org scope assignment ${assignment.assignment_id} (type=${assignment.equipment_type_id})`);
+          return [];
+        }
+        const siteMap = new Map(orgSites.map((s) => [s.site_id, s]));
+        return eqs
+          .filter((e: any) => siteMap.has(e.site_id))
+          .map((e: any) => ({ site: siteMap.get(e.site_id)!, equipment_id: e.equipment_id, space_id: null }));
+      }
+
+      // No equipment_type_id: per-site targets (HVAC zone_temp etc.)
+      return orgSites.map((s) => ({ site: s, equipment_id: null, space_id: null }));
     }
 
     case "ssb": {
+      // If equipment_type_id is set, fan out to ALL matching equipment across ALL sites
+      if (assignment.equipment_type_id) {
+        const { data: eqs } = await supabase
+          .from("a_equipments")
+          .select("equipment_id, site_id")
+          .eq("equipment_type_id", assignment.equipment_type_id)
+          .neq("status", "retired")
+          .neq("status", "dummy");
+        if (!eqs?.length) {
+          console.warn(`[sop-compliance-calc] No equipment targets for ssb scope assignment ${assignment.assignment_id} (type=${assignment.equipment_type_id})`);
+          return [];
+        }
+        const siteMap = new Map(allSites.map((s) => [s.site_id, s]));
+        return eqs
+          .filter((e: any) => siteMap.has(e.site_id))
+          .map((e: any) => ({ site: siteMap.get(e.site_id)!, equipment_id: e.equipment_id, space_id: null }));
+      }
+
+      // No equipment_type_id: per-site targets
       return allSites.map((s) => ({ site: s, equipment_id: null, space_id: null }));
     }
 
