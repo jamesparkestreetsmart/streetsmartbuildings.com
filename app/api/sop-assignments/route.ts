@@ -68,11 +68,25 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const orgMap = new Map((orgRes.data || []).map((o: any) => [o.org_id, o.org_name]));
 
+  // Fetch compliance counts per assignment in one query
+  const assignmentIds = rows.map((r) => r.id);
+  const complianceCounts = new Map<string, number>();
+  if (assignmentIds.length > 0) {
+    const { data: countRows } = await supabase
+      .from("b_sop_compliance_log")
+      .select("sop_assignment_id")
+      .in("sop_assignment_id", assignmentIds);
+    for (const cr of countRows || []) {
+      complianceCounts.set(cr.sop_assignment_id, (complianceCounts.get(cr.sop_assignment_id) || 0) + 1);
+    }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const enriched = rows.map((r: any) => {
     const t = r.a_sop_templates;
     const eq = r.equipment_id ? equipMap.get(r.equipment_id) : null;
     const sp = r.space_id ? spaceMap.get(r.space_id) : null;
+    const compCount = complianceCounts.get(r.id) || 0;
     return {
       // Assignment fields
       id: r.id,
@@ -104,6 +118,9 @@ export async function GET(req: NextRequest) {
       equipment_name: eq?.equipment_name || null,
       equipment_group: eq?.equipment_group || null,
       space_name: sp?.name || null,
+      // Delete eligibility
+      compliance_count: compCount,
+      can_delete: compCount === 0,
     };
   });
 

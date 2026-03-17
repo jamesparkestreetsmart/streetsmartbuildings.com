@@ -41,6 +41,9 @@ interface AssignmentRow {
   equipment_name?: string | null;
   equipment_group?: string | null;
   space_name?: string | null;
+  // Delete eligibility
+  compliance_count?: number;
+  can_delete?: boolean;
 }
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -460,16 +463,20 @@ function AssignmentTable({
                       </button>
                     </div>
                   ) : confirmRetire === a.id ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-gray-500">Retire?</span>
-                      <button onClick={() => onConfirmRetire(a.id)} className="text-red-600 hover:underline text-[10px]">Yes</button>
-                      <button onClick={onCancelConfirm} className="text-gray-400 hover:underline text-[10px]">No</button>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[10px] text-gray-500">Retire this standard? Historical data preserved.</span>
+                      <div className="flex gap-1">
+                        <button onClick={() => onConfirmRetire(a.id)} className="text-red-600 hover:underline text-[10px] font-medium">Confirm Retire</button>
+                        <button onClick={onCancelConfirm} className="text-gray-400 hover:underline text-[10px]">Cancel</button>
+                      </div>
                     </div>
                   ) : confirmDelete === a.id ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-gray-500">Delete?</span>
-                      <button onClick={() => onConfirmDelete(a.id)} className="text-red-600 hover:underline text-[10px]">Yes</button>
-                      <button onClick={onCancelConfirm} className="text-gray-400 hover:underline text-[10px]">No</button>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[10px] text-gray-500">Permanently delete? This cannot be undone.</span>
+                      <div className="flex gap-1">
+                        <button onClick={() => onConfirmDelete(a.id)} className="text-red-600 hover:underline text-[10px] font-medium">Confirm Delete</button>
+                        <button onClick={onCancelConfirm} className="text-gray-400 hover:underline text-[10px]">Cancel</button>
+                      </div>
                     </div>
                   ) : (
                     <div className="flex items-center gap-1">
@@ -480,7 +487,9 @@ function AssignmentTable({
                       {status !== "retired" && status !== "expired" && (
                         <button onClick={() => onRetire(a.id)} className="text-amber-600 hover:underline">Retire</button>
                       )}
-                      <button onClick={() => onDelete(a.id)} className="text-red-500 hover:underline">Del</button>
+                      {a.can_delete && (
+                        <button onClick={() => onDelete(a.id)} className="text-red-400 hover:underline text-xs">Del</button>
+                      )}
                     </div>
                   )}
                 </td>
