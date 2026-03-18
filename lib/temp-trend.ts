@@ -71,7 +71,24 @@ export async function recordTempAndCalcTrend(
   }
 
   // 4. Update thermostat state with trend
-  // Look up the entity_id for this device
+  // TODO: This resolver is WRONG and must be fixed before this function
+  // is wired up anywhere.
+  //
+  // a_devices.entity_id is NOT canonical. It is a historical convenience
+  // field that happened to be populated on some rows. Do NOT use it as
+  // the lookup key for b_thermostat_state.
+  //
+  // The correct resolver chain is:
+  //   a_devices.ha_device_id
+  //   → b_entity_sync WHERE entity_id ILIKE 'climate.%'
+  //   → use that entity_id to update b_thermostat_state
+  //
+  // Using a_devices.entity_id bypasses b_entity_sync entirely and will
+  // silently fail or update the wrong row if entity mappings change.
+  // See entity-sync and ha-push.ts for the correct pattern.
+  //
+  // If this function is ever activated without fixing this resolver,
+  // it WILL produce incorrect data.
   const { data: device } = await supabase
     .from("a_devices")
     .select("entity_id")
