@@ -5,6 +5,8 @@ import { updateDailyHealth } from "@/lib/daily-health";
 import { logZoneSetpointSnapshot } from "@/lib/zone-setpoint-logger";
 import { siteLocalDate } from "@/lib/utils/site-date";
 
+export const maxDuration = 60;
+
 function verifyCronSecret(req: NextRequest): boolean {
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
