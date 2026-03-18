@@ -1135,6 +1135,12 @@ export default function SettingsPage() {
                   }
                   className="w-full border rounded-md px-2 py-1 text-sm"
                 />
+                <p className="text-xs text-gray-400 mt-1">
+                  By providing your number you agree to receive SMS alert notifications
+                  from Eagle Eyes Building Solutions. Reply STOP to unsubscribe.
+                  Msg &amp; data rates may apply. See our{" "}
+                  <a href="/privacy-policy" className="underline">Privacy Policy</a>.
+                </p>
               ) : (
                 <p className="font-medium">{profile.phone_number || "-"}</p>
               )}

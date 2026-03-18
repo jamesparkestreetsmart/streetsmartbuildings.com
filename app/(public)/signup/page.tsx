@@ -209,6 +209,12 @@ function SignupForm() {
               onChange={(e) => handleChange("phone_number", e.target.value)}
               required
             />
+            <p className="text-xs text-gray-400 mt-1">
+              By providing your number you agree to receive SMS alert notifications
+              from Eagle Eyes Building Solutions. Reply STOP to unsubscribe.
+              Msg &amp; data rates may apply. See our{" "}
+              <a href="/privacy-policy" className="underline">Privacy Policy</a>.
+            </p>
 
             <input
               type="password"
