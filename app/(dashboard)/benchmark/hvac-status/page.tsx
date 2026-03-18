@@ -127,8 +127,8 @@ export default function HvacStatusPage() {
   const [countdown, setCountdown] = useState(300);
 
   // Sort state
-  const [sortKey, setSortKey] = useState<SortKey>("site");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>("time");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -209,19 +209,13 @@ export default function HvacStatusPage() {
       const { data: logData } = await supabase
         .from("b_zone_setpoint_log")
         .select("id, hvac_zone_id, site_id, recorded_at, phase, fan_mode, hvac_action, supply_temp_f, return_temp_f, delta_t, power_kw, comp_on, active_heat_f, active_cool_f, feels_like_adj, zone_temp_f, zone_humidity, feels_like_temp_f, occupancy_adj, manager_adj, smart_start_adj")
-        .in("site_id", siteIds)
+        .in("hvac_zone_id", activeZoneIds)
         .gte("recorded_at", dayStart)
         .lte("recorded_at", dayEnd)
-        .order("hvac_zone_id")
-        .order("recorded_at", { ascending: false });
+        .order("recorded_at", { ascending: false })
+        .limit(10000);
 
-      // Deduplicate: keep latest per zone (first occurrence since ordered DESC)
-      const latestByZone = new Map<string, LogRow>();
-      for (const row of (logData || []) as LogRow[]) {
-        if (!latestByZone.has(row.hvac_zone_id)) {
-          latestByZone.set(row.hvac_zone_id, row);
-        }
-      }
+      const allLogs = (logData || []) as LogRow[];
 
       // 5. Source resolution: equipment → equipment_served_spaces → space_sensors
       const equipIds = [...new Set(zones.map(z => z.equipment_id).filter(Boolean))] as string[];
@@ -259,12 +253,10 @@ export default function HvacStatusPage() {
         sourceByZone[z.hvac_zone_id] = hasSensors ? "Zone Avg" : "Thermostat";
       }
 
-      // 6. Build result rows
+      // 6. Build result rows — one per log entry (full day)
       const result: HvacStatusRow[] = [];
-      for (const zoneId of activeZoneIds) {
-        const log = latestByZone.get(zoneId);
-        if (!log) continue; // no snapshot for today
-        const zone = zoneMap[zoneId];
+      for (const log of allLogs) {
+        const zone = zoneMap[log.hvac_zone_id];
         if (!zone) continue;
         const equip = zone.equipment_id ? equipMap[zone.equipment_id] : null;
         result.push({
@@ -274,7 +266,7 @@ export default function HvacStatusPage() {
           zoneId: zone.hvac_zone_id,
           siteId: zone.site_id,
           equipmentName: equip?.equipment_name || "—",
-          tempSource: sourceByZone[zoneId] || "Thermostat",
+          tempSource: sourceByZone[log.hvac_zone_id] || "Thermostat",
         });
       }
 
@@ -416,7 +408,7 @@ export default function HvacStatusPage() {
       <div className="mb-6">
         <Link href={backHref} className="text-sm text-gray-500 hover:text-gray-700">{backLabel}</Link>
         <h1 className="text-2xl font-bold text-gray-900 mt-1">HVAC Live Status — Org-Wide</h1>
-        <p className="text-xs text-gray-400 mt-1">Latest 5-minute snapshot per zone &bull; Updates every 5 min</p>
+        <p className="text-xs text-gray-400 mt-1">All 5-minute snapshots for the selected day &bull; Updates every 5 min</p>
       </div>
 
       {/* Filters + Refresh */}
@@ -452,7 +444,7 @@ export default function HvacStatusPage() {
           >
             ↻ Refresh Now
           </button>
-          <span className="text-gray-400 ml-2">{rows.length} zones</span>
+          <span className="text-gray-400 ml-2">{rows.length} snapshots</span>
         </div>
       </div>
 
