@@ -62,13 +62,6 @@ export async function GET(req: NextRequest) {
   const now = new Date().toISOString();
   const staleThreshold = new Date(Date.now() - MAX_LOCK_AGE_MS).toISOString();
 
-  // Pre-read for stale-lock logging only (not used for acquisition decision)
-  const { data: preLock } = await supabase
-    .from("b_cron_locks")
-    .select("locked_at")
-    .eq("cron_name", LOCK_NAME)
-    .maybeSingle();
-
   const { error: updateErr } = await supabase
     .from("b_cron_locks")
     .update({ locked_at: now, last_started_at: now })
@@ -87,14 +80,7 @@ export async function GET(req: NextRequest) {
 
   if (lockAcquiredViaUpdate) {
     // We acquired the lock via atomic UPDATE.
-    if (preLock?.locked_at && preLock.locked_at <= staleThreshold) {
-      const staleAge = Math.round((Date.now() - new Date(preLock.locked_at).getTime()) / 1000);
-      console.warn(
-        `[cron/thermostat-enforce] Stale lock detected (age ${staleAge}s), clearing and proceeding`
-      );
-    } else {
-      console.log("[cron/thermostat-enforce] Lock acquired");
-    }
+    console.log("[cron/thermostat-enforce] Lock acquired");
   } else {
     // UPDATE matched 0 rows — either no row exists, or a fresh lock is held.
     // Try INSERT for the case where the row doesn't exist yet.
