@@ -1415,6 +1415,8 @@ export async function logZoneSetpointSnapshot(
         occupied_sensor_count: occupancyReading.occupied_sensor_count,
         fan_mode: tState?.fan_mode || null,
         hvac_action: tState?.hvac_action || null,
+        hvac_mode: tState?.hvac_mode ?? null,
+        current_setpoint_f: tState?.current_setpoint_f ?? null,
         supply_temp_f: equipSensors.supply_temp_f,
         return_temp_f: equipSensors.return_temp_f,
         delta_t: equipSensors.delta_t,

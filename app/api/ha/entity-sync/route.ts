@@ -576,18 +576,85 @@ export async function POST(req: NextRequest) {
                   );
 
                   // Update b_thermostat_state with fresh HA data
+                  const toNum = (val: any): number | null => {
+                    if (val == null) return null;
+                    const n = Number(val);
+                    return isNaN(n) ? null : n;
+                  };
+
+                  const haMode: string | null =
+                    (haState.state && haState.state !== "undefined" && haState.state !== "unavailable")
+                      ? String(haState.state)
+                      : null;
+
+                  // Always-safe fields — write these regardless of mode coherence
                   const freshUpdate: Record<string, any> = {
                     last_synced_at: new Date().toISOString(),
                   };
-                  if (incomingHeat != null)
-                    freshUpdate.target_temp_low_f = incomingHeat;
-                  if (incomingCool != null)
-                    freshUpdate.target_temp_high_f = incomingCool;
-                  if (attrs.current_temperature != null)
-                    freshUpdate.current_temperature_f =
-                      attrs.current_temperature;
+                  if (toNum(attrs.current_temperature) != null)
+                    freshUpdate.current_temperature_f = toNum(attrs.current_temperature);
                   if (attrs.hvac_action)
                     freshUpdate.hvac_action = attrs.hvac_action;
+                  if (attrs.fan_mode)
+                    freshUpdate.fan_mode = attrs.fan_mode;
+
+                  // Mode/setpoint bundle — only write when coherent
+                  if (!haMode) {
+                    console.warn(`[entity-sync] hvac_mode missing or invalid for ${ce.entity_id} — skipping mode/setpoint bundle write`);
+                  } else if (haMode === "heat" || haMode === "cool") {
+                    const singleSetpoint = toNum(attrs.temperature);
+                    if (singleSetpoint != null) {
+                      if (haMode !== ts.hvac_mode) {
+                        console.warn(`[entity-sync] hvac_mode transition for ${ce.entity_id}: ${ts.hvac_mode} → ${haMode}`);
+                      }
+                      freshUpdate.hvac_mode = haMode;
+                      freshUpdate.current_setpoint_f = singleSetpoint;
+                      freshUpdate.target_temp_low_f = null;
+                      freshUpdate.target_temp_high_f = null;
+                    } else {
+                      console.warn(`[entity-sync] ${haMode} mode but attrs.temperature missing for ${ce.entity_id} — skipping setpoint bundle write`);
+                    }
+                  } else if (haMode === "heat_cool") {
+                    const dualLow = toNum(attrs.target_temp_low);
+                    const dualHigh = toNum(attrs.target_temp_high);
+                    if (dualLow != null && dualHigh != null) {
+                      if (haMode !== ts.hvac_mode) {
+                        console.warn(`[entity-sync] hvac_mode transition for ${ce.entity_id}: ${ts.hvac_mode} → ${haMode}`);
+                      }
+                      freshUpdate.hvac_mode = haMode;
+                      freshUpdate.current_setpoint_f = null;
+                      freshUpdate.target_temp_low_f = dualLow;
+                      freshUpdate.target_temp_high_f = dualHigh;
+                    } else {
+                      console.warn(`[entity-sync] heat_cool mode but target_temp_low/high missing for ${ce.entity_id} (low=${dualLow}, high=${dualHigh}) — skipping setpoint bundle write`);
+                    }
+                  } else if (haMode === "auto") {
+                    const dualLow = toNum(attrs.target_temp_low);
+                    const dualHigh = toNum(attrs.target_temp_high);
+                    if (dualLow != null && dualHigh != null) {
+                      console.warn(`[entity-sync] auto mode with dual setpoints for ${ce.entity_id} — treating as heat_cool`);
+                      if ("heat_cool" !== ts.hvac_mode) {
+                        console.warn(`[entity-sync] hvac_mode transition for ${ce.entity_id}: ${ts.hvac_mode} → heat_cool`);
+                      }
+                      freshUpdate.hvac_mode = "heat_cool";
+                      freshUpdate.current_setpoint_f = null;
+                      freshUpdate.target_temp_low_f = dualLow;
+                      freshUpdate.target_temp_high_f = dualHigh;
+                    } else {
+                      console.warn(`[entity-sync] auto mode received for ${ce.entity_id} — verify setpoint fields before treating as heat_cool (low=${dualLow}, high=${dualHigh})`);
+                      // Do not write mode or null setpoints — unknown behavior
+                    }
+                  } else if (haMode === "off") {
+                    if ("off" !== ts.hvac_mode) {
+                      console.warn(`[entity-sync] hvac_mode transition for ${ce.entity_id}: ${ts.hvac_mode} → off`);
+                    }
+                    freshUpdate.hvac_mode = "off";
+                    freshUpdate.current_setpoint_f = null;
+                    freshUpdate.target_temp_low_f = null;
+                    freshUpdate.target_temp_high_f = null;
+                  } else {
+                    console.warn(`[entity-sync] Unrecognized hvac_mode "${haMode}" for ${ce.entity_id} — skipping mode/setpoint bundle write`);
+                  }
 
                   await svcSupabase
                     .from("b_thermostat_state")
@@ -603,18 +670,81 @@ export async function POST(req: NextRequest) {
               }
             }
           } else {
-            // Payload has temps — update b_thermostat_state directly
+            const toNum = (val: any): number | null => {
+              if (val == null) return null;
+              const n = Number(val);
+              return isNaN(n) ? null : n;
+            };
+
+            const payloadMode: string | null =
+              (ce.state != null && ce.state !== undefined && String(ce.state) !== "undefined" && String(ce.state) !== "unavailable")
+                ? String(ce.state)
+                : null;
+
+            // Always-safe fields
             const tsUpdate: Record<string, any> = {
               last_synced_at: new Date().toISOString(),
             };
-            if (incomingHeat != null)
-              tsUpdate.target_temp_low_f = incomingHeat;
-            if (incomingCool != null)
-              tsUpdate.target_temp_high_f = incomingCool;
-            const rawTemp =
-              raw.current_temperature ??
-              raw.attributes?.current_temperature;
+            const rawTemp = toNum(raw.current_temperature ?? raw.attributes?.current_temperature);
             if (rawTemp != null) tsUpdate.current_temperature_f = rawTemp;
+            const rawFanMode = raw.fan_mode ?? raw.attributes?.fan_mode;
+            if (rawFanMode != null) tsUpdate.fan_mode = rawFanMode;
+            const rawHvacAction = raw.hvac_action ?? raw.attributes?.hvac_action;
+            if (rawHvacAction != null) tsUpdate.hvac_action = rawHvacAction;
+
+            // Mode/setpoint bundle — only write when coherent
+            if (!payloadMode) {
+              console.warn(`[entity-sync] hvac_mode missing in payload for ${ce.entity_id} — skipping mode/setpoint bundle write`);
+            } else if (payloadMode === "heat" || payloadMode === "cool") {
+              // Single setpoint: use raw.temperature, not incomingHeat (which is target_temp_low)
+              const singleSetpoint = toNum(raw.temperature ?? raw.attributes?.temperature);
+              if (singleSetpoint != null) {
+                if (payloadMode !== ts.hvac_mode) {
+                  console.warn(`[entity-sync] hvac_mode transition for ${ce.entity_id}: ${ts.hvac_mode} → ${payloadMode}`);
+                }
+                tsUpdate.hvac_mode = payloadMode;
+                tsUpdate.current_setpoint_f = singleSetpoint;
+                tsUpdate.target_temp_low_f = null;
+                tsUpdate.target_temp_high_f = null;
+              } else {
+                console.warn(`[entity-sync] ${payloadMode} mode but temperature missing in payload for ${ce.entity_id} — skipping setpoint bundle write`);
+              }
+            } else if (payloadMode === "heat_cool") {
+              if (incomingHeat != null && incomingCool != null) {
+                if (payloadMode !== ts.hvac_mode) {
+                  console.warn(`[entity-sync] hvac_mode transition for ${ce.entity_id}: ${ts.hvac_mode} → ${payloadMode}`);
+                }
+                tsUpdate.hvac_mode = payloadMode;
+                tsUpdate.current_setpoint_f = null;
+                tsUpdate.target_temp_low_f = incomingHeat;
+                tsUpdate.target_temp_high_f = incomingCool;
+              } else {
+                console.warn(`[entity-sync] heat_cool mode but target_temp_low/high missing in payload for ${ce.entity_id} (low=${incomingHeat}, high=${incomingCool}) — skipping setpoint bundle write`);
+              }
+            } else if (payloadMode === "auto") {
+              if (incomingHeat != null && incomingCool != null) {
+                console.warn(`[entity-sync] auto mode with dual setpoints in payload for ${ce.entity_id} — treating as heat_cool`);
+                if ("heat_cool" !== ts.hvac_mode) {
+                  console.warn(`[entity-sync] hvac_mode transition for ${ce.entity_id}: ${ts.hvac_mode} → heat_cool`);
+                }
+                tsUpdate.hvac_mode = "heat_cool";
+                tsUpdate.current_setpoint_f = null;
+                tsUpdate.target_temp_low_f = incomingHeat;
+                tsUpdate.target_temp_high_f = incomingCool;
+              } else {
+                console.warn(`[entity-sync] auto mode in payload for ${ce.entity_id} — cannot confirm dual setpoint (low=${incomingHeat}, high=${incomingCool}), skipping mode/setpoint bundle write`);
+              }
+            } else if (payloadMode === "off") {
+              if ("off" !== ts.hvac_mode) {
+                console.warn(`[entity-sync] hvac_mode transition for ${ce.entity_id}: ${ts.hvac_mode} → off`);
+              }
+              tsUpdate.hvac_mode = "off";
+              tsUpdate.current_setpoint_f = null;
+              tsUpdate.target_temp_low_f = null;
+              tsUpdate.target_temp_high_f = null;
+            } else {
+              console.warn(`[entity-sync] Unrecognized hvac_mode "${payloadMode}" in payload for ${ce.entity_id} — skipping mode/setpoint bundle write`);
+            }
 
             await svcSupabase
               .from("b_thermostat_state")
