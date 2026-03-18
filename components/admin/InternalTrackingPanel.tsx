@@ -239,6 +239,9 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   const [allWorkItems, setAllWorkItems] = useState<{ id: string; title: string }[]>([]);
   const [allOrgs, setAllOrgs] = useState<{ id: string; title: string }[]>([]);
 
+  // Copy all state
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "done">("idle");
+
   // ---------------------------------------------------------------------------
   // Fetch data
   // ---------------------------------------------------------------------------
@@ -539,6 +542,111 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   }
 
   // ---------------------------------------------------------------------------
+  // Copy All — schemas + data for all three tables
+  // ---------------------------------------------------------------------------
+
+  async function handleCopyAll() {
+    setCopyStatus("copying");
+    try {
+      const [issuesRes, workRes, learningsRes] = await Promise.all([
+        fetch("/api/admin/platform-issues"),
+        fetch("/api/admin/work-items"),
+        fetch("/api/admin/learnings"),
+      ]);
+      const issues: PlatformIssue[] = issuesRes.ok ? await issuesRes.json() : [];
+      const work: WorkItem[] = workRes.ok ? await workRes.json() : [];
+      const learnings: Learning[] = learningsRes.ok ? await learningsRes.json() : [];
+
+      const issueRows = issues.map((i) =>
+        `| ${i.status} | ${i.severity} | ${i.title} | ${i.issue_type} | ${i.owner ?? "-"} | ${i.target_sprint ?? "-"} | ${i.description ?? "-"} | ${i.latest_note ?? "-"} | ${i.lessons_learned ?? "-"} | ${formatDate(i.updated_at)} |`
+      ).join("\n");
+
+      const workRows = work.map((w) =>
+        `| ${w.status} | ${w.priority} | ${w.title} | ${w.work_type} | ${w.area ?? "-"} | ${w.sprint_label ?? "-"} | ${w.quarter_label ?? "-"} | ${w.owner ?? "-"} | ${w.requested_by ?? "-"} | ${w.description ?? "-"} | ${w.latest_note ?? "-"} | ${w.lessons_learned ?? "-"} | ${w.acceptance_criteria ?? "-"} | ${w.target_date ?? "-"} | ${formatDate(w.updated_at)} |`
+      ).join("\n");
+
+      const learningRows = learnings.map((l) =>
+        `| ${l.category} | ${l.title} | ${l.summary} | ${formatDate(l.created_at)} |`
+      ).join("\n");
+
+      const text = `# Eagle Eyes — Internal Tracking Data Export
+Generated: ${new Date().toLocaleString()}
+
+====================================================================
+## 1. PLATFORM ISSUES (c_platform_issues)
+====================================================================
+
+### Schema / Available Fields for Adding:
+- title (string, required)
+- issue_type: ${ISSUE_TYPES.join(", ")}
+- severity: ${ISSUE_SEVERITIES.join(", ")}
+- status: ${ISSUE_STATUSES.join(", ")}
+- source: ${ISSUE_SOURCES.join(", ")}
+- reported_by (string)
+- owner (string)
+- target_sprint (string)
+- description (text)
+- latest_note (text)
+- lessons_learned (text)
+- linked_work_item_id (uuid, FK to c_work_items)
+
+### Current Data (${issues.length} items):
+| Status | Severity | Title | Type | Owner | Target Sprint | Description | Latest Note | Lessons Learned | Updated |
+|--------|----------|-------|------|-------|---------------|-------------|-------------|-----------------|---------|
+${issueRows || "| (none) | | | | | | | | | |"}
+
+====================================================================
+## 2. WORK ITEMS (c_work_items)
+====================================================================
+
+### Schema / Available Fields for Adding:
+- title (string, required)
+- work_type (required): ${WORK_TYPES.join(", ")}
+- status: ${WORK_STATUSES.join(", ")}
+- priority: ${WORK_PRIORITIES.join(", ")}
+- area: ${WORK_AREAS.join(", ")}
+- sprint_label (string)
+- quarter_label (string)
+- owner (string)
+- requested_by (string)
+- related_issue_id (uuid, FK to c_platform_issues)
+- acceptance_criteria (text)
+- description (text)
+- latest_note (text)
+- lessons_learned (text)
+- target_date (date)
+
+### Current Data (${work.length} items):
+| Status | Priority | Title | Work Type | Area | Sprint | Quarter | Owner | Requested By | Description | Latest Note | Lessons Learned | Acceptance Criteria | Target Date | Updated |
+|--------|----------|-------|-----------|------|--------|---------|-------|--------------|-------------|-------------|-----------------|---------------------|-------------|---------|
+${workRows || "| (none) | | | | | | | | | | | | | | |"}
+
+====================================================================
+## 3. LEARNINGS (c_learnings)
+====================================================================
+
+### Schema / Available Fields for Adding:
+- title (string, required)
+- category: ${LEARNING_CATEGORIES.join(", ")}
+- summary (text, required)
+- related_issue_id (uuid, FK to c_platform_issues)
+- related_work_item_id (uuid, FK to c_work_items)
+
+### Current Data (${learnings.length} items):
+| Category | Title | Summary | Created |
+|----------|-------|---------|---------|
+${learningRows || "| (none) | | | |"}
+`;
+
+      await navigator.clipboard.writeText(text);
+      setCopyStatus("done");
+      setTimeout(() => setCopyStatus("idle"), 2000);
+    } catch {
+      setCopyStatus("idle");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Render helpers: Filter bar
   // ---------------------------------------------------------------------------
 
@@ -636,7 +744,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
               >
                 <td className="px-4 py-2"><Badge value={item.status} colorMap={STATUS_COLORS} /></td>
                 <td className="px-4 py-2"><Badge value={item.severity} colorMap={SEVERITY_COLORS} /></td>
-                <td className="px-4 py-2 font-medium text-gray-900 max-w-xs truncate">{item.title}</td>
+                <td className="px-4 py-2 font-medium text-gray-900 whitespace-normal">{item.title}</td>
                 <td className="px-4 py-2 text-gray-600">{item.issue_type?.replace(/_/g, " ")}</td>
                 <td className="px-4 py-2 text-gray-600">{item.owner ?? "-"}</td>
                 <td className="px-4 py-2 text-gray-600">{item.target_sprint ?? "-"}</td>
@@ -693,7 +801,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
               >
                 <td className="px-4 py-2"><Badge value={item.status} colorMap={STATUS_COLORS} /></td>
                 <td className="px-4 py-2"><Badge value={item.priority} colorMap={SEVERITY_COLORS} /></td>
-                <td className="px-4 py-2 font-medium text-gray-900 max-w-xs truncate">{item.title}</td>
+                <td className="px-4 py-2 font-medium text-gray-900 whitespace-normal">{item.title}</td>
                 <td className="px-4 py-2"><Badge value={item.work_type} colorMap={WORK_TYPE_COLORS} /></td>
                 <td className="px-4 py-2 text-gray-600">{item.area ?? "-"}</td>
                 <td className="px-4 py-2 text-gray-600">{item.sprint_label ?? "-"}</td>
@@ -756,8 +864,8 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
                     {item.category}
                   </span>
                 </td>
-                <td className="px-4 py-2 font-medium text-gray-900 max-w-xs truncate">{item.title}</td>
-                <td className="px-4 py-2 text-gray-600 max-w-sm truncate">{truncate(item.summary, 80)}</td>
+                <td className="px-4 py-2 font-medium text-gray-900 whitespace-normal">{item.title}</td>
+                <td className="px-4 py-2 text-gray-600 whitespace-normal">{item.summary}</td>
                 <td className="px-4 py-2 text-gray-500 text-xs">
                   {item.related_issue_id
                     ? truncate(allIssues.find((i) => i.id === item.related_issue_id)?.title ?? item.related_issue_id, 30)
@@ -1079,6 +1187,19 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
             {tab.label}
           </button>
         ))}
+        <div className="ml-auto flex items-center pr-4">
+          <button
+            onClick={handleCopyAll}
+            disabled={copyStatus === "copying"}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+              copyStatus === "done"
+                ? "bg-green-50 border-green-300 text-green-700"
+                : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            {copyStatus === "copying" ? "Copying..." : copyStatus === "done" ? "Copied!" : "Copy All"}
+          </button>
+        </div>
       </div>
 
       {/* Filter bar */}
