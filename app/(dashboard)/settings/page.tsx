@@ -1127,20 +1127,22 @@ export default function SettingsPage() {
             <div>
               <p className="text-gray-500">Phone Number</p>
               {editingProfile ? (
-                <input
-                  type="tel"
-                  value={profileDraft.phone_number ?? ""}
-                  onChange={(e) =>
-                    setProfileDraft({ ...profileDraft, phone_number: e.target.value })
-                  }
-                  className="w-full border rounded-md px-2 py-1 text-sm"
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  By providing your number you agree to receive SMS alert notifications
-                  from Eagle Eyes Building Solutions. Reply STOP to unsubscribe.
-                  Msg &amp; data rates may apply. See our{" "}
-                  <a href="/privacy-policy" className="underline">Privacy Policy</a>.
-                </p>
+                <>
+                  <input
+                    type="tel"
+                    value={profileDraft.phone_number ?? ""}
+                    onChange={(e) =>
+                      setProfileDraft({ ...profileDraft, phone_number: e.target.value })
+                    }
+                    className="w-full border rounded-md px-2 py-1 text-sm"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    By providing your number you agree to receive SMS alert notifications
+                    from Eagle Eyes Building Solutions. Reply STOP to unsubscribe.
+                    Msg &amp; data rates may apply. See our{" "}
+                    <a href="/privacy-policy" className="underline">Privacy Policy</a>.
+                  </p>
+                </>
               ) : (
                 <p className="font-medium">{profile.phone_number || "-"}</p>
               )}
