@@ -1127,7 +1127,7 @@ export async function logZoneSetpointSnapshot(
     const { data: tStates } = await supabase
       .from("b_thermostat_state")
       .select(
-        "entity_id, ha_device_id, current_temperature_f, current_humidity, current_setpoint_f, target_temp_high_f, target_temp_low_f, fan_mode, hvac_action, last_synced_at, manager_override_active, manager_override_started_at, manager_override_remaining_min, manager_override_heat_f, manager_override_cool_f"
+        "entity_id, ha_device_id, current_temperature_f, current_humidity, current_setpoint_f, target_temp_high_f, target_temp_low_f, fan_mode, hvac_mode, hvac_action, last_synced_at, manager_override_active, manager_override_started_at, manager_override_remaining_min, manager_override_heat_f, manager_override_cool_f"
       )
       .eq("site_id", siteId);
 
