@@ -40,9 +40,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ connected: false, reason: "HA URL or token not configured" });
   }
 
-  const result = await checkHAConnection(site.ha_url, site.ha_token);
-  return NextResponse.json({
-    connected: result.connected,
-    ...(result.failureReason && { reason: result.failureReason }),
-  });
+  const connected = await checkHAConnection(site.ha_url, site.ha_token);
+  return NextResponse.json({ connected });
 }
