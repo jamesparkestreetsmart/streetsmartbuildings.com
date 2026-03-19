@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import AttachmentsPanel, { Attachment } from "@/components/admin/AttachmentsPanel";
+import AttachmentsPanel from "@/components/admin/AttachmentsPanel";
+import type { Attachment } from "@/components/admin/AttachmentsPanel";
 
 interface OrgIssue {
   issue_id: string;

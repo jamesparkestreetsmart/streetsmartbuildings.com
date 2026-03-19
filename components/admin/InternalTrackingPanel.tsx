@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useState, useCallback } from "react";
-import AttachmentsPanel, { Attachment } from "./AttachmentsPanel";
+import AttachmentsPanel from "./AttachmentsPanel";
+import type { Attachment } from "./AttachmentsPanel";
 
 // ---------------------------------------------------------------------------
 // Types
