@@ -110,6 +110,7 @@ export async function GET(req: NextRequest) {
       const { data: sitesData, error: sitesErr } = await supabase
         .from("a_sites")
         .select("site_id, site_slug, site_name, org_id")
+        .neq("status", "inventory")
         .order("site_slug");
 
       if (sitesErr) return NextResponse.json({ error: sitesErr.message }, { status: 500 });
