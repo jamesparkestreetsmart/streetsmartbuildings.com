@@ -50,7 +50,17 @@
       "Bash(git diff:*)",
       "Bash(find:*)",
       "Bash(git checkout:*)",
-      "mcp__claude_ai_Supabase__execute_sql"
+      "mcp__claude_ai_Supabase__execute_sql",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "mcp__claude_ai_Supabase__deploy_edge_function",
+      "Bash(supabase functions:*)",
+      "Bash(mkdir -p C:/Projects/EagleEyes/supabase/functions/bootstrap-ha-automation-import)",
+      "Bash(cp C:/Projects/EagleEyes/eagle-eyes-dashboard/supabase/functions/bootstrap-ha-automation-import/index.ts C:/Projects/EagleEyes/supabase/functions/bootstrap-ha-automation-import/index.ts)",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__get_publishable_keys",
+      "Bash(cp:*)",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__get_logs"
     ]
   }
 }
