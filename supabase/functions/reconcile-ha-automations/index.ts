@@ -69,33 +69,49 @@ async function reconcileSite(
       driftStatus = "unknown";
     }
 
-    // Upsert deployment
-    const upsertRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/c_ha_automation_deployments`,
-      {
-        method: "POST",
-        headers: {
-          ...headers,
-          Prefer: "resolution=merge-duplicates",
-        },
-        body: JSON.stringify({
-          org_id: row.org_id,
-          site_id: siteId,
-          automation_key: row.automation_key,
-          resolved_template_id: row.resolved_template_id,
-          desired_enabled: row.desired_enabled,
-          desired_version: row.desired_version,
-          desired_checksum: row.desired_checksum,
-          desired_yaml: row.desired_enabled ? row.desired_yaml : null,
-          drift_status: driftStatus,
-        }),
-      }
-    );
+    // Idempotent upsert: PATCH existing row, INSERT only if no row exists
+    const payload = {
+      org_id: row.org_id,
+      site_id: siteId,
+      automation_key: row.automation_key,
+      resolved_template_id: row.resolved_template_id,
+      desired_enabled: row.desired_enabled,
+      desired_version: row.desired_version,
+      desired_checksum: row.desired_checksum,
+      desired_yaml: row.desired_enabled ? row.desired_yaml : null,
+      drift_status: driftStatus,
+    };
 
-    if (!upsertRes.ok) {
-      errors.push(`upsert ${row.automation_key}: ${await upsertRes.text()}`);
+    if (existing) {
+      // Row exists — PATCH by composite key
+      const patchRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/c_ha_automation_deployments?site_id=eq.${siteId}&automation_key=eq.${encodeURIComponent(row.automation_key)}`,
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!patchRes.ok) {
+        errors.push(`patch ${row.automation_key}: ${await patchRes.text()}`);
+      } else {
+        upserted++;
+      }
     } else {
-      upserted++;
+      // No existing row — INSERT
+      const insertRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/c_ha_automation_deployments`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!insertRes.ok) {
+        errors.push(`insert ${row.automation_key}: ${await insertRes.text()}`);
+      } else {
+        upserted++;
+      }
     }
   }
 
