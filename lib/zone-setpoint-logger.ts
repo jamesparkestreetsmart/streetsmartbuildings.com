@@ -1118,9 +1118,17 @@ export async function logZoneSetpointSnapshot(
     console.log(`[zone-setpoint-logger] Fetched ${(devices || []).length} device rows`);
     const deviceToHa: Record<string, string> = {};
     const deviceSsEnabled: Record<string, boolean> = {};
+    const devicesWithoutHaId: string[] = [];
     for (const dev of devices || []) {
-      deviceToHa[dev.device_id] = normalizeHaDeviceId(dev.ha_device_id) || dev.ha_device_id;
+      if (dev.ha_device_id) {
+        deviceToHa[dev.device_id] = normalizeHaDeviceId(dev.ha_device_id) || dev.ha_device_id;
+      } else {
+        devicesWithoutHaId.push(dev.device_id);
+      }
       deviceSsEnabled[dev.device_id] = dev.smart_start_enabled || false;
+    }
+    if (devicesWithoutHaId.length > 0) {
+      console.warn(`[zone-setpoint-logger] ${devicesWithoutHaId.length} device(s) have no ha_device_id — zones using these will have no thermostat state: ${devicesWithoutHaId.join(", ")}`);
     }
 
     // 6. Fetch all thermostat states for this site (keyed by entity_id OR ha_device_id)

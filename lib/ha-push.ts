@@ -697,7 +697,7 @@ export async function executePushForSite(
         hvac_zone_id: zone.hvac_zone_id,
         entity_id: "",
         pushed: false,
-        reason: `Zone type "${zone.zone_type}" not pushable`,
+        reason: "non_pushable_zone_type",
         actions: [],
       });
       continue;
@@ -712,6 +712,31 @@ export async function executePushForSite(
 
     if (!device) {
       console.log(`[ha-push] No device found for thermostat_device_id: ${zone.thermostat_device_id}`);
+      results.push({ zone_name: zone.name, hvac_zone_id: zone.hvac_zone_id, entity_id: "", pushed: false, reason: "missing_device", actions: [] });
+      try {
+        await supabase.from("b_records_log").insert({
+          org_id: site?.org_id || null, site_id: siteId, equipment_id: zone.equipment_id || null,
+          device_id: zone.thermostat_device_id, event_type: "thermostat_push_failed", event_date: targetDate,
+          source: "ha_push", message: `${zone.name}: missing_device (trigger: ${trigger})`,
+          metadata: { trigger, reason: "missing_device", zone_id: zone.hvac_zone_id },
+          created_by: triggeredBy || "system",
+        });
+      } catch (logErr) { console.error("[ha-push] Failed to log missing_device to b_records_log:", logErr); }
+      continue;
+    }
+
+    if (!device.ha_device_id) {
+      console.warn(`[ha-push] Device "${device.device_name}" (${device.device_id}) has no ha_device_id — zone "${zone.name}" cannot be enforced`);
+      results.push({ zone_name: zone.name, hvac_zone_id: zone.hvac_zone_id, entity_id: "", pushed: false, reason: "missing_ha_device_id", actions: [] });
+      try {
+        await supabase.from("b_records_log").insert({
+          org_id: site?.org_id || null, site_id: siteId, equipment_id: zone.equipment_id || null,
+          device_id: zone.thermostat_device_id, event_type: "thermostat_push_failed", event_date: targetDate,
+          source: "ha_push", message: `${zone.name}: missing_ha_device_id (device: ${device.device_name}, trigger: ${trigger})`,
+          metadata: { trigger, reason: "missing_ha_device_id", zone_id: zone.hvac_zone_id, device_name: device.device_name },
+          created_by: triggeredBy || "system",
+        });
+      } catch (logErr) { console.error("[ha-push] Failed to log missing_ha_device_id to b_records_log:", logErr); }
       continue;
     }
 
@@ -744,6 +769,16 @@ export async function executePushForSite(
 
     if (!climateEntityId) {
       console.log(`[ha-push] No climate entity found for device: ${device.device_name}`);
+      results.push({ zone_name: zone.name, hvac_zone_id: zone.hvac_zone_id, entity_id: "", pushed: false, reason: "missing_climate_entity", actions: [] });
+      try {
+        await supabase.from("b_records_log").insert({
+          org_id: site?.org_id || null, site_id: siteId, equipment_id: zone.equipment_id || null,
+          device_id: zone.thermostat_device_id, event_type: "thermostat_push_failed", event_date: targetDate,
+          source: "ha_push", message: `${zone.name}: missing_climate_entity (device: ${device.device_name}, ha_device_id: ${device.ha_device_id}, trigger: ${trigger})`,
+          metadata: { trigger, reason: "missing_climate_entity", zone_id: zone.hvac_zone_id, device_name: device.device_name, ha_device_id: device.ha_device_id },
+          created_by: triggeredBy || "system",
+        });
+      } catch (logErr) { console.error("[ha-push] Failed to log missing_climate_entity to b_records_log:", logErr); }
       continue;
     }
 
