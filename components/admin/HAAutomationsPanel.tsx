@@ -55,9 +55,16 @@ interface DeploymentLog {
   response_payload: Record<string, unknown> | null;
 }
 
-interface Site {
+interface SiteOption {
   site_id: string;
+  site_slug: string;
   site_name: string;
+}
+
+interface SiteGroup {
+  org_name: string;
+  org_identifier: string;
+  sites: SiteOption[];
 }
 
 // ── Helpers ──
@@ -126,7 +133,7 @@ export default function HAAutomationsPanel() {
   const [historyModal, setHistoryModal] = useState<{ key: string; scope: string; rows: Template[] } | null>(null);
 
   // Site state
-  const [sites, setSites] = useState<Site[]>([]);
+  const [siteGroups, setSiteGroups] = useState<SiteGroup[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState("");
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [loadingDeployments, setLoadingDeployments] = useState(false);
@@ -154,7 +161,7 @@ export default function HAAutomationsPanel() {
   const fetchSites = useCallback(async () => {
     const res = await fetch("/api/admin/ha-automations?view=sites");
     const data = await res.json();
-    setSites(data.sites || []);
+    setSiteGroups(data.site_groups || []);
   }, []);
 
   const fetchDeployments = useCallback(async (siteId: string) => {
@@ -392,13 +399,17 @@ export default function HAAutomationsPanel() {
               <select
                 value={selectedSiteId}
                 onChange={(e) => setSelectedSiteId(e.target.value)}
-                className="border rounded px-3 py-1.5 text-sm min-w-[220px]"
+                className="border rounded px-3 py-1.5 text-sm min-w-[320px]"
               >
                 <option value="">Select a site...</option>
-                {sites.map((s) => (
-                  <option key={s.site_id} value={s.site_id}>
-                    {s.site_name}
-                  </option>
+                {siteGroups.map((group) => (
+                  <optgroup key={group.org_identifier} label={`${group.org_name} (${group.org_identifier})`}>
+                    {group.sites.map((s) => (
+                      <option key={s.site_id} value={s.site_id}>
+                        {s.site_slug} — {s.site_name}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>
