@@ -83,22 +83,22 @@ INSERT INTO library_equipment_sop_metrics
   (equipment_type_id, sensor_role, sensor_type, sop_metric, display_name, unit)
 VALUES
   -- HVAC Rooftop Unit
-  ('hvac_rooftop_unit', 'zone_temp', 'temperature', 'zone_temp', 'Zone Temperature', 'F'),
-  ('hvac_rooftop_unit', 'setpoint_delta', 'temperature', 'setpoint_delta', 'Setpoint Delta', 'F'),
+  ('hvac_rooftop_unit', 'thermostat_state', 'temperature', 'zone_temp', 'Zone Temperature', 'F'),
+  ('hvac_rooftop_unit', 'thermostat_state', 'temperature', 'setpoint_delta', 'Setpoint Delta', 'F'),
   ('hvac_rooftop_unit', 'power_kw', 'power', 'power_kw', 'Power (kW)', 'kW'),
   -- HVAC Split System
-  ('hvac_split_system', 'zone_temp', 'temperature', 'zone_temp', 'Zone Temperature', 'F'),
+  ('hvac_split_system', 'thermostat_state', 'temperature', 'zone_temp', 'Zone Temperature', 'F'),
   -- Refrigerator
-  ('refrigerator', 'cooler_temp', 'temperature', 'cooler_temp', 'Cooler Temperature', 'F'),
+  ('refrigerator', 'internal_temp', 'temperature', 'cooler_temp', 'Cooler Temperature', 'F'),
   ('refrigerator', 'power_kw', 'power', 'power_kw', 'Power (kW)', 'kW'),
   -- Freezer
-  ('freezer', 'freezer_temp', 'temperature', 'freezer_temp', 'Freezer Temperature', 'F'),
+  ('freezer', 'internal_temp', 'temperature', 'freezer_temp', 'Freezer Temperature', 'F'),
   ('freezer', 'power_kw', 'power', 'power_kw', 'Power (kW)', 'kW'),
   -- Walk-in Cooler
-  ('walkin_cooler', 'cooler_temp', 'temperature', 'cooler_temp', 'Cooler Temperature', 'F'),
+  ('walkin_cooler', 'internal_temp', 'temperature', 'cooler_temp', 'Cooler Temperature', 'F'),
   ('walkin_cooler', 'power_kw', 'power', 'power_kw', 'Power (kW)', 'kW'),
   -- Walk-in Freezer
-  ('walkin_freezer', 'freezer_temp', 'temperature', 'freezer_temp', 'Freezer Temperature', 'F'),
+  ('walkin_freezer', 'internal_temp', 'temperature', 'freezer_temp', 'Freezer Temperature', 'F'),
   ('walkin_freezer', 'power_kw', 'power', 'power_kw', 'Power (kW)', 'kW'),
   -- Dehumidifier
   ('dehumidifier', 'humidity', 'humidity', 'humidity', 'Humidity', 'percent');
