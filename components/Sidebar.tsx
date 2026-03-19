@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Users, Shield, ShieldCheck, ChevronDown, Building2, MessageSquare } from "lucide-react";
+import { Users, Shield, ShieldCheck, ChevronDown, Building2, MessageSquare, Inbox } from "lucide-react";
 import { useOrg } from "@/context/OrgContext";
 import { useState, useRef, useEffect } from "react";
 import FeedbackModal from "@/components/FeedbackModal";
@@ -117,6 +117,15 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             >
               <Shield className="w-4 h-4 inline-block mr-2" />
               Admin
+            </Link>
+            <Link
+              href="/admin/inbox"
+              className={`block px-4 py-2 pl-8 text-sm font-medium hover:bg-gray-100 ${
+                pathname === "/admin/inbox" ? "bg-gray-200 text-black" : "text-gray-500"
+              }`}
+            >
+              <Inbox className="w-4 h-4 inline-block mr-2" />
+              Inbox
             </Link>
           </>
         )}
