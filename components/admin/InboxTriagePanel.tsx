@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 
 interface TriageRow {
   triage_id: string;
   gmail_message_id: string;
+  gmail_thread_id?: string;
   sender_email: string;
   sender_name: string;
   subject: string;
@@ -17,7 +18,27 @@ interface TriageRow {
   status: string;
 }
 
-const STATUS_OPTIONS = ["new", "in_progress", "waiting", "done", "ignored"] as const;
+type InboxStatus = "new" | "in_progress" | "waiting" | "done" | "ignored";
+
+const STATUS_OPTIONS: InboxStatus[] = ["new", "in_progress", "waiting", "done", "ignored"];
+
+const STATUS_META: Record<InboxStatus, { label: string; bg: string; text: string; dot: string }> = {
+  new:         { label: "New",         bg: "bg-purple-100", text: "text-purple-800", dot: "bg-purple-500" },
+  in_progress: { label: "In Progress", bg: "bg-blue-100",   text: "text-blue-800",   dot: "bg-blue-500" },
+  waiting:     { label: "Waiting",     bg: "bg-amber-100",  text: "text-amber-800",  dot: "bg-amber-500" },
+  done:        { label: "Done",        bg: "bg-green-100",  text: "text-green-800",  dot: "bg-green-500" },
+  ignored:     { label: "Ignored",     bg: "bg-gray-100",   text: "text-gray-500",   dot: "bg-gray-300" },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const m = STATUS_META[status as InboxStatus] ?? STATUS_META.new;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${m.bg} ${m.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
+      {m.label}
+    </span>
+  );
+}
 
 function relativeTime(dateStr: string | null): string {
   if (!dateStr) return "\u2014";
@@ -31,12 +52,15 @@ function relativeTime(dateStr: string | null): string {
   return `${days}d ago`;
 }
 
+function todayDateStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function isOverdue(row: TriageRow): boolean {
   if (!row.next_event_date) return false;
   if (row.status === "done" || row.status === "ignored") return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return new Date(row.next_event_date) < today;
+  return row.next_event_date < todayDateStr();
 }
 
 function isDimmed(row: TriageRow): boolean {
@@ -48,6 +72,9 @@ export default function InboxTriagePanel() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingNextSteps, setEditingNextSteps] = useState<string | null>(null);
+  const [nextStepsValue, setNextStepsValue] = useState("");
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -84,6 +111,15 @@ export default function InboxTriagePanel() {
     }
   };
 
+  const saveNextSteps = async (triageId: string) => {
+    const trimmed = nextStepsValue.trim() || null;
+    const current = rows.find((r) => r.triage_id === triageId)?.next_steps || null;
+    setEditingNextSteps(null);
+    if (trimmed !== current) {
+      await patchRow(triageId, "next_steps", trimmed);
+    }
+  };
+
   const handleSync = async () => {
     setSyncing(true);
     try {
@@ -92,21 +128,32 @@ export default function InboxTriagePanel() {
       showToast("Inbox synced successfully", "success");
       await fetchData();
     } catch {
-      showToast("Sync failed — check edge function logs", "error");
+      showToast("Sync failed \u2014 check edge function logs", "error");
     } finally {
       setSyncing(false);
     }
   };
 
+  const toggleExpanded = (id: string) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      setEditingNextSteps(null);
+    } else {
+      setExpandedId(id);
+      setEditingNextSteps(null);
+    }
+  };
+
   // KPI count
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const td = todayDateStr();
   const needsAttentionCount = rows.filter((r) => {
     if (r.status === "done" || r.status === "ignored") return false;
     if (r.is_unread) return true;
-    if (r.next_event_date && new Date(r.next_event_date) < today) return true;
+    if (r.next_event_date && r.next_event_date < td) return true;
     return false;
   }).length;
+
+  const activeCount = rows.filter((r) => r.status !== "done" && r.status !== "ignored").length;
 
   if (loading) {
     return <div className="text-sm text-gray-500 py-8 text-center">Loading inbox...</div>;
@@ -125,7 +172,7 @@ export default function InboxTriagePanel() {
         </div>
       )}
 
-      {/* KPI Badge + Sync Button */}
+      {/* KPI Badge + Open count + Sync Button */}
       <div className="flex items-center gap-4">
         <div
           className={`px-5 py-3 rounded-lg text-white font-semibold text-lg ${
@@ -136,6 +183,11 @@ export default function InboxTriagePanel() {
             ? `${needsAttentionCount} need attention`
             : "All clear"}
         </div>
+        {activeCount > 0 && (
+          <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+            {activeCount} open
+          </span>
+        )}
         <button
           onClick={handleSync}
           disabled={syncing}
@@ -143,6 +195,9 @@ export default function InboxTriagePanel() {
         >
           {syncing ? "Syncing..." : "Sync Inbox"}
         </button>
+        <span className="text-xs text-gray-400">
+          {rows.length} message{rows.length !== 1 ? "s" : ""}
+        </span>
       </div>
 
       {/* Table */}
@@ -157,91 +212,161 @@ export default function InboxTriagePanel() {
               <th className="text-left px-3 py-2 font-medium text-gray-600 min-w-[200px]">Next Steps</th>
               <th className="text-left px-3 py-2 font-medium text-gray-600">Next Event</th>
               <th className="text-left px-3 py-2 font-medium text-gray-600">Status</th>
+              <th className="text-left px-3 py-2 font-medium text-gray-600 w-[60px]"></th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {rows.map((row) => (
-              <tr
-                key={row.triage_id}
-                className={`hover:bg-gray-50 ${
-                  isDimmed(row)
-                    ? "opacity-50"
-                    : isOverdue(row)
-                    ? "bg-amber-50"
-                    : ""
-                }`}
-              >
-                {/* Received */}
-                <td
-                  className={`px-3 py-2 whitespace-nowrap ${
-                    row.is_unread && !isDimmed(row) ? "border-l-4 border-l-red-500" : ""
+              <Fragment key={row.triage_id}>
+                <tr
+                  className={`hover:bg-gray-50 cursor-pointer ${
+                    isDimmed(row)
+                      ? "opacity-50"
+                      : isOverdue(row)
+                      ? "bg-amber-50"
+                      : ""
                   }`}
-                  title={new Date(row.received_at).toLocaleString()}
+                  onClick={() => toggleExpanded(row.triage_id)}
                 >
-                  <span className={row.is_unread && !isDimmed(row) ? "text-red-600 font-semibold" : ""}>
-                    {relativeTime(row.received_at)}
-                  </span>
-                </td>
-
-                {/* From */}
-                <td className="px-3 py-2">
-                  <div className="font-medium">{row.sender_name || "\u2014"}</div>
-                  <div className="text-xs text-gray-400">{row.sender_email}</div>
-                </td>
-
-                {/* Subject */}
-                <td className="px-3 py-2">
-                  <div className="font-medium">{row.subject}</div>
-                  <div className="text-xs text-gray-400 truncate max-w-[350px]">{row.snippet}</div>
-                </td>
-
-                {/* Assigned To — inline editable */}
-                <td className="px-3 py-2">
-                  <InlineText
-                    value={row.assigned_to}
-                    onSave={(v) => patchRow(row.triage_id, "assigned_to", v)}
-                  />
-                </td>
-
-                {/* Next Steps — inline editable */}
-                <td className="px-3 py-2">
-                  <InlineText
-                    value={row.next_steps}
-                    onSave={(v) => patchRow(row.triage_id, "next_steps", v)}
-                  />
-                </td>
-
-                {/* Next Event — date picker */}
-                <td className="px-3 py-2">
-                  <input
-                    type="date"
-                    value={row.next_event_date || ""}
-                    onChange={(e) =>
-                      patchRow(row.triage_id, "next_event_date", e.target.value || null)
-                    }
-                    className="border rounded px-2 py-1 text-sm w-[130px]"
-                  />
-                </td>
-
-                {/* Status — dropdown */}
-                <td className="px-3 py-2">
-                  <select
-                    value={row.status}
-                    onChange={(e) => patchRow(row.triage_id, "status", e.target.value)}
-                    className="border rounded px-2 py-1 text-sm"
+                  {/* Received */}
+                  <td
+                    className={`px-3 py-2 whitespace-nowrap ${
+                      row.is_unread && !isDimmed(row) ? "border-l-4 border-l-red-500" : ""
+                    }`}
+                    title={new Date(row.received_at).toLocaleString()}
                   >
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s.replace("_", " ")}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-              </tr>
+                    <span className={row.is_unread && !isDimmed(row) ? "text-red-600 font-semibold" : ""}>
+                      {relativeTime(row.received_at)}
+                    </span>
+                  </td>
+
+                  {/* From */}
+                  <td className="px-3 py-2">
+                    <div className="font-medium">{row.sender_name || row.sender_email}</div>
+                    {row.sender_name && (
+                      <div className="text-xs text-gray-400">{row.sender_email}</div>
+                    )}
+                  </td>
+
+                  {/* Subject */}
+                  <td className="px-3 py-2">
+                    <div className={`font-medium ${row.is_unread && !isDimmed(row) ? "font-bold" : ""}`}>
+                      {row.subject}
+                    </div>
+                    {row.snippet && (
+                      <div className="text-xs text-gray-400 truncate max-w-[350px]">
+                        {row.snippet.length > 100 ? row.snippet.slice(0, 100) + "\u2026" : row.snippet}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Assigned To */}
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <InlineText
+                      value={row.assigned_to}
+                      onSave={(v) => patchRow(row.triage_id, "assigned_to", v)}
+                    />
+                  </td>
+
+                  {/* Next Steps */}
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    {editingNextSteps === row.triage_id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={nextStepsValue}
+                          onChange={(e) => setNextStepsValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveNextSteps(row.triage_id);
+                            if (e.key === "Escape") setEditingNextSteps(null);
+                          }}
+                          onBlur={() => saveNextSteps(row.triage_id)}
+                          className="flex-1 border rounded px-2 py-1 text-sm"
+                        />
+                      </div>
+                    ) : (
+                      <span
+                        onClick={() => {
+                          setEditingNextSteps(row.triage_id);
+                          setNextStepsValue(row.next_steps ?? "");
+                        }}
+                        className="cursor-text hover:bg-gray-100 rounded px-1 py-0.5 min-w-[60px] inline-block text-sm"
+                      >
+                        {row.next_steps || <span className="text-gray-300 italic">click to add...</span>}
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Next Event */}
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="date"
+                      value={row.next_event_date || ""}
+                      onChange={(e) =>
+                        patchRow(row.triage_id, "next_event_date", e.target.value || null)
+                      }
+                      className="border rounded px-2 py-1 text-sm w-[130px]"
+                    />
+                  </td>
+
+                  {/* Status */}
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <select
+                      value={row.status}
+                      onChange={(e) => patchRow(row.triage_id, "status", e.target.value)}
+                      className="border rounded px-2 py-1 text-sm bg-white"
+                    >
+                      {STATUS_OPTIONS.map((s) => (
+                        <option key={s} value={s}>
+                          {STATUS_META[s].label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+
+                  {/* Expand toggle */}
+                  <td className="px-3 py-2 text-center">
+                    <span className="text-xs text-gray-400">
+                      {expandedId === row.triage_id ? "\u25B2" : "\u25BC"}
+                    </span>
+                  </td>
+                </tr>
+
+                {/* Expanded detail row */}
+                {expandedId === row.triage_id && (
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <td colSpan={8} className="px-6 py-4">
+                      <div className="flex items-start gap-4">
+                        <StatusBadge status={row.status} />
+                        <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-xs">
+                          {row.gmail_thread_id && (
+                            <>
+                              <span className="font-semibold text-gray-400">Thread ID</span>
+                              <span className="font-mono text-gray-700">{row.gmail_thread_id}</span>
+                            </>
+                          )}
+                          <span className="font-semibold text-gray-400">Message ID</span>
+                          <span className="font-mono text-gray-700">{row.gmail_message_id}</span>
+                          {row.next_event_date && (
+                            <>
+                              <span className="font-semibold text-gray-400">Follow-up Date</span>
+                              <span className={row.next_event_date < todayDateStr() ? "text-red-500 font-semibold" : "text-gray-700"}>
+                                {row.next_event_date}
+                                {row.next_event_date < todayDateStr() && " \u26A0 Past due"}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
+                <td colSpan={8} className="px-3 py-8 text-center text-gray-400">
                   No emails found. Click &quot;Sync Inbox&quot; to pull in messages.
                 </td>
               </tr>

@@ -13,7 +13,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("z_inbox_triage")
       .select(
-        "triage_id, gmail_message_id, sender_email, sender_name, subject, snippet, received_at, is_unread, assigned_to, next_steps, next_event_date, status"
+        "triage_id, gmail_message_id, gmail_thread_id, sender_email, sender_name, subject, snippet, received_at, is_unread, assigned_to, next_steps, next_event_date, status"
       )
       .order("received_at", { ascending: false });
 
