@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState, useCallback } from "react";
+import AttachmentsPanel, { Attachment } from "./AttachmentsPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,6 +23,7 @@ interface PlatformIssue {
   latest_note: string | null;
   lessons_learned: string | null;
   linked_work_item_id: string | null;
+  attachments: Attachment[];
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +45,7 @@ interface WorkItem {
   latest_note: string | null;
   lessons_learned: string | null;
   target_date: string | null;
+  attachments: Attachment[];
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +57,7 @@ interface Learning {
   summary: string;
   related_issue_id: string | null;
   related_work_item_id: string | null;
+  attachments: Attachment[];
   created_at: string;
   updated_at: string;
 }
@@ -502,7 +506,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
     const method = isEdit ? "PATCH" : "POST";
 
     // Strip pk, timestamps, and org_id from the payload
-    const { issue_id, work_item_id, learning_id, created_at, updated_at, org_id, opened_at, resolved_at, completed_at, ...rawPayload } = modalItem;
+    const { issue_id, work_item_id, learning_id, created_at, updated_at, org_id, opened_at, resolved_at, completed_at, attachments: _attachments, ...rawPayload } = modalItem;
 
     // Convert empty strings to null so Postgres doesn't choke on e.g. uuid fields
     // For new items, omit null values entirely so DB defaults apply
@@ -1061,6 +1065,16 @@ ${learningRows || "| (none) | | | |"}
           onChange={(v) => setField("linked_work_item_id", v || null)}
           options={allWorkItems}
         />
+        {modalItem?.issue_id && (
+          <AttachmentsPanel
+            recordType="platform_issues"
+            recordId={modalItem.issue_id}
+            idColumn="issue_id"
+            storagePathPrefix={`platform-issues/${modalItem.issue_id}`}
+            attachments={modalItem.attachments ?? []}
+            onAttachmentsChange={(updated) => setField("attachments", updated)}
+          />
+        )}
       </>
     );
   }
@@ -1110,6 +1124,16 @@ ${learningRows || "| (none) | | | |"}
           onChange={(v) => setField("org_id", v || "79fab5fe-5fcf-4d84-ac1f-40348ebc160c")}
           options={allOrgs}
         />
+        {modalItem?.work_item_id && (
+          <AttachmentsPanel
+            recordType="work_items"
+            recordId={modalItem.work_item_id}
+            idColumn="work_item_id"
+            storagePathPrefix={`work-items/${modalItem.work_item_id}`}
+            attachments={modalItem.attachments ?? []}
+            onAttachmentsChange={(updated) => setField("attachments", updated)}
+          />
+        )}
       </>
     );
   }
@@ -1154,6 +1178,16 @@ ${learningRows || "| (none) | | | |"}
           onChange={(v) => setField("org_id", v || "79fab5fe-5fcf-4d84-ac1f-40348ebc160c")}
           options={allOrgs}
         />
+        {modalItem?.learning_id && (
+          <AttachmentsPanel
+            recordType="learnings"
+            recordId={modalItem.learning_id}
+            idColumn="learning_id"
+            storagePathPrefix={`learnings/${modalItem.learning_id}`}
+            attachments={modalItem.attachments ?? []}
+            onAttachmentsChange={(updated) => setField("attachments", updated)}
+          />
+        )}
       </>
     );
   }
