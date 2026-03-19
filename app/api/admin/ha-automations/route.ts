@@ -107,25 +107,37 @@ export async function GET(req: NextRequest) {
     }
 
     if (view === "sites") {
-      const { data, error } = await supabase
+      const { data: sitesData, error: sitesErr } = await supabase
         .from("a_sites")
-        .select("site_id, site_slug, site_name, org_id, a_organizations!inner(org_name, org_identifier)")
+        .select("site_id, site_slug, site_name, org_id")
         .order("site_slug");
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (sitesErr) return NextResponse.json({ error: sitesErr.message }, { status: 500 });
+
+      // Fetch orgs
+      const orgIds = [...new Set((sitesData || []).map((s: { org_id: string }) => s.org_id).filter(Boolean))];
+      let orgLookup: Record<string, { org_name: string; org_identifier: string }> = {};
+      if (orgIds.length > 0) {
+        const { data: orgsData } = await supabase
+          .from("a_organizations")
+          .select("org_id, org_name, org_identifier")
+          .in("org_id", orgIds);
+        for (const o of orgsData || []) {
+          orgLookup[o.org_id] = { org_name: o.org_name, org_identifier: o.org_identifier };
+        }
+      }
 
       // Group by org
       const orgMap: Record<string, { org_name: string; org_identifier: string; sites: { site_id: string; site_slug: string; site_name: string }[] }> = {};
-      for (const s of data || []) {
-        const org = s.a_organizations as unknown as { org_name: string; org_identifier: string };
-        const key = s.org_id as string;
+      for (const s of sitesData || []) {
+        const org = orgLookup[s.org_id] || { org_name: "Unknown", org_identifier: "?" };
+        const key = s.org_id || "none";
         if (!orgMap[key]) {
           orgMap[key] = { org_name: org.org_name, org_identifier: org.org_identifier, sites: [] };
         }
         orgMap[key].sites.push({ site_id: s.site_id, site_slug: s.site_slug, site_name: s.site_name });
       }
 
-      // Sort orgs by name
       const groups = Object.values(orgMap).sort((a, b) => a.org_name.localeCompare(b.org_name));
       return NextResponse.json({ site_groups: groups });
     }
