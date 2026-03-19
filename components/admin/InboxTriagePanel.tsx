@@ -87,15 +87,7 @@ export default function InboxTriagePanel() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-inbox-sync`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-          },
-        }
-      );
+      const res = await fetch("/api/admin/inbox/sync", { method: "POST" });
       if (!res.ok) throw new Error("Sync failed");
       showToast("Inbox synced successfully", "success");
       await fetchData();
@@ -308,7 +300,7 @@ function InlineText({
       }}
       className="cursor-pointer hover:bg-gray-100 rounded px-1 py-0.5 min-w-[60px] inline-block"
     >
-      {value || <span className="text-gray-300">\u2014</span>}
+      {value || <span className="text-gray-300 italic">click to edit</span>}
     </span>
   );
 }
