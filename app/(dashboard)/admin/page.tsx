@@ -5,6 +5,8 @@ import Link from "next/link";
 import MarketingAdminCard from "@/components/MarketingAdminCard";
 import OrganizationsAdminCard from "@/components/OrganizationsAdminCard";
 import InternalTrackingPanel from "@/components/admin/InternalTrackingPanel";
+import InboxTriagePanel from "@/components/admin/InboxTriagePanel";
+import AdminCampaignsPanel from "@/components/admin/AdminCampaignsPanel";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -73,6 +75,8 @@ export default async function AdminPage() {
       </div>
 
       <MarketingAdminCard userEmail={email} />
+      <InboxTriagePanel />
+      <AdminCampaignsPanel />
       <OrganizationsAdminCard />
       <InternalTrackingPanel userEmail={email} userId={userId!} />
     </div>
