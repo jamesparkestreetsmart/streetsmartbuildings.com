@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { createClient } from "@supabase/supabase-js";
+import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 const supabase = createClient(
@@ -44,6 +45,42 @@ export async function GET() {
     }));
 
     return NextResponse.json({ deals });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { name, stage, company_id, primary_contact_id, org_id, lead_id, value_estimate, close_probability, projected_sites, next_step, next_step_date, owner, lost_reason, notes } = body;
+    if (!name || !stage) return NextResponse.json({ error: "name and stage required" }, { status: 400 });
+    const { data, error } = await supabase
+      .from("zz_deals")
+      .insert({ name, stage, company_id: company_id || null, primary_contact_id: primary_contact_id || null, org_id: org_id || null, lead_id: lead_id || null, value_estimate: value_estimate || null, close_probability: close_probability != null ? close_probability : null, projected_sites: projected_sites || null, next_step: next_step || null, next_step_date: next_step_date || null, owner: owner || null, lost_reason: lost_reason || null, notes: notes || null })
+      .select()
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ deal: data });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, ...updates } = body;
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    const allowed = ["name", "stage", "company_id", "primary_contact_id", "org_id", "lead_id", "value_estimate", "close_probability", "projected_sites", "next_step", "next_step_date", "owner", "lost_reason", "notes", "closed_at"];
+    const patch: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (key in updates) patch[key] = updates[key];
+    }
+    if (Object.keys(patch).length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    const { error } = await supabase.from("zz_deals").update(patch).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
