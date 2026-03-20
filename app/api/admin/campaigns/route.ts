@@ -56,11 +56,11 @@ export async function GET(req: NextRequest) {
     const [campaignsRes, emailsRes] = await Promise.all([
       supabase
         .from("z_marketing_campaigns")
-        .select("id, name, description, email_subject, email_body, segment_filter, delay_hours, trigger_type, target_type, is_active, created_at, last_audience_built_at, audience_built_by, recipient_count")
+        .select("id, name, description, email_subject, email_body, segment_filter, delay_hours, trigger_type, target_type, is_active, created_at, last_audience_built_at, audience_built_by, recipient_count, max_delay_hours")
         .order("created_at", { ascending: false }),
       supabase
         .from("z_scheduled_emails")
-        .select("id, lead_id, email_type, campaign_name, status, sent_at, created_at")
+        .select("id, lead_id, email_type, campaign_name, status, sent_at, send_at, cancelled_at, created_at")
         .order("created_at", { ascending: false }),
     ]);
 
@@ -140,6 +140,25 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ campaign });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, ...updates } = body;
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    const allowed = ["name", "description", "email_subject", "email_body", "trigger_type", "target_type", "segment_filter", "delay_hours", "is_active", "max_delay_hours"];
+    const patch: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (key in updates) patch[key] = updates[key];
+    }
+    if (Object.keys(patch).length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    const { error } = await supabase.from("z_marketing_campaigns").update(patch).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

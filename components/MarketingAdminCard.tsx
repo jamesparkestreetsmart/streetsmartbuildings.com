@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 interface MarketingLead {
   id: string;
@@ -97,6 +98,16 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
   // Audit log state
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditLoading, setAuditLoading] = useState(true);
+
+  // Add Lead modal state
+  const [leadModalOpen, setLeadModalOpen] = useState(false);
+  const [leadForm, setLeadForm] = useState({
+    email: "", first_name: "", last_name: "", organization_name: "",
+    projected_sites: "", title: "", phone: "", industry: "",
+    source_type: "manual", lead_status: "new", assigned_to: "", notes: "",
+  });
+  const [leadSaving, setLeadSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -258,6 +269,66 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
 
   function isPromotionReady(lead: MarketingLead): boolean {
     return !!(lead.first_name && lead.last_name && lead.email && lead.organization_name && lead.title) && lead.promotion_state === "none";
+  }
+
+  async function handleSaveLead() {
+    if (!leadForm.source_type) return;
+    setLeadSaving(true);
+    try {
+      const res = await fetch("/api/admin/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...leadForm,
+          projected_sites: leadForm.projected_sites ? parseInt(leadForm.projected_sites, 10) : null,
+        }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed"); }
+      setLeadModalOpen(false);
+      setLeadForm({ email: "", first_name: "", last_name: "", organization_name: "", projected_sites: "", title: "", phone: "", industry: "", source_type: "manual", lead_status: "new", assigned_to: "", notes: "" });
+      fetchData();
+      fetchAuditLog();
+    } catch (err: unknown) {
+      alert(String(err));
+    } finally {
+      setLeadSaving(false);
+    }
+  }
+
+  async function handleImportCSV(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (lines.length < 2) { alert("CSV must have a header row and at least one data row"); return; }
+      const headers = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z_]/g, ""));
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
+        const row: Record<string, string> = {};
+        headers.forEach((h, idx) => { if (values[idx]) row[h] = values[idx]; });
+        rows.push(row);
+      }
+      const res = await fetch("/api/admin/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bulk: true, rows }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`${data.imported} leads imported · ${data.skipped} skipped (duplicate email)`);
+        fetchData();
+      } else {
+        alert(data.error || "Import failed");
+      }
+    } catch (err: unknown) {
+      alert("Import failed: " + String(err));
+    } finally {
+      setImporting(false);
+      e.target.value = "";
+    }
   }
 
   function renderPreview() {
@@ -489,7 +560,18 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
 
         {/* Leads Table */}
         <div>
-          <h4 className="text-sm font-semibold text-gray-700 mb-3">Marketing Leads</h4>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-gray-700">Marketing Leads</h4>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setLeadModalOpen(true)} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700">
+                + Add Lead
+              </button>
+              <label className={`px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 cursor-pointer ${importing ? "opacity-50" : ""}`}>
+                {importing ? "Importing..." : "+ Import CSV"}
+                <input type="file" accept=".csv" onChange={handleImportCSV} className="hidden" disabled={importing} />
+              </label>
+            </div>
+          </div>
 
           {dataLoading ? (
             <div className="text-sm text-gray-400 p-4">Loading…</div>
@@ -567,9 +649,10 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
                             ) : lead.organization_name ? (
                               (() => {
                                 const status = getOrgStatus(lead);
-                                const dotColor = status === "linked" ? "bg-green-500" : status === "similar" ? "bg-blue-400" : "bg-amber-500";
-                                const textColor = status === "linked" ? "text-green-700" : status === "similar" ? "text-blue-700" : "text-amber-700";
-                                const tooltip = status === "linked" ? "Linked to organization" : status === "similar" ? "Similar to existing org — possible duplicate" : "High value lead — ready for onboarding";
+                                const isHighValue = status === "unmatched" && (lead.projected_sites ?? 0) >= 10;
+                                const dotColor = status === "linked" ? "bg-green-500" : status === "similar" ? "bg-blue-400" : isHighValue ? "bg-amber-500" : "bg-gray-300";
+                                const textColor = status === "linked" ? "text-green-700" : status === "similar" ? "text-blue-700" : isHighValue ? "text-amber-700" : "text-gray-700";
+                                const tooltip = status === "linked" ? "Linked to organization" : status === "similar" ? "Similar to existing org — possible duplicate" : isHighValue ? "High value lead — ready for onboarding" : "Unmatched organization";
                                 return (
                                   <span className={`inline-flex items-center gap-1.5 text-sm ${textColor}`} title={tooltip}>
                                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
@@ -719,6 +802,83 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
         </div>
       </div>
     </div>
+
+    <Dialog open={leadModalOpen} onOpenChange={setLeadModalOpen}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Add Lead</DialogTitle>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+            <input type="email" value={leadForm.email} onChange={(e) => setLeadForm({ ...leadForm, email: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">First Name</label>
+            <input type="text" value={leadForm.first_name} onChange={(e) => setLeadForm({ ...leadForm, first_name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Last Name</label>
+            <input type="text" value={leadForm.last_name} onChange={(e) => setLeadForm({ ...leadForm, last_name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Organization</label>
+            <input type="text" value={leadForm.organization_name} onChange={(e) => setLeadForm({ ...leadForm, organization_name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Projected Sites</label>
+            <input type="number" value={leadForm.projected_sites} onChange={(e) => setLeadForm({ ...leadForm, projected_sites: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Title</label>
+            <input type="text" value={leadForm.title} onChange={(e) => setLeadForm({ ...leadForm, title: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Phone</label>
+            <input type="text" value={leadForm.phone} onChange={(e) => setLeadForm({ ...leadForm, phone: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Industry</label>
+            <input type="text" value={leadForm.industry} onChange={(e) => setLeadForm({ ...leadForm, industry: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Source Type *</label>
+            <select value={leadForm.source_type} onChange={(e) => setLeadForm({ ...leadForm, source_type: e.target.value })} className="w-full border rounded px-3 py-2 text-sm bg-white">
+              <option value="manual">Manual</option>
+              <option value="scraped">Scraped</option>
+              <option value="apollo">Apollo</option>
+              <option value="referral">Referral</option>
+              <option value="inbound_form">Inbound Form</option>
+              <option value="import">Import</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Lead Status</label>
+            <select value={leadForm.lead_status} onChange={(e) => setLeadForm({ ...leadForm, lead_status: e.target.value })} className="w-full border rounded px-3 py-2 text-sm bg-white">
+              <option value="new">New</option>
+              <option value="enriched">Enriched</option>
+              <option value="qualified">Qualified</option>
+              <option value="contacted">Contacted</option>
+              <option value="dead">Dead</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Assigned To</label>
+            <input type="text" value={leadForm.assigned_to} onChange={(e) => setLeadForm({ ...leadForm, assigned_to: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+            <textarea value={leadForm.notes} onChange={(e) => setLeadForm({ ...leadForm, notes: e.target.value })} rows={3} className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <DialogFooter>
+          <button onClick={() => setLeadModalOpen(false)} className="px-4 py-2 rounded-lg border text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={handleSaveLead} disabled={leadSaving} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+            {leadSaving ? "Saving..." : "Add Lead"}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

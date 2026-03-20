@@ -18,6 +18,7 @@ interface Campaign {
   last_audience_built_at: string | null;
   audience_built_by: string | null;
   recipient_count: number | null;
+  max_delay_hours: number | null;
 }
 
 interface ScheduledEmail {
@@ -27,6 +28,8 @@ interface ScheduledEmail {
   campaign_name: string | null;
   status: string;
   sent_at: string | null;
+  send_at: string | null;
+  cancelled_at: string | null;
   created_at: string;
 }
 
@@ -112,6 +115,15 @@ function formatDateTime(iso: string | null): string {
   });
 }
 
+function formatCountdown(sendAt: string): string {
+  const diff = new Date(sendAt).getTime() - Date.now();
+  if (diff <= 0) return "";
+  const hours = Math.floor(diff / 3600000);
+  const mins = Math.floor((diff % 3600000) / 60000);
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
 const EMPTY_FORM = {
   name: "", description: "", email_subject: "", email_body: "",
   trigger_type: "manual", target_type: "manual_selection",
@@ -143,6 +155,13 @@ export default function AdminCampaignsPanel() {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [recipientsLoading, setRecipientsLoading] = useState(false);
   const [recipientsCampaignId, setRecipientsCampaignId] = useState<string | null>(null);
+
+  // Countdown tick
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Building audience
   const [buildingId, setBuildingId] = useState<string | null>(null);
@@ -276,6 +295,21 @@ export default function AdminCampaignsPanel() {
       showToast("Build audience failed", "error");
     } finally {
       setBuildingId(null);
+    }
+  }
+
+  async function handleCancelEmail(emailId: string) {
+    try {
+      const res = await fetch(`/api/admin/scheduled-emails/${emailId}/cancel`, { method: "POST" });
+      if (res.ok) {
+        showToast("Email cancelled", "success");
+        await fetchData();
+      } else {
+        const d = await res.json();
+        showToast(d.error || "Cancel failed", "error");
+      }
+    } catch {
+      showToast("Cancel failed", "error");
     }
   }
 
@@ -536,10 +570,37 @@ export default function AdminCampaignsPanel() {
                               <pre className="mt-1 text-gray-700 font-mono bg-white border rounded p-3 max-h-32 overflow-auto">{JSON.stringify(c.segment_filter, null, 2)}</pre>
                             </div>
                           )}
+                          {c.max_delay_hours && (
+                            <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
+                              <span className="font-semibold text-gray-400">Send Window</span>
+                              <span className="text-gray-700">{c.max_delay_hours}h</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Action buttons */}
                         <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={c.is_active}
+                              onChange={async (e) => {
+                                const newVal = e.target.checked;
+                                try {
+                                  const res = await fetch("/api/admin/campaigns", {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ id: c.id, is_active: newVal }),
+                                  });
+                                  if (res.ok) {
+                                    setCampaigns(campaigns.map((camp) => camp.id === c.id ? { ...camp, is_active: newVal } : camp));
+                                  }
+                                } catch {}
+                              }}
+                              className="rounded border-gray-300"
+                            />
+                            <span className="text-xs font-medium text-gray-600">{c.is_active ? "Active" : "Inactive"}</span>
+                          </label>
                           {(c.target_type === "lead_filter" || c.target_type === "contact_filter") && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleBuildAudience(c.id); }}
@@ -635,7 +696,29 @@ export default function AdminCampaignsPanel() {
                   <td className="px-3 py-2 font-mono text-xs">{e.lead_id.slice(0, 8)}&hellip;</td>
                   <td className="px-3 py-2">{e.campaign_name ? <span className="font-medium">{e.campaign_name}</span> : <span className="text-gray-500">{e.email_type}</span>}</td>
                   <td className="px-3 py-2"><Badge value={e.status} meta={STATUS_META} /></td>
-                  <td className="px-3 py-2 text-gray-500">{formatDateTime(e.sent_at)}</td>
+                  <td className="px-3 py-2 text-gray-500">
+                    {e.status === "pending" && e.send_at && new Date(e.send_at).getTime() > Date.now() ? (
+                      <span className="flex items-center gap-2">
+                        <span className="text-amber-600 font-medium">Sends in {formatCountdown(e.send_at)}</span>
+                        <button
+                          onClick={() => handleCancelEmail(e.id)}
+                          className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : e.status === "pending" ? (
+                      <span className="text-green-600 font-medium">Sending soon...</span>
+                    ) : e.status === "sent" ? (
+                      <span className="text-green-600">Sent {formatDateTime(e.sent_at)}</span>
+                    ) : e.status === "cancelled" ? (
+                      <span className="text-gray-400">Cancelled</span>
+                    ) : e.status === "failed" ? (
+                      <span className="text-red-600">Failed</span>
+                    ) : (
+                      formatDateTime(e.sent_at)
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -690,7 +773,7 @@ export default function AdminCampaignsPanel() {
               <>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Filter Field</label>
-                  <select value={form.filter_field} onChange={(e) => setForm({ ...form, filter_field: e.target.value })} className="w-full border rounded px-3 py-2 text-sm bg-white">
+                  <select value={form.filter_field} onChange={(e) => setForm({ ...form, filter_field: e.target.value, filter_value: "" })} className="w-full border rounded px-3 py-2 text-sm bg-white">
                     <option value="">-- Select field --</option>
                     {(form.target_type === "lead_filter" ? LEAD_FILTER_FIELDS : CONTACT_FILTER_FIELDS).map((f) => (
                       <option key={f} value={f}>{f.replace("_", " ")}</option>
@@ -699,7 +782,35 @@ export default function AdminCampaignsPanel() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Filter Value</label>
-                  <input type="text" value={form.filter_value} onChange={(e) => setForm({ ...form, filter_value: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+                  {(() => {
+                    const FILTER_VALUE_OPTIONS: Record<string, string[]> = {
+                      lead_status: ["new", "enriched", "qualified", "contacted", "dead"],
+                      source_type: ["inbound_form", "scraped", "apollo", "referral", "manual", "import"],
+                      role_type: ["decision_maker", "influencer", "gatekeeper", "unknown"],
+                    };
+                    const options = FILTER_VALUE_OPTIONS[form.filter_field];
+                    if (options) {
+                      return (
+                        <select value={form.filter_value} onChange={(e) => setForm({ ...form, filter_value: e.target.value })} className="w-full border rounded px-3 py-2 text-sm bg-white">
+                          <option value="">-- Select --</option>
+                          {options.map((v) => <option key={v} value={v}>{v.replace(/_/g, " ")}</option>)}
+                        </select>
+                      );
+                    }
+                    if (form.filter_field === "industry") {
+                      return (
+                        <select value={form.filter_value} onChange={(e) => setForm({ ...form, filter_value: e.target.value })} className="w-full border rounded px-3 py-2 text-sm bg-white">
+                          <option value="">-- Select --</option>
+                          <option value="Quick Service Restaurant">QSR</option>
+                          <option value="Hospitality / Hotels">Hotel</option>
+                          <option value="Retail">Retail</option>
+                          <option value="Healthcare">Healthcare</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      );
+                    }
+                    return <input type="text" value={form.filter_value} onChange={(e) => setForm({ ...form, filter_value: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />;
+                  })()}
                 </div>
                 <div className="col-span-2">
                   <button
