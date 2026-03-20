@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { createClient } from "@supabase/supabase-js";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,6 +28,33 @@ export async function GET() {
       campaigns: campaignsRes.data,
       emails: emailsRes.data,
     });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { name, description, email_subject, email_body, trigger_type, delay_hours, is_active } = body;
+    if (!name || !email_subject || !email_body || !trigger_type) {
+      return NextResponse.json({ error: "name, email_subject, email_body, and trigger_type required" }, { status: 400 });
+    }
+    const { data, error } = await supabase
+      .from("z_marketing_campaigns")
+      .insert({
+        name,
+        description: description || null,
+        email_subject,
+        email_body,
+        trigger_type,
+        delay_hours: delay_hours != null ? delay_hours : null,
+        is_active: is_active !== false,
+      })
+      .select()
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ campaign: data });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

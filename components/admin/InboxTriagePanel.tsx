@@ -172,20 +172,17 @@ export default function InboxTriagePanel() {
         </div>
       )}
 
-      {/* KPI Badge + Open count + Sync Button */}
+      {/* KPI indicator + Sync Button */}
       <div className="flex items-center gap-4">
-        <div
-          className={`px-5 py-3 rounded-lg text-white font-semibold text-lg ${
-            needsAttentionCount > 0 ? "bg-red-600" : "bg-green-600"
-          }`}
-        >
-          {needsAttentionCount > 0
-            ? `${needsAttentionCount} need attention`
-            : "All clear"}
-        </div>
-        {activeCount > 0 && (
-          <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
+        {activeCount > 0 ? (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold bg-red-100 text-red-800">
+            <span className="w-2 h-2 rounded-full bg-red-500" />
             {activeCount} open
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold bg-green-100 text-green-800">
+            <span className="w-2 h-2 rounded-full bg-green-500" />
+            All clear
           </span>
         )}
         <button

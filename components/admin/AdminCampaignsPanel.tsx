@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, Fragment } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 interface Campaign {
   id: string;
@@ -24,6 +25,8 @@ interface ScheduledEmail {
   sent_at: string | null;
   created_at: string;
 }
+
+const TRIGGER_OPTIONS = ["manual", "auto_follow_up", "auto_segment", "auto_milestone"] as const;
 
 const TRIGGER_META: Record<string, { label: string; bg: string; text: string }> = {
   manual:          { label: "Manual",        bg: "bg-gray-100",   text: "text-gray-600" },
@@ -58,11 +61,22 @@ function formatDate(iso: string | null): string {
   });
 }
 
+const EMPTY_FORM = { name: "", description: "", email_subject: "", email_body: "", trigger_type: "manual", delay_hours: "", is_active: true };
+
 export default function AdminCampaignsPanel() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [emails, setEmails] = useState<ScheduledEmail[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const showToast = (message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -72,7 +86,7 @@ export default function AdminCampaignsPanel() {
       if (data.campaigns) setCampaigns(data.campaigns);
       if (data.emails) setEmails(data.emails);
     } catch {
-      // silently fail — empty state handles it
+      // empty state handles it
     } finally {
       setLoading(false);
     }
@@ -81,6 +95,45 @@ export default function AdminCampaignsPanel() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  function openCreate() {
+    setForm(EMPTY_FORM);
+    setModalOpen(true);
+  }
+
+  async function handleSave() {
+    if (!form.name || !form.email_subject || !form.email_body || !form.trigger_type) {
+      showToast("Name, subject, body, and trigger type are required", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          description: form.description || null,
+          email_subject: form.email_subject,
+          email_body: form.email_body,
+          trigger_type: form.trigger_type,
+          delay_hours: form.delay_hours ? parseInt(form.delay_hours, 10) : null,
+          is_active: form.is_active,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || "Failed");
+      }
+      setModalOpen(false);
+      showToast("Campaign created", "success");
+      await fetchData();
+    } catch (err: unknown) {
+      showToast(String(err), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   // Stats
   const totalEmails = emails.length;
@@ -102,6 +155,13 @@ export default function AdminCampaignsPanel() {
 
   return (
     <div className="space-y-4 mt-8">
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${toast.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+          {toast.message}
+        </div>
+      )}
+
       {/* Section header */}
       <div className="flex items-center justify-between">
         <div>
@@ -110,12 +170,8 @@ export default function AdminCampaignsPanel() {
             {campaigns.length} campaign{campaigns.length !== 1 ? "s" : ""} &middot; {totalEmails} email{totalEmails !== 1 ? "s" : ""} scheduled
           </p>
         </div>
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="px-4 py-2 rounded-lg border border-gray-200 bg-white shadow-sm hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-50"
-        >
-          Refresh
+        <button onClick={openCreate} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors">
+          + New Campaign
         </button>
       </div>
 
@@ -265,6 +321,55 @@ export default function AdminCampaignsPanel() {
           </table>
         </div>
       </div>
+
+      {/* Create Campaign Modal */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>New Campaign</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+              <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+              <input type="text" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Email Subject *</label>
+              <input type="text" value={form.email_subject} onChange={(e) => setForm({ ...form, email_subject: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Email Body *</label>
+              <textarea value={form.email_body} onChange={(e) => setForm({ ...form, email_body: e.target.value })} rows={6} className="w-full border rounded px-3 py-2 text-sm font-mono" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Trigger Type *</label>
+              <select value={form.trigger_type} onChange={(e) => setForm({ ...form, trigger_type: e.target.value })} className="w-full border rounded px-3 py-2 text-sm bg-white">
+                {TRIGGER_OPTIONS.map((t) => <option key={t} value={t}>{TRIGGER_META[t]?.label || t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Delay (hours)</label>
+              <input type="number" value={form.delay_hours} onChange={(e) => setForm({ ...form, delay_hours: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+            </div>
+            <div className="col-span-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="rounded border-gray-300" />
+                <span className="text-sm font-medium text-gray-700">Active</span>
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <button onClick={() => setModalOpen(false)} className="px-4 py-2 rounded-lg border text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+              {saving ? "Saving..." : "Create Campaign"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
