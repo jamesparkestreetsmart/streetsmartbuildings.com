@@ -10,7 +10,7 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    const [companiesRes, contactCountsRes, dealCountsRes, orgsRes] = await Promise.all([
+    const [companiesRes, contactCountsRes, dealCountsRes, orgsRes, industriesRes] = await Promise.all([
       supabase
         .from("zz_companies")
         .select("id, name, website, industry, hq_location, hq_state, estimated_sites, status, org_id, source, assigned_to, notes, created_at")
@@ -24,6 +24,10 @@ export async function GET() {
       supabase
         .from("a_organizations")
         .select("org_id, org_name"),
+      supabase
+        .from("library_industries")
+        .select("name")
+        .order("name"),
     ]);
 
     if (companiesRes.error) return NextResponse.json({ error: companiesRes.error.message }, { status: 500 });
@@ -53,7 +57,9 @@ export async function GET() {
       org_name: c.org_id ? orgMap[c.org_id] || null : null,
     }));
 
-    return NextResponse.json({ companies });
+    const industries = (industriesRes.data || []).map((i: any) => i.name);
+
+    return NextResponse.json({ companies, industries });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

@@ -67,6 +67,7 @@ export default function AdminCompaniesPanel() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [industryOptions, setIndustryOptions] = useState<string[]>([]);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -79,6 +80,7 @@ export default function AdminCompaniesPanel() {
       const res = await fetch("/api/admin/companies");
       const data = await res.json();
       if (data.companies) setCompanies(data.companies);
+      if (data.industries) setIndustryOptions(data.industries);
     } catch {} finally {
       setLoading(false);
     }
@@ -256,7 +258,10 @@ export default function AdminCompaniesPanel() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Industry</label>
-              <input type="text" value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+              <select value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} className="w-full border rounded px-3 py-2 text-sm bg-white">
+                <option value="">--</option>
+                {industryOptions.map((i) => <option key={i} value={i}>{i}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Source</label>
