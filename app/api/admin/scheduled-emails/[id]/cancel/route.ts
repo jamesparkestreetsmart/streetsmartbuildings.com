@@ -9,6 +9,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -43,6 +45,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .single();
 
     if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "scheduled_email_cancel",
+      source: "admin_ui",
+      message: `Cancelled scheduled email ${id}`,
+      metadata: { scheduled_email_id: id },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return NextResponse.json({ email: updated });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

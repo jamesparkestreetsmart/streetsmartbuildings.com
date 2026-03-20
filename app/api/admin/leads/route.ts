@@ -2,14 +2,18 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUserEmail } from "@/lib/auth";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
+
 export async function POST(req: NextRequest) {
   try {
+    const adminEmail = await getCurrentUserEmail();
     const body = await req.json();
 
     // Bulk import mode
@@ -57,6 +61,16 @@ export async function POST(req: NextRequest) {
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
+      await supabase.from("b_records_log").insert({
+        org_id: SSB_ORG_ID,
+        event_type: "lead_import",
+        source: "admin_ui",
+        message: `Imported ${toInsert.length} leads · ${skipped} skipped`,
+        metadata: { imported: toInsert.length, skipped },
+        created_by: adminEmail || "admin",
+        event_date: new Date().toISOString().split("T")[0],
+      });
+
       return NextResponse.json({ imported: toInsert.length, skipped });
     }
 
@@ -90,6 +104,17 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "lead_create",
+      source: "admin_ui",
+      message: `Created lead: ${first_name} ${last_name} (${email || "no email"})`,
+      metadata: { lead_id: data.id },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return NextResponse.json({ lead: data });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

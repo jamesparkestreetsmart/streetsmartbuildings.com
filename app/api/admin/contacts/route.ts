@@ -2,11 +2,14 @@ export const dynamic = "force-dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { getCurrentUserEmail } from "@/lib/auth";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
 
 export async function GET() {
   try {
@@ -41,6 +44,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const adminEmail = await getCurrentUserEmail();
     const body = await req.json();
     const { first_name, last_name, email, title, source_type, phone, role_type, linkedin_url, organization_name, industry, assigned_to, notes, company_id, duplicate_of } = body;
     if (!first_name || !last_name || !title || !source_type) return NextResponse.json({ error: "first_name, last_name, title, source_type required" }, { status: 400 });
@@ -50,6 +54,17 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "contact_create",
+      source: "admin_ui",
+      message: `Created contact: ${first_name} ${last_name}`,
+      metadata: { contact_id: data.id },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return NextResponse.json({ contact: data });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -58,6 +73,7 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const adminEmail = await getCurrentUserEmail();
     const body = await req.json();
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -69,6 +85,17 @@ export async function PATCH(req: NextRequest) {
     if (Object.keys(patch).length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     const { error } = await supabase.from("zz_contacts").update(patch).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "contact_edit",
+      source: "admin_ui",
+      message: `Updated contact ${id}: ${Object.keys(patch).join(", ")}`,
+      metadata: { contact_id: id, fields: Object.keys(patch) },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

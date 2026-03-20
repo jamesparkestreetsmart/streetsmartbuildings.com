@@ -2,12 +2,14 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUserEmail } from "@/lib/auth";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
 const GENERIC_PREFIXES = ["info@", "admin@", "support@", "hello@", "contact@", "sales@"];
 
 export async function GET(req: NextRequest) {
@@ -78,6 +80,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const adminEmail = await getCurrentUserEmail();
     const body = await req.json();
     const { name, description, email_subject, email_body, trigger_type, delay_hours, is_active, target_type, segment_filter, selected_recipients } = body;
     if (!name || !email_subject || !email_body || !trigger_type) {
@@ -139,6 +142,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "campaign_create",
+      source: "admin_ui",
+      message: `Created campaign: ${name}`,
+      metadata: { campaign_id: campaign.id },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return NextResponse.json({ campaign });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -147,6 +160,7 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const adminEmail = await getCurrentUserEmail();
     const body = await req.json();
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -158,6 +172,17 @@ export async function PATCH(req: NextRequest) {
     if (Object.keys(patch).length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     const { error } = await supabase.from("z_marketing_campaigns").update(patch).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "campaign_edit",
+      source: "admin_ui",
+      message: `Updated campaign ${id}: ${Object.keys(patch).join(", ")}`,
+      metadata: { campaign_id: id, fields: Object.keys(patch) },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

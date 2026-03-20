@@ -2,11 +2,14 @@ export const dynamic = "force-dynamic";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { getCurrentUserEmail } from "@/lib/auth";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
 
 export async function GET() {
   try {
@@ -52,6 +55,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const adminEmail = await getCurrentUserEmail();
     const body = await req.json();
     const { name, stage, company_id, primary_contact_id, org_id, lead_id, value_estimate, close_probability, projected_sites, next_step, next_step_date, owner, lost_reason, notes } = body;
     if (!name || !stage) return NextResponse.json({ error: "name and stage required" }, { status: 400 });
@@ -61,6 +65,17 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "deal_create",
+      source: "admin_ui",
+      message: `Created deal: ${name}`,
+      metadata: { deal_id: data.id },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return NextResponse.json({ deal: data });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -69,6 +84,7 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const adminEmail = await getCurrentUserEmail();
     const body = await req.json();
     const { id, ...updates } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -80,6 +96,17 @@ export async function PATCH(req: NextRequest) {
     if (Object.keys(patch).length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     const { error } = await supabase.from("zz_deals").update(patch).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "deal_edit",
+      source: "admin_ui",
+      message: `Updated deal ${id}: ${Object.keys(patch).join(", ")}`,
+      metadata: { deal_id: id, fields: Object.keys(patch) },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

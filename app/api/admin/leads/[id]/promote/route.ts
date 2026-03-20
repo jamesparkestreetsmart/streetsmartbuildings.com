@@ -8,6 +8,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
 const GENERIC_PREFIXES = ["info@", "admin@", "support@", "hello@", "contact@", "sales@"];
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -112,6 +113,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         promoted_by: adminEmail,
       })
       .eq("id", id);
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "lead_promote",
+      source: "admin_ui",
+      message: `Promoted lead to contact: ${lead.first_name} ${lead.last_name} (${lead.email})`,
+      metadata: { lead_id: id, contact_id: newContact.id },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
 
     return NextResponse.json({ ok: true, contact: newContact });
   } catch (err: unknown) {

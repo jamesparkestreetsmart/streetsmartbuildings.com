@@ -169,6 +169,9 @@ export default function AdminCampaignsPanel() {
   // Add recipients modal
   const [addRecipientsOpen, setAddRecipientsOpen] = useState(false);
   const [addRecipientsCampaignId, setAddRecipientsCampaignId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [confirmSendOpen, setConfirmSendOpen] = useState(false);
+  const [confirmSendCampaign, setConfirmSendCampaign] = useState<Campaign | null>(null);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -310,6 +313,30 @@ export default function AdminCampaignsPanel() {
       }
     } catch {
       showToast("Cancel failed", "error");
+    }
+  }
+
+  async function handleSendCampaign() {
+    if (!confirmSendCampaign) return;
+    setSendingId(confirmSendCampaign.id);
+    setConfirmSendOpen(false);
+    try {
+      const res = await fetch(`/api/admin/campaigns/${confirmSendCampaign.id}/send`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`${data.queued} emails queued`, "success");
+        await fetchData();
+        if (expandedId === confirmSendCampaign.id) {
+          await fetchRecipients(confirmSendCampaign.id);
+        }
+      } else {
+        showToast(data.error || "Send failed", "error");
+      }
+    } catch {
+      showToast("Send failed", "error");
+    } finally {
+      setSendingId(null);
+      setConfirmSendCampaign(null);
     }
   }
 
@@ -615,6 +642,17 @@ export default function AdminCampaignsPanel() {
                             className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                           >
                             + Add Recipients
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmSendCampaign(c);
+                              setConfirmSendOpen(true);
+                            }}
+                            disabled={!c.is_active || !(c.recipient_count && c.recipient_count > 0) || sendingId === c.id}
+                            className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {sendingId === c.id ? "Sending..." : "Send Campaign"}
                           </button>
                         </div>
 
@@ -944,6 +982,24 @@ export default function AdminCampaignsPanel() {
             <button onClick={() => setAddRecipientsOpen(false)} className="px-4 py-2 rounded-lg border text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
             <button onClick={handleAddRecipients} disabled={saving || selectedPersons.length === 0} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
               {saving ? "Adding..." : `Add ${selectedPersons.length} Recipients`}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Confirmation Dialog */}
+      <Dialog open={confirmSendOpen} onOpenChange={setConfirmSendOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Campaign</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            This will queue emails to <span className="font-semibold">{confirmSendCampaign?.recipient_count || 0}</span> eligible recipients. Continue?
+          </p>
+          <DialogFooter>
+            <button onClick={() => setConfirmSendOpen(false)} className="px-4 py-2 rounded-lg border text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button onClick={handleSendCampaign} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700">
+              Send Now
             </button>
           </DialogFooter>
         </DialogContent>

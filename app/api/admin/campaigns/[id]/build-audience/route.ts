@@ -9,6 +9,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
 const GENERIC_PREFIXES = ["info@", "admin@", "support@", "hello@", "contact@", "sales@"];
 
 function isGenericEmail(email: string): boolean {
@@ -179,6 +180,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         recipient_count: count || 0,
       })
       .eq("id", id);
+
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "campaign_audience_build",
+      source: "admin_ui",
+      message: `Built audience for campaign ${campaign.id}: ${added} added, ${skippedIneligible} ineligible`,
+      metadata: { campaign_id: id, added, skipped_ineligible: skippedIneligible },
+      created_by: adminEmail || "admin",
+      event_date: new Date().toISOString().split("T")[0],
+    });
 
     return NextResponse.json({ added, skipped_ineligible: skippedIneligible, skipped_duplicate: skippedDuplicate });
   } catch (err: unknown) {
