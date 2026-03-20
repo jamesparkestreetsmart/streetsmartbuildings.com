@@ -9,11 +9,15 @@ interface Campaign {
   description: string | null;
   email_subject: string;
   email_body: string;
-  segment_filter: Record<string, unknown> | null;
+  segment_filter: { field: string; value: string } | null;
   delay_hours: number | null;
   trigger_type: string;
+  target_type: string;
   is_active: boolean;
   created_at: string;
+  last_audience_built_at: string | null;
+  audience_built_by: string | null;
+  recipient_count: number | null;
 }
 
 interface ScheduledEmail {
@@ -26,7 +30,45 @@ interface ScheduledEmail {
   created_at: string;
 }
 
+interface Recipient {
+  id: string;
+  campaign_id: string;
+  lead_id: string | null;
+  contact_id: string | null;
+  email_normalized: string;
+  is_eligible: boolean;
+  ineligible_reason: string | null;
+  status: string;
+  added_by: string;
+  enrolled_at: string | null;
+  name: string;
+  email: string;
+  type: "lead" | "contact";
+}
+
+interface PersonOption {
+  lead_id?: string;
+  contact_id?: string;
+  email: string;
+  name: string;
+  type: "lead" | "contact";
+  unsubscribed?: boolean;
+  outreach_ok?: boolean;
+  lead_status?: string;
+  duplicate_of?: string | null;
+}
+
 const TRIGGER_OPTIONS = ["manual", "auto_follow_up", "auto_segment", "auto_milestone"] as const;
+const TARGET_OPTIONS = ["manual_selection", "lead_filter", "contact_filter"] as const;
+
+const TARGET_LABELS: Record<string, string> = {
+  manual_selection: "Manual Selection",
+  lead_filter: "Lead Filter",
+  contact_filter: "Contact Filter",
+};
+
+const LEAD_FILTER_FIELDS = ["lead_status", "source_type", "industry", "assigned_to"] as const;
+const CONTACT_FILTER_FIELDS = ["role_type", "source_type", "industry", "company_id"] as const;
 
 const TRIGGER_META: Record<string, { label: string; bg: string; text: string }> = {
   manual:          { label: "Manual",        bg: "bg-gray-100",   text: "text-gray-600" },
@@ -56,12 +98,26 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "\u2014";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
 }
 
-const EMPTY_FORM = { name: "", description: "", email_subject: "", email_body: "", trigger_type: "manual", delay_hours: "", is_active: true };
+const EMPTY_FORM = {
+  name: "", description: "", email_subject: "", email_body: "",
+  trigger_type: "manual", target_type: "manual_selection",
+  delay_hours: "", is_active: true,
+  filter_field: "", filter_value: "",
+};
 
 export default function AdminCampaignsPanel() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -72,6 +128,28 @@ export default function AdminCampaignsPanel() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Audience preview
+  const [preview, setPreview] = useState<{ eligible_count: number; ineligible_count: number; sample: { name: string; email: string }[] } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Manual selection
+  const [personOptions, setPersonOptions] = useState<PersonOption[]>([]);
+  const [selectedPersons, setSelectedPersons] = useState<PersonOption[]>([]);
+  const [personSearch, setPersonSearch] = useState("");
+  const [personLoading, setPersonLoading] = useState(false);
+
+  // Recipients for expanded campaign
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [recipientsLoading, setRecipientsLoading] = useState(false);
+  const [recipientsCampaignId, setRecipientsCampaignId] = useState<string | null>(null);
+
+  // Building audience
+  const [buildingId, setBuildingId] = useState<string | null>(null);
+
+  // Add recipients modal
+  const [addRecipientsOpen, setAddRecipientsOpen] = useState(false);
+  const [addRecipientsCampaignId, setAddRecipientsCampaignId] = useState<string | null>(null);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -85,20 +163,136 @@ export default function AdminCampaignsPanel() {
       const data = await res.json();
       if (data.campaigns) setCampaigns(data.campaigns);
       if (data.emails) setEmails(data.emails);
-    } catch {
-      // empty state handles it
-    } finally {
+    } catch {} finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Fetch person options for manual selection
+  const fetchPersonOptions = useCallback(async () => {
+    setPersonLoading(true);
+    try {
+      const [lRes, cRes] = await Promise.all([
+        fetch("/api/marketing/scheduled-emails"),
+        fetch("/api/admin/contacts"),
+      ]);
+      const leadsData = await lRes.json();
+      const contactsData = await cRes.json();
+
+      const options: PersonOption[] = [];
+      const seenEmails = new Set<string>();
+
+      // Add contacts first (they take priority)
+      for (const c of contactsData.contacts || []) {
+        if (!c.email) continue;
+        const norm = c.email.toLowerCase().trim();
+        if (seenEmails.has(norm)) continue;
+        seenEmails.add(norm);
+        options.push({
+          contact_id: c.id,
+          email: c.email,
+          name: `${c.first_name} ${c.last_name}`,
+          type: "contact",
+          unsubscribed: c.unsubscribed,
+          outreach_ok: c.outreach_ok,
+          duplicate_of: c.duplicate_of,
+        });
+      }
+
+      // Add leads (skip if email already seen from contacts)
+      for (const l of leadsData.leads || []) {
+        if (!l.email) continue;
+        const norm = l.email.toLowerCase().trim();
+        if (seenEmails.has(norm)) continue;
+        seenEmails.add(norm);
+        options.push({
+          lead_id: l.id,
+          email: l.email,
+          name: [l.first_name, l.last_name].filter(Boolean).join(" ") || l.email,
+          type: "lead",
+          unsubscribed: l.unsubscribed,
+          outreach_ok: l.outreach_ok,
+          lead_status: l.lead_status,
+        });
+      }
+
+      setPersonOptions(options);
+    } catch {} finally {
+      setPersonLoading(false);
+    }
+  }, []);
+
+  // Fetch recipients for a campaign
+  async function fetchRecipients(campaignId: string) {
+    setRecipientsLoading(true);
+    setRecipientsCampaignId(campaignId);
+    try {
+      const res = await fetch(`/api/admin/campaigns?recipients_for=${campaignId}`);
+      const data = await res.json();
+      if (data.recipients) setRecipients(data.recipients);
+    } catch {} finally {
+      setRecipientsLoading(false);
+    }
+  }
+
+  // Preview audience
+  async function fetchPreview() {
+    if (!form.filter_field || !form.filter_value) return;
+    setPreviewLoading(true);
+    try {
+      const res = await fetch("/api/admin/campaigns/preview-audience", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_type: form.target_type,
+          segment_filter: { field: form.filter_field, value: form.filter_value },
+        }),
+      });
+      const data = await res.json();
+      setPreview(data);
+    } catch {} finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  // Build audience
+  async function handleBuildAudience(campaignId: string) {
+    setBuildingId(campaignId);
+    try {
+      const res = await fetch(`/api/admin/campaigns/${campaignId}/build-audience`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Added ${data.added} \u00B7 Skipped ${data.skipped_ineligible} ineligible \u00B7 ${data.skipped_duplicate} duplicates`, "success");
+        await fetchData();
+        await fetchRecipients(campaignId);
+      } else {
+        showToast(data.error || "Build failed", "error");
+      }
+    } catch {
+      showToast("Build audience failed", "error");
+    } finally {
+      setBuildingId(null);
+    }
+  }
 
   function openCreate() {
     setForm(EMPTY_FORM);
+    setPreview(null);
+    setSelectedPersons([]);
     setModalOpen(true);
+  }
+
+  // When target_type changes to manual_selection, load person options
+  function handleTargetTypeChange(value: string) {
+    setForm({ ...form, target_type: value, filter_field: "", filter_value: "" });
+    setPreview(null);
+    if (value === "manual_selection") {
+      fetchPersonOptions();
+    }
   }
 
   async function handleSave() {
@@ -108,26 +302,101 @@ export default function AdminCampaignsPanel() {
     }
     setSaving(true);
     try {
+      const payload: Record<string, unknown> = {
+        name: form.name,
+        description: form.description || null,
+        email_subject: form.email_subject,
+        email_body: form.email_body,
+        trigger_type: form.trigger_type,
+        target_type: form.target_type,
+        delay_hours: form.delay_hours ? parseInt(form.delay_hours, 10) : null,
+        is_active: form.is_active,
+      };
+
+      if (form.target_type === "lead_filter" || form.target_type === "contact_filter") {
+        if (form.filter_field && form.filter_value) {
+          payload.segment_filter = { field: form.filter_field, value: form.filter_value };
+        }
+      }
+
+      if (form.target_type === "manual_selection" && selectedPersons.length > 0) {
+        payload.selected_recipients = selectedPersons.map((p) => ({
+          lead_id: p.lead_id || null,
+          contact_id: p.contact_id || null,
+          email: p.email,
+          unsubscribed: p.unsubscribed,
+          outreach_ok: p.outreach_ok,
+          lead_status: p.lead_status,
+          duplicate_of: p.duplicate_of,
+        }));
+      }
+
       const res = await fetch("/api/admin/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          description: form.description || null,
-          email_subject: form.email_subject,
-          email_body: form.email_body,
-          trigger_type: form.trigger_type,
-          delay_hours: form.delay_hours ? parseInt(form.delay_hours, 10) : null,
-          is_active: form.is_active,
-        }),
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.error || "Failed");
-      }
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed"); }
       setModalOpen(false);
       showToast("Campaign created", "success");
       await fetchData();
+    } catch (err: unknown) {
+      showToast(String(err), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Handle expanding a campaign row
+  function handleExpand(id: string) {
+    if (expandedId === id) {
+      setExpandedId(null);
+      setRecipients([]);
+      setRecipientsCampaignId(null);
+    } else {
+      setExpandedId(id);
+      fetchRecipients(id);
+    }
+  }
+
+  // Add recipients modal
+  function openAddRecipients(campaignId: string) {
+    setAddRecipientsCampaignId(campaignId);
+    setSelectedPersons([]);
+    setPersonSearch("");
+    fetchPersonOptions();
+    setAddRecipientsOpen(true);
+  }
+
+  async function handleAddRecipients() {
+    if (!addRecipientsCampaignId || selectedPersons.length === 0) return;
+    setSaving(true);
+    try {
+      // We'll use the same POST endpoint logic but need a dedicated add-recipients endpoint
+      // For now, insert directly via a PATCH-like approach
+      const payload = {
+        campaign_id: addRecipientsCampaignId,
+        recipients: selectedPersons.map((p) => ({
+          lead_id: p.lead_id || null,
+          contact_id: p.contact_id || null,
+          email: p.email,
+          unsubscribed: p.unsubscribed,
+          outreach_ok: p.outreach_ok,
+          lead_status: p.lead_status,
+          duplicate_of: p.duplicate_of,
+        })),
+      };
+      const res = await fetch("/api/admin/campaigns/add-recipients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed"); }
+      const data = await res.json();
+      setAddRecipientsOpen(false);
+      showToast(`Added ${data.added} recipients`, "success");
+      await fetchData();
+      await fetchRecipients(addRecipientsCampaignId);
     } catch (err: unknown) {
       showToast(String(err), "error");
     } finally {
@@ -141,21 +410,34 @@ export default function AdminCampaignsPanel() {
   const pendingCount = emails.filter((e) => e.status === "pending").length;
   const failedCount = emails.filter((e) => e.status === "failed").length;
 
-  // Send counts per campaign name
   const sendCounts: Record<string, number> = {};
   for (const e of emails) {
-    if (e.campaign_name) {
-      sendCounts[e.campaign_name] = (sendCounts[e.campaign_name] || 0) + 1;
+    if (e.campaign_name) sendCounts[e.campaign_name] = (sendCounts[e.campaign_name] || 0) + 1;
+  }
+
+  // Filter person options for search
+  const filteredPersons = personSearch
+    ? personOptions.filter((p) =>
+        p.name.toLowerCase().includes(personSearch.toLowerCase()) ||
+        p.email.toLowerCase().includes(personSearch.toLowerCase())
+      )
+    : personOptions;
+
+  const isPersonSelected = (p: PersonOption) =>
+    selectedPersons.some((s) => s.email.toLowerCase() === p.email.toLowerCase());
+
+  function togglePerson(p: PersonOption) {
+    if (isPersonSelected(p)) {
+      setSelectedPersons(selectedPersons.filter((s) => s.email.toLowerCase() !== p.email.toLowerCase()));
+    } else {
+      setSelectedPersons([...selectedPersons, p]);
     }
   }
 
-  if (loading) {
-    return <div className="text-sm text-gray-500 py-8 text-center">Loading campaigns...</div>;
-  }
+  if (loading) return <div className="text-sm text-gray-500 py-8 text-center">Loading campaigns...</div>;
 
   return (
     <div className="space-y-4 mt-8">
-      {/* Toast */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${toast.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
           {toast.message}
@@ -203,50 +485,40 @@ export default function AdminCampaignsPanel() {
               <th className="text-left px-3 py-2 font-medium text-gray-600">Name</th>
               <th className="text-left px-3 py-2 font-medium text-gray-600">Subject</th>
               <th className="text-left px-3 py-2 font-medium text-gray-600">Trigger</th>
-              <th className="text-left px-3 py-2 font-medium text-gray-600">Delay (hrs)</th>
-              <th className="text-left px-3 py-2 font-medium text-gray-600">Sends</th>
+              <th className="text-left px-3 py-2 font-medium text-gray-600">Audience</th>
+              <th className="text-left px-3 py-2 font-medium text-gray-600">Recipients</th>
+              <th className="text-left px-3 py-2 font-medium text-gray-600">Last Built</th>
               <th className="text-left px-3 py-2 font-medium text-gray-600">Active</th>
               <th className="text-left px-3 py-2 font-medium text-gray-600 w-[60px]"></th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {campaigns.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-gray-400">
-                  No campaigns yet.
-                </td>
-              </tr>
-            ) : (
-              campaigns.map((c) => (
-                <Fragment key={c.id}>
-                  <tr
-                    className="hover:bg-gray-50 cursor-pointer"
-                    onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
-                  >
-                    <td className="px-3 py-2 font-medium">{c.name}</td>
-                    <td className="px-3 py-2">{c.email_subject}</td>
-                    <td className="px-3 py-2">
-                      <Badge value={c.trigger_type} meta={TRIGGER_META} />
-                    </td>
-                    <td className="px-3 py-2">{c.delay_hours ?? "\u2014"}</td>
-                    <td className="px-3 py-2">{sendCounts[c.name] ?? 0}</td>
-                    <td className="px-3 py-2">
-                      {c.is_active ? (
-                        <span className="text-green-600 font-semibold">Yes</span>
-                      ) : (
-                        <span className="text-gray-400">No</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <span className="text-xs text-gray-400">
-                        {expandedId === c.id ? "\u25B2" : "\u25BC"}
-                      </span>
-                    </td>
-                  </tr>
+              <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-400">No campaigns yet.</td></tr>
+            ) : campaigns.map((c) => (
+              <Fragment key={c.id}>
+                <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => handleExpand(c.id)}>
+                  <td className="px-3 py-2 font-medium">{c.name}</td>
+                  <td className="px-3 py-2">{c.email_subject}</td>
+                  <td className="px-3 py-2"><Badge value={c.trigger_type} meta={TRIGGER_META} /></td>
+                  <td className="px-3 py-2">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-stone-100 text-stone-600">
+                      {TARGET_LABELS[c.target_type] || c.target_type}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-gray-600">{c.recipient_count ?? 0}</td>
+                  <td className="px-3 py-2 text-gray-500 text-xs">{formatDate(c.last_audience_built_at)}</td>
+                  <td className="px-3 py-2">
+                    {c.is_active ? <span className="text-green-600 font-semibold">Yes</span> : <span className="text-gray-400">No</span>}
+                  </td>
+                  <td className="px-3 py-2 text-center"><span className="text-xs text-gray-400">{expandedId === c.id ? "\u25B2" : "\u25BC"}</span></td>
+                </tr>
 
-                  {expandedId === c.id && (
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <td colSpan={7} className="px-6 py-4">
+                {expandedId === c.id && (
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <td colSpan={8} className="px-6 py-4">
+                      <div className="space-y-4">
+                        {/* Campaign details */}
                         <div className="space-y-3 text-xs">
                           {c.description && (
                             <div>
@@ -256,25 +528,88 @@ export default function AdminCampaignsPanel() {
                           )}
                           <div>
                             <span className="font-semibold text-gray-400 uppercase tracking-wide">Email Body Preview</span>
-                            <pre className="mt-1 text-gray-700 whitespace-pre-wrap bg-white border rounded p-3 max-h-40 overflow-auto">
-                              {c.email_body}
-                            </pre>
+                            <pre className="mt-1 text-gray-700 whitespace-pre-wrap bg-white border rounded p-3 max-h-40 overflow-auto">{c.email_body}</pre>
                           </div>
                           {c.segment_filter && (
                             <div>
                               <span className="font-semibold text-gray-400 uppercase tracking-wide">Segment Filter</span>
-                              <pre className="mt-1 text-gray-700 font-mono bg-white border rounded p-3 max-h-32 overflow-auto">
-                                {JSON.stringify(c.segment_filter, null, 2)}
-                              </pre>
+                              <pre className="mt-1 text-gray-700 font-mono bg-white border rounded p-3 max-h-32 overflow-auto">{JSON.stringify(c.segment_filter, null, 2)}</pre>
                             </div>
                           )}
                         </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))
-            )}
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-2">
+                          {(c.target_type === "lead_filter" || c.target_type === "contact_filter") && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleBuildAudience(c.id); }}
+                              disabled={buildingId === c.id}
+                              className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
+                            >
+                              {buildingId === c.id ? "Building..." : "Build Audience"}
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openAddRecipients(c.id); }}
+                            className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                          >
+                            + Add Recipients
+                          </button>
+                        </div>
+
+                        {/* Recipients table */}
+                        <div>
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recipients</h4>
+                          {recipientsLoading && recipientsCampaignId === c.id ? (
+                            <div className="text-xs text-gray-400 py-4 text-center">Loading recipients...</div>
+                          ) : recipients.length === 0 && recipientsCampaignId === c.id ? (
+                            <div className="text-xs text-gray-400 py-4 text-center border rounded bg-white">No recipients yet. Build audience or add manually.</div>
+                          ) : recipientsCampaignId === c.id ? (
+                            <div className="border rounded bg-white overflow-auto max-h-64">
+                              <table className="w-full text-xs">
+                                <thead className="bg-gray-50 border-b sticky top-0">
+                                  <tr>
+                                    <th className="text-left px-3 py-1.5 font-medium text-gray-500">Name / Email</th>
+                                    <th className="text-left px-3 py-1.5 font-medium text-gray-500">Type</th>
+                                    <th className="text-left px-3 py-1.5 font-medium text-gray-500">Eligible</th>
+                                    <th className="text-left px-3 py-1.5 font-medium text-gray-500">Status</th>
+                                    <th className="text-left px-3 py-1.5 font-medium text-gray-500">Enrolled</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {recipients.map((r) => (
+                                    <tr key={r.id} className="hover:bg-gray-50">
+                                      <td className="px-3 py-1.5">
+                                        <div className="font-medium">{r.name}</div>
+                                        <div className="text-gray-400">{r.email}</div>
+                                      </td>
+                                      <td className="px-3 py-1.5">
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${r.type === "contact" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+                                          {r.type === "contact" ? "Contact" : "Lead"}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-1.5">
+                                        {r.is_eligible ? (
+                                          <span className="text-green-600 font-semibold">✓</span>
+                                        ) : (
+                                          <span className="text-red-500" title={r.ineligible_reason || ""}>✕ {r.ineligible_reason}</span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-1.5"><Badge value={r.status} meta={STATUS_META} /></td>
+                                      <td className="px-3 py-1.5 text-gray-400">{formatDateTime(r.enrolled_at)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
           </tbody>
         </table>
       </div>
@@ -294,29 +629,15 @@ export default function AdminCampaignsPanel() {
             </thead>
             <tbody className="divide-y">
               {emails.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-3 py-8 text-center text-gray-400">
-                    No scheduled emails yet.
-                  </td>
+                <tr><td colSpan={4} className="px-3 py-8 text-center text-gray-400">No scheduled emails yet.</td></tr>
+              ) : emails.map((e) => (
+                <tr key={e.id} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 font-mono text-xs">{e.lead_id.slice(0, 8)}&hellip;</td>
+                  <td className="px-3 py-2">{e.campaign_name ? <span className="font-medium">{e.campaign_name}</span> : <span className="text-gray-500">{e.email_type}</span>}</td>
+                  <td className="px-3 py-2"><Badge value={e.status} meta={STATUS_META} /></td>
+                  <td className="px-3 py-2 text-gray-500">{formatDateTime(e.sent_at)}</td>
                 </tr>
-              ) : (
-                emails.map((e) => (
-                  <tr key={e.id} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 font-mono text-xs">{e.lead_id.slice(0, 8)}&hellip;</td>
-                    <td className="px-3 py-2">
-                      {e.campaign_name ? (
-                        <span className="font-medium">{e.campaign_name}</span>
-                      ) : (
-                        <span className="text-gray-500">{e.email_type}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Badge value={e.status} meta={STATUS_META} />
-                    </td>
-                    <td className="px-3 py-2 text-gray-500">{formatDate(e.sent_at)}</td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>
@@ -324,7 +645,7 @@ export default function AdminCampaignsPanel() {
 
       {/* Create Campaign Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New Campaign</DialogTitle>
           </DialogHeader>
@@ -355,6 +676,100 @@ export default function AdminCampaignsPanel() {
               <label className="block text-xs font-medium text-gray-600 mb-1">Delay (hours)</label>
               <input type="number" value={form.delay_hours} onChange={(e) => setForm({ ...form, delay_hours: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" min={0} />
             </div>
+
+            {/* Audience Type */}
+            <div className="col-span-2 border-t pt-4">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Audience Type *</label>
+              <select value={form.target_type} onChange={(e) => handleTargetTypeChange(e.target.value)} className="w-full border rounded px-3 py-2 text-sm bg-white">
+                {TARGET_OPTIONS.map((t) => <option key={t} value={t}>{TARGET_LABELS[t]}</option>)}
+              </select>
+            </div>
+
+            {/* Filter builder for lead_filter / contact_filter */}
+            {(form.target_type === "lead_filter" || form.target_type === "contact_filter") && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Filter Field</label>
+                  <select value={form.filter_field} onChange={(e) => setForm({ ...form, filter_field: e.target.value })} className="w-full border rounded px-3 py-2 text-sm bg-white">
+                    <option value="">-- Select field --</option>
+                    {(form.target_type === "lead_filter" ? LEAD_FILTER_FIELDS : CONTACT_FILTER_FIELDS).map((f) => (
+                      <option key={f} value={f}>{f.replace("_", " ")}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Filter Value</label>
+                  <input type="text" value={form.filter_value} onChange={(e) => setForm({ ...form, filter_value: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
+                </div>
+                <div className="col-span-2">
+                  <button
+                    onClick={fetchPreview}
+                    disabled={previewLoading || !form.filter_field || !form.filter_value}
+                    className="px-3 py-1.5 rounded border text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {previewLoading ? "Loading..." : "Preview Audience"}
+                  </button>
+                  {preview && (
+                    <div className="mt-2 p-3 bg-white border rounded text-xs">
+                      <div className="flex gap-4 mb-2">
+                        <span className="text-green-700 font-semibold">~{preview.eligible_count} eligible</span>
+                        <span className="text-red-600">{preview.ineligible_count} ineligible</span>
+                      </div>
+                      {preview.sample.length > 0 && (
+                        <div className="text-gray-500">
+                          Sample: {preview.sample.map((s) => s.name || s.email).join(", ")}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Manual selection */}
+            {form.target_type === "manual_selection" && (
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Select Recipients ({selectedPersons.length} selected)</label>
+                <input
+                  type="text"
+                  placeholder="Search by name or email..."
+                  value={personSearch}
+                  onChange={(e) => setPersonSearch(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm mb-2"
+                />
+                {personLoading ? (
+                  <div className="text-xs text-gray-400 py-4 text-center">Loading...</div>
+                ) : (
+                  <div className="border rounded max-h-48 overflow-y-auto">
+                    {filteredPersons.slice(0, 50).map((p) => {
+                      const selected = isPersonSelected(p);
+                      return (
+                        <div
+                          key={p.email}
+                          onClick={() => togglePerson(p)}
+                          className={`flex items-center justify-between px-3 py-2 text-xs cursor-pointer hover:bg-gray-50 border-b last:border-b-0 ${selected ? "bg-green-50" : ""}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" checked={selected} readOnly className="rounded border-gray-300" />
+                            <div>
+                              <span className="font-medium">{p.name}</span>
+                              <span className="text-gray-400 ml-2">{p.email}</span>
+                            </div>
+                          </div>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${p.type === "contact" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+                            {p.type === "contact" ? "Contact" : "Lead"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {filteredPersons.length === 0 && (
+                      <div className="text-xs text-gray-400 py-4 text-center">No matches</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="col-span-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="rounded border-gray-300" />
@@ -366,6 +781,58 @@ export default function AdminCampaignsPanel() {
             <button onClick={() => setModalOpen(false)} className="px-4 py-2 rounded-lg border text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
             <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
               {saving ? "Saving..." : "Create Campaign"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Recipients Modal */}
+      <Dialog open={addRecipientsOpen} onOpenChange={setAddRecipientsOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Recipients</DialogTitle>
+          </DialogHeader>
+          <div>
+            <input
+              type="text"
+              placeholder="Search by name or email..."
+              value={personSearch}
+              onChange={(e) => setPersonSearch(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm mb-2"
+            />
+            <div className="text-xs text-gray-400 mb-2">{selectedPersons.length} selected</div>
+            {personLoading ? (
+              <div className="text-xs text-gray-400 py-4 text-center">Loading...</div>
+            ) : (
+              <div className="border rounded max-h-64 overflow-y-auto">
+                {filteredPersons.slice(0, 50).map((p) => {
+                  const selected = isPersonSelected(p);
+                  return (
+                    <div
+                      key={p.email}
+                      onClick={() => togglePerson(p)}
+                      className={`flex items-center justify-between px-3 py-2 text-xs cursor-pointer hover:bg-gray-50 border-b last:border-b-0 ${selected ? "bg-green-50" : ""}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" checked={selected} readOnly className="rounded border-gray-300" />
+                        <div>
+                          <span className="font-medium">{p.name}</span>
+                          <span className="text-gray-400 ml-2">{p.email}</span>
+                        </div>
+                      </div>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${p.type === "contact" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+                        {p.type === "contact" ? "Contact" : "Lead"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <button onClick={() => setAddRecipientsOpen(false)} className="px-4 py-2 rounded-lg border text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button onClick={handleAddRecipients} disabled={saving || selectedPersons.length === 0} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+              {saving ? "Adding..." : `Add ${selectedPersons.length} Recipients`}
             </button>
           </DialogFooter>
         </DialogContent>
