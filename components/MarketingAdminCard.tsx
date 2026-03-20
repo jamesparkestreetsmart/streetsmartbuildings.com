@@ -6,6 +6,8 @@ interface MarketingLead {
   id: string;
   email: string;
   first_name: string | null;
+  last_name: string | null;
+  title: string | null;
   created_at: string;
   source_page: string | null;
   organization_name: string | null;
@@ -15,6 +17,12 @@ interface MarketingLead {
   welcome_email_error: string | null;
   org_id: string | null;
   video_count: number;
+  source_type: string;
+  lead_status: string;
+  promotion_state: string;
+  matched_contact_id: string | null;
+  contact_id: string | null;
+  promoted_at: string | null;
 }
 
 interface Stats {
@@ -41,6 +49,23 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-gray-100 text-gray-600",
 };
 
+const SOURCE_TYPE_COLORS: Record<string, string> = {
+  inbound_form: "bg-green-100 text-green-800",
+  scraped: "bg-amber-100 text-amber-800",
+  apollo: "bg-amber-100 text-amber-800",
+  referral: "bg-green-100 text-green-800",
+  manual: "bg-stone-100 text-stone-600",
+  import: "bg-stone-100 text-stone-600",
+};
+
+const LEAD_STATUS_COLORS: Record<string, string> = {
+  new: "bg-amber-100 text-amber-800",
+  enriched: "bg-amber-200 text-amber-900",
+  qualified: "bg-green-100 text-green-800",
+  contacted: "bg-green-200 text-green-900",
+  dead: "bg-red-100 text-red-800",
+};
+
 export default function MarketingAdminCard({ userEmail }: { userEmail?: string }) {
   const [delayHours, setDelayHours] = useState(48);
   const [subject, setSubject] = useState("");
@@ -63,6 +88,11 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
     projected_sites: string;
   }>({ first_name: "", organization_name: "", projected_sites: "" });
   const [editSaving, setEditSaving] = useState(false);
+
+  // Promote state
+  const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [promoteError, setPromoteError] = useState<{ id: string; message: string } | null>(null);
+  const [softWarning, setSoftWarning] = useState<{ id: string; contacts: any[] } | null>(null);
 
   // Audit log state
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -193,6 +223,41 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
     } finally {
       setEditSaving(false);
     }
+  }
+
+  async function handlePromote(leadId: string, force = false) {
+    setPromotingId(leadId);
+    setPromoteError(null);
+    try {
+      const res = await fetch(`/api/admin/leads/${leadId}/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(force ? { force: true } : {}),
+      });
+      const data = await res.json();
+
+      if (data.blocked) {
+        setPromoteError({ id: leadId, message: "Blocked: generic email address (info@, admin@, etc.)" });
+      } else if (data.duplicate) {
+        setPromoteError({ id: leadId, message: `Duplicate: contact already exists (${data.existing_contact_id?.slice(0, 8)}...)` });
+        fetchData();
+      } else if (data.soft_warning) {
+        setSoftWarning({ id: leadId, contacts: data.similar_contacts });
+      } else if (data.ok) {
+        setSoftWarning(null);
+        fetchData();
+      } else if (data.error) {
+        setPromoteError({ id: leadId, message: data.error });
+      }
+    } catch {
+      setPromoteError({ id: leadId, message: "Failed to promote lead" });
+    } finally {
+      setPromotingId(null);
+    }
+  }
+
+  function isPromotionReady(lead: MarketingLead): boolean {
+    return !!(lead.first_name && lead.last_name && lead.email && lead.organization_name && lead.title) && lead.promotion_state === "none";
   }
 
   function renderPreview() {
@@ -456,6 +521,9 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
                         </div>
                       </th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Projected Sites</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Source</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Lead Status</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Promotion</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Videos</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Welcome Email</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-600">Sent At</th>
@@ -527,6 +595,68 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
                             ) : (
                               lead.projected_sites ?? <span className="text-gray-400">—</span>
                             )}
+                          </td>
+
+                          {/* Source Type */}
+                          <td className="px-3 py-2">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${SOURCE_TYPE_COLORS[lead.source_type] || "bg-stone-100 text-stone-600"}`}>
+                              {lead.source_type.replace("_", " ")}
+                            </span>
+                          </td>
+
+                          {/* Lead Status */}
+                          <td className="px-3 py-2">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_STATUS_COLORS[lead.lead_status] || "bg-stone-100 text-stone-600"}`}>
+                              {lead.lead_status.replace("_", " ")}
+                            </span>
+                          </td>
+
+                          {/* Promotion State */}
+                          <td className="px-3 py-2">
+                            {lead.promotion_state === "promoted" ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                                Contact ✓
+                              </span>
+                            ) : lead.promotion_state === "duplicate_review" ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                Possible duplicate
+                              </span>
+                            ) : isPromotionReady(lead) ? (
+                              <div>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handlePromote(lead.id); }}
+                                  disabled={promotingId === lead.id}
+                                  className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-400 text-amber-900 hover:bg-amber-500 transition-colors animate-pulse disabled:opacity-50"
+                                >
+                                  {promotingId === lead.id ? "..." : "Promote \u2192"}
+                                </button>
+                                {promoteError?.id === lead.id && (
+                                  <div className="text-xs text-red-600 mt-1">{promoteError.message}</div>
+                                )}
+                                {softWarning?.id === lead.id && (
+                                  <div className="mt-1 p-2 bg-amber-50 border border-amber-200 rounded text-xs">
+                                    <div className="font-semibold text-amber-800 mb-1">Similar contacts found:</div>
+                                    {softWarning.contacts.map((c: any) => (
+                                      <div key={c.id} className="text-amber-700">{c.first_name} {c.last_name} ({c.email})</div>
+                                    ))}
+                                    <div className="flex gap-2 mt-2">
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); handlePromote(lead.id, true); }}
+                                        className="px-2 py-1 rounded text-xs font-semibold bg-amber-500 text-white hover:bg-amber-600"
+                                      >
+                                        Promote anyway
+                                      </button>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setSoftWarning(null); }}
+                                        className="px-2 py-1 rounded text-xs font-semibold border text-gray-600 hover:bg-gray-100"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ) : null}
                           </td>
 
                           {/* Videos */}

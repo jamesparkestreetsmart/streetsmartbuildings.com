@@ -7,6 +7,10 @@ import OrganizationsAdminCard from "@/components/OrganizationsAdminCard";
 import InternalTrackingPanel from "@/components/admin/InternalTrackingPanel";
 import InboxTriagePanel from "@/components/admin/InboxTriagePanel";
 import AdminCampaignsPanel from "@/components/admin/AdminCampaignsPanel";
+import AdminCompaniesPanel from "@/components/admin/AdminCompaniesPanel";
+import AdminContactsPanel from "@/components/admin/AdminContactsPanel";
+import AdminDealsPanel from "@/components/admin/AdminDealsPanel";
+import AdminActivitiesPanel from "@/components/admin/AdminActivitiesPanel";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -77,6 +81,10 @@ export default async function AdminPage() {
       <MarketingAdminCard userEmail={email} />
       <InboxTriagePanel />
       <AdminCampaignsPanel />
+      <AdminCompaniesPanel />
+      <AdminContactsPanel />
+      <AdminDealsPanel />
+      <AdminActivitiesPanel />
       <OrganizationsAdminCard />
       <InternalTrackingPanel userEmail={email} userId={userId!} />
     </div>

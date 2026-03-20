@@ -12,11 +12,10 @@ const supabase = createClient(
 export async function GET() {
   try {
     const { data: leads, error: leadsError } = await supabase
-      .from("view_admin_leads")
+      .from("z_marketing_leads")
       .select(
-        "id, email, first_name, organization_name, projected_sites, welcome_email_status, welcome_email_sent_at, welcome_email_error, created_at, org_id, profile_complete"
+        "id, email, first_name, last_name, organization_name, projected_sites, welcome_email_status, welcome_email_sent_at, welcome_email_error, created_at, org_id, title, source_type, lead_status, promotion_state, matched_contact_id, contact_id, promoted_at"
       )
-      .order("profile_complete", { ascending: true })
       .order("created_at", { ascending: false })
       .limit(100);
 
