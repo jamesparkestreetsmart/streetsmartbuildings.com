@@ -43,10 +43,10 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { first_name, last_name, email, title, source_type, phone, role_type, linkedin_url, organization_name, industry, assigned_to, notes, company_id, duplicate_of } = body;
-    if (!first_name || !last_name || !email || !title || !source_type) return NextResponse.json({ error: "first_name, last_name, email, title, source_type required" }, { status: 400 });
+    if (!first_name || !last_name || !title || !source_type) return NextResponse.json({ error: "first_name, last_name, title, source_type required" }, { status: 400 });
     const { data, error } = await supabase
       .from("zz_contacts")
-      .insert({ first_name, last_name, email, title, source_type, phone: phone || null, role_type: role_type || null, linkedin_url: linkedin_url || null, organization_name: organization_name || null, industry: industry || null, assigned_to: assigned_to || null, notes: notes || null, company_id: company_id || null, duplicate_of: duplicate_of || null })
+      .insert({ first_name, last_name, email: email || null, title, source_type, phone: phone || null, role_type: role_type || null, linkedin_url: linkedin_url || null, organization_name: organization_name || null, industry: industry || null, assigned_to: assigned_to || null, notes: notes || null, company_id: company_id || null, duplicate_of: duplicate_of || null })
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

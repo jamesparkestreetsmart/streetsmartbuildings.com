@@ -124,8 +124,8 @@ export default function AdminContactsPanel() {
   }
 
   async function handleSave() {
-    if (!form.first_name || !form.last_name || !form.email || !form.title || !form.source_type) {
-      showToast("First name, last name, email, title, and source type are required", "error"); return;
+    if (!form.first_name || !form.last_name || !form.title || !form.source_type) {
+      showToast("First name, last name, title, and source type are required", "error"); return;
     }
     setSaving(true);
     try {
@@ -269,7 +269,7 @@ export default function AdminContactsPanel() {
               <input type="text" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
               <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" />
             </div>
             <div>
