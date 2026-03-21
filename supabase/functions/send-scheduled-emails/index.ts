@@ -7,81 +7,154 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+const SSB_ORG_ID = "79fab5fe-5fcf-4d84-ac1f-40348ebc160c";
+const GENERIC_PREFIXES = ["info@", "admin@", "support@", "hello@", "contact@", "sales@"];
+
+function isGenericEmail(email: string): boolean {
+  const lower = email.toLowerCase();
+  return GENERIC_PREFIXES.some((p) => lower.startsWith(p));
+}
+
 serve(async (_req) => {
   try {
-    // 1. Fetch pending emails that are due
-    const { data: pendingEmails, error: fetchError } = await supabase
+    // ── Step 1: Reset stale processing rows ──
+    await supabase.rpc("execute_sql", {
+      query: `
+        UPDATE z_scheduled_emails
+        SET status = 'pending', processing_started_at = NULL
+        WHERE status = 'processing'
+        AND processing_started_at < now() - interval '10 minutes'
+      `,
+    }).catch(() => {
+      // Fallback: use direct update if rpc not available
+    });
+
+    // Try direct update as fallback
+    await supabase
       .from("z_scheduled_emails")
-      .select(`
-        id,
-        lead_id,
-        email_type,
-        send_at,
-        z_marketing_leads!inner (
-          email,
-          first_name
-        )
-      `)
+      .update({ status: "pending", processing_started_at: null })
+      .eq("status", "processing")
+      .lt("processing_started_at", new Date(Date.now() - 10 * 60 * 1000).toISOString());
+
+    // ── Step 2: Atomically claim eligible rows ──
+    // Since Supabase JS doesn't support UPDATE...RETURNING with LIMIT natively,
+    // we select eligible rows first then update them
+    const { data: eligibleRows, error: fetchErr } = await supabase
+      .from("z_scheduled_emails")
+      .select("id")
       .eq("status", "pending")
       .lte("send_at", new Date().toISOString())
-      .limit(50);
+      .lt("attempts", 3)
+      .limit(500);
 
-    if (fetchError) {
-      console.error("Error fetching pending emails:", fetchError);
-      return new Response(JSON.stringify({ error: fetchError.message }), {
-        status: 500,
-      });
+    if (fetchErr) {
+      console.error("Error fetching eligible rows:", fetchErr);
+      return new Response(JSON.stringify({ error: fetchErr.message }), { status: 500 });
     }
 
-    if (!pendingEmails || pendingEmails.length === 0) {
-      return new Response(JSON.stringify({ message: "No pending emails to send", sent: 0, failed: 0 }), {
-        status: 200,
-      });
+    if (!eligibleRows || eligibleRows.length === 0) {
+      return new Response(JSON.stringify({ message: "No pending emails to send", sent: 0, failed_permanent: 0, failed_transient: 0 }), { status: 200 });
     }
 
-    // 2. Fetch email template from config
-    const { data: configRows, error: configError } = await supabase
-      .from("z_marketing_config")
-      .select("key, value")
-      .in("key", ["welcome_email_subject", "welcome_email_body"]);
+    const claimedIds = eligibleRows.map((r: any) => r.id);
 
-    if (configError || !configRows) {
-      console.error("Error fetching config:", configError);
-      return new Response(JSON.stringify({ error: "Failed to load email config" }), {
-        status: 500,
-      });
+    // Claim them atomically
+    await supabase
+      .from("z_scheduled_emails")
+      .update({
+        status: "processing",
+        processing_started_at: new Date().toISOString(),
+      })
+      .in("id", claimedIds)
+      .eq("status", "pending"); // Double-check still pending
+
+    // Fetch full rows for processing
+    const { data: claimedRows, error: claimErr } = await supabase
+      .from("z_scheduled_emails")
+      .select("id, lead_id, contact_id, email_type, campaign_name, campaign_subject, campaign_body, attempts")
+      .in("id", claimedIds)
+      .eq("status", "processing");
+
+    if (claimErr || !claimedRows) {
+      console.error("Error fetching claimed rows:", claimErr);
+      return new Response(JSON.stringify({ error: "Failed to fetch claimed rows" }), { status: 500 });
     }
 
-    const config: Record<string, string> = {};
-    for (const row of configRows) {
-      config[row.key] = row.value;
-    }
-
-    const subjectTemplate = config["welcome_email_subject"] || "Thanks for your interest in Eagle Eyes Building Solutions";
-    const bodyTemplate = config["welcome_email_body"] || "Hi {{first_name}},\n\nThanks for your interest!";
-
-    // 3. Process each pending email
+    // ── Step 3 & 4 & 5: Process each row ──
     let sent = 0;
-    let failed = 0;
-    const results: Array<{ id: string; status: string; error?: string }> = [];
+    let failedPermanent = 0;
+    let failedTransient = 0;
 
-    for (const scheduled of pendingEmails) {
-      const lead = (scheduled as any).z_marketing_leads;
-      const recipientEmail = lead.email;
-      const firstName = lead.first_name || "there";
+    for (const row of claimedRows) {
+      // Step 3: Resolve recipient email
+      let recipientEmail: string | null = null;
+      let permanentError: string | null = null;
 
-      // Replace tokens
-      const subject = subjectTemplate.replace(/\{\{first_name\}\}/g, firstName);
-      const bodyText = bodyTemplate.replace(/\{\{first_name\}\}/g, firstName);
+      if (row.lead_id && row.contact_id) {
+        permanentError = "invalid_data_both_ids_set";
+      } else if (!row.lead_id && !row.contact_id) {
+        permanentError = "invalid_data_no_recipient";
+      } else if (row.lead_id) {
+        const { data: lead } = await supabase
+          .from("z_marketing_leads")
+          .select("email")
+          .eq("id", row.lead_id)
+          .single();
+        recipientEmail = lead?.email || null;
+      } else if (row.contact_id) {
+        const { data: contact } = await supabase
+          .from("zz_contacts")
+          .select("email")
+          .eq("id", row.contact_id)
+          .single();
+        recipientEmail = contact?.email || null;
+      }
 
-      // Convert plain text body to simple HTML (preserve line breaks)
+      if (!permanentError && (!recipientEmail || recipientEmail.trim() === "")) {
+        permanentError = "no_email_address";
+      }
+
+      if (!permanentError && recipientEmail && isGenericEmail(recipientEmail)) {
+        permanentError = "generic_inbox_blocked";
+      }
+
+      // Handle permanent failure from validation
+      if (permanentError) {
+        await supabase
+          .from("z_scheduled_emails")
+          .update({
+            status: "failed",
+            failure_type: "permanent",
+            error: permanentError,
+            processing_started_at: null,
+          })
+          .eq("id", row.id);
+
+        failedPermanent++;
+
+        // Log permanent failure
+        await supabase.from("b_records_log").insert({
+          org_id: SSB_ORG_ID,
+          event_type: "campaign_email_failed",
+          source: "cron",
+          message: `Permanent failure for scheduled_email ${row.id}: ${permanentError}`,
+          metadata: { scheduled_email_id: row.id, error: permanentError },
+          created_by: "system",
+          event_date: new Date().toISOString().split("T")[0],
+        });
+
+        continue;
+      }
+
+      // Step 4: Send via Resend using frozen snapshot
+      const subject = row.campaign_subject || "Message from Street Smart Buildings";
+      const bodyText = row.campaign_body || "";
       const bodyHtml = bodyText
         .split("\n\n")
         .map((paragraph: string) => `<p>${paragraph.replace(/\n/g, "<br>")}</p>`)
         .join("");
 
       try {
-        // 4. Send via Resend
         const resendResponse = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
@@ -91,7 +164,7 @@ serve(async (_req) => {
           body: JSON.stringify({
             from: "James Parke <james.parke@streetsmartbuildings.com>",
             to: [recipientEmail],
-            subject: subject,
+            subject,
             text: bodyText,
             html: bodyHtml,
           }),
@@ -99,62 +172,128 @@ serve(async (_req) => {
 
         const resendData = await resendResponse.json();
 
+        // Step 5: Handle result
         if (resendResponse.ok && resendData.id) {
-          // Success — mark as sent
+          // Success
           await supabase
             .from("z_scheduled_emails")
             .update({
               status: "sent",
               sent_at: new Date().toISOString(),
+              provider_message_id: resendData.id,
               error: null,
+              processing_started_at: null,
             })
-            .eq("id", scheduled.id);
+            .eq("id", row.id);
 
           sent++;
-          results.push({ id: scheduled.id, status: "sent" });
+        } else if (resendResponse.status === 429 || resendResponse.status >= 500) {
+          // Transient failure (rate limit or server error)
+          const newAttempts = (row.attempts || 0) + 1;
+          await supabase
+            .from("z_scheduled_emails")
+            .update({
+              status: newAttempts >= 3 ? "failed" : "pending",
+              attempts: newAttempts,
+              failure_type: "transient",
+              error: resendData.message || `HTTP ${resendResponse.status}`,
+              processing_started_at: null,
+            })
+            .eq("id", row.id);
+
+          if (newAttempts >= 3) {
+            failedPermanent++;
+            await supabase.from("b_records_log").insert({
+              org_id: SSB_ORG_ID,
+              event_type: "campaign_email_failed",
+              source: "cron",
+              message: `Permanent failure for scheduled_email ${row.id}: max retries exceeded`,
+              metadata: { scheduled_email_id: row.id, error: "max_retries_exceeded", attempts: newAttempts },
+              created_by: "system",
+              event_date: new Date().toISOString().split("T")[0],
+            });
+          } else {
+            failedTransient++;
+          }
         } else {
-          // Resend returned an error
-          const errorMsg = resendData.message || JSON.stringify(resendData);
+          // Permanent failure (4xx other than 429)
+          const errorMsg = resendData.message || `HTTP ${resendResponse.status}`;
           await supabase
             .from("z_scheduled_emails")
             .update({
               status: "failed",
+              failure_type: "permanent",
               error: errorMsg,
+              processing_started_at: null,
             })
-            .eq("id", scheduled.id);
+            .eq("id", row.id);
 
-          failed++;
-          results.push({ id: scheduled.id, status: "failed", error: errorMsg });
+          failedPermanent++;
+
+          await supabase.from("b_records_log").insert({
+            org_id: SSB_ORG_ID,
+            event_type: "campaign_email_failed",
+            source: "cron",
+            message: `Permanent failure for scheduled_email ${row.id}: ${errorMsg}`,
+            metadata: { scheduled_email_id: row.id, error: errorMsg },
+            created_by: "system",
+            event_date: new Date().toISOString().split("T")[0],
+          });
         }
       } catch (sendError: any) {
-        // Network or unexpected error
+        // Network / unexpected error → transient
         const errorMsg = sendError.message || "Unknown send error";
+        const newAttempts = (row.attempts || 0) + 1;
         await supabase
           .from("z_scheduled_emails")
           .update({
-            status: "failed",
+            status: newAttempts >= 3 ? "failed" : "pending",
+            attempts: newAttempts,
+            failure_type: "transient",
             error: errorMsg,
+            processing_started_at: null,
           })
-          .eq("id", scheduled.id);
+          .eq("id", row.id);
 
-        failed++;
-        results.push({ id: scheduled.id, status: "failed", error: errorMsg });
+        if (newAttempts >= 3) {
+          failedPermanent++;
+          await supabase.from("b_records_log").insert({
+            org_id: SSB_ORG_ID,
+            event_type: "campaign_email_failed",
+            source: "cron",
+            message: `Permanent failure for scheduled_email ${row.id}: max retries exceeded`,
+            metadata: { scheduled_email_id: row.id, error: "max_retries_exceeded", attempts: newAttempts },
+            created_by: "system",
+            event_date: new Date().toISOString().split("T")[0],
+          });
+        } else {
+          failedTransient++;
+        }
       }
     }
 
+    // ── Batch summary log ──
+    await supabase.from("b_records_log").insert({
+      org_id: SSB_ORG_ID,
+      event_type: "campaign_send_batch",
+      source: "cron",
+      message: `Campaign email batch: ${sent} sent, ${failedPermanent} failed permanent, ${failedTransient} transient retry`,
+      metadata: { sent, failed_permanent: failedPermanent, failed_transient: failedTransient, total_claimed: claimedRows.length },
+      created_by: "system",
+      event_date: new Date().toISOString().split("T")[0],
+    });
+
     return new Response(
       JSON.stringify({
-        message: `Processed ${pendingEmails.length} emails`,
+        message: `Processed ${claimedRows.length} emails`,
         sent,
-        failed,
-        results,
+        failed_permanent: failedPermanent,
+        failed_transient: failedTransient,
       }),
       { status: 200 }
     );
   } catch (err: any) {
     console.error("Unexpected error:", err);
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-    });
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 });
