@@ -156,6 +156,9 @@ export default function AdminCampaignsPanel() {
   const [recipientsLoading, setRecipientsLoading] = useState(false);
   const [recipientsCampaignId, setRecipientsCampaignId] = useState<string | null>(null);
 
+  // Email log expand
+  const [expandedEmailGroup, setExpandedEmailGroup] = useState<string | null>(null);
+
   // Countdown tick
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -310,6 +313,25 @@ export default function AdminCampaignsPanel() {
       } else {
         const d = await res.json();
         showToast(d.error || "Cancel failed", "error");
+      }
+    } catch {
+      showToast("Cancel failed", "error");
+    }
+  }
+
+  async function handleCancelBatch(campaignName: string) {
+    try {
+      const res = await fetch("/api/admin/scheduled-emails/cancel-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaign_name: campaignName }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`Cancelled ${data.cancelled} pending emails`, "success");
+        await fetchData();
+      } else {
+        showToast(data.error || "Cancel failed", "error");
       }
     } catch {
       showToast("Cancel failed", "error");
@@ -713,56 +735,136 @@ export default function AdminCampaignsPanel() {
         </table>
       </div>
 
-      {/* Scheduled emails table */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Scheduled Email Log</h3>
-        <div className="border rounded-lg overflow-auto bg-white shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b sticky top-0">
-              <tr>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Lead ID</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Campaign / Type</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Status</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Sent At</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {emails.length === 0 ? (
-                <tr><td colSpan={4} className="px-3 py-8 text-center text-gray-400">No scheduled emails yet.</td></tr>
-              ) : emails.map((e) => (
-                <tr key={e.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 font-mono text-xs">{e.lead_id.slice(0, 8)}&hellip;</td>
-                  <td className="px-3 py-2">{e.campaign_name ? <span className="font-medium">{e.campaign_name}</span> : <span className="text-gray-500">{e.email_type}</span>}</td>
-                  <td className="px-3 py-2"><Badge value={e.status} meta={STATUS_META} /></td>
-                  <td className="px-3 py-2 text-gray-500">
-                    {e.status === "pending" && e.send_at && new Date(e.send_at).getTime() > Date.now() ? (
-                      <span className="flex items-center gap-2">
-                        <span className="text-amber-600 font-medium">Sends in {formatCountdown(e.send_at)}</span>
-                        <button
-                          onClick={() => handleCancelEmail(e.id)}
-                          className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </span>
-                    ) : e.status === "pending" ? (
-                      <span className="text-green-600 font-medium">Sending soon...</span>
-                    ) : e.status === "sent" ? (
-                      <span className="text-green-600">Sent {formatDateTime(e.sent_at)}</span>
-                    ) : e.status === "cancelled" ? (
-                      <span className="text-gray-400">Cancelled</span>
-                    ) : e.status === "failed" ? (
-                      <span className="text-red-600">Failed</span>
-                    ) : (
-                      formatDateTime(e.sent_at)
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Scheduled emails table — grouped by campaign */}
+      {(() => {
+        // Group emails by campaign_name (null = system emails)
+        const campaignGroups: Record<string, ScheduledEmail[]> = {};
+        const systemEmails: ScheduledEmail[] = [];
+        for (const e of emails) {
+          if (e.campaign_name) {
+            if (!campaignGroups[e.campaign_name]) campaignGroups[e.campaign_name] = [];
+            campaignGroups[e.campaign_name].push(e);
+          } else {
+            systemEmails.push(e);
+          }
+        }
+        const campaignNames = Object.keys(campaignGroups).sort();
+
+        return (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">Scheduled Email Log</h3>
+            <div className="border rounded-lg overflow-auto bg-white shadow-sm">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">Campaign</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">Recipients</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">Status</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">Schedule</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600 w-[120px]"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {emails.length === 0 ? (
+                    <tr><td colSpan={5} className="px-3 py-8 text-center text-gray-400">No scheduled emails yet.</td></tr>
+                  ) : (
+                    <>
+                      {campaignNames.map((name) => {
+                        const group = campaignGroups[name];
+                        const pendingCount = group.filter((e) => e.status === "pending").length;
+                        const sentCount2 = group.filter((e) => e.status === "sent").length;
+                        const failedCount2 = group.filter((e) => e.status === "failed").length;
+                        const cancelledCount = group.filter((e) => e.status === "cancelled").length;
+                        const earliestSendAt = group
+                          .filter((e) => e.send_at)
+                          .sort((a, b) => new Date(a.send_at!).getTime() - new Date(b.send_at!).getTime())[0]?.send_at;
+                        const hasFuturePending = group.some((e) => e.status === "pending" && e.send_at && new Date(e.send_at).getTime() > Date.now());
+                        const isExpanded = expandedEmailGroup === name;
+
+                        return (
+                          <Fragment key={name}>
+                            <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedEmailGroup(isExpanded ? null : name)}>
+                              <td className="px-3 py-2 font-medium">{name}</td>
+                              <td className="px-3 py-2 text-gray-600">{group.length}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {pendingCount > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">{pendingCount} pending</span>}
+                                  {sentCount2 > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">{sentCount2} sent</span>}
+                                  {failedCount2 > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">{failedCount2} failed</span>}
+                                  {cancelledCount > 0 && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">{cancelledCount} cancelled</span>}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-gray-500">
+                                {hasFuturePending && earliestSendAt ? (
+                                  <span className="text-amber-600 font-medium">Sends in {formatCountdown(earliestSendAt)}</span>
+                                ) : earliestSendAt ? (
+                                  formatDateTime(earliestSendAt)
+                                ) : "\u2014"}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <div className="flex items-center gap-2 justify-end">
+                                  {hasFuturePending && (
+                                    <button
+                                      onClick={(ev) => { ev.stopPropagation(); handleCancelBatch(name); }}
+                                      className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                                    >
+                                      Cancel All
+                                    </button>
+                                  )}
+                                  <span className="text-xs text-gray-400">{isExpanded ? "\u25B2" : "\u25BC"}</span>
+                                </div>
+                              </td>
+                            </tr>
+                            {isExpanded && group.map((e) => (
+                              <tr key={e.id} className="bg-gray-50 hover:bg-gray-100">
+                                <td className="px-3 py-1.5 pl-8 font-mono text-xs text-gray-500">{e.lead_id?.slice(0, 8) || "\u2014"}</td>
+                                <td className="px-3 py-1.5 text-xs text-gray-500">{e.email_type}</td>
+                                <td className="px-3 py-1.5"><Badge value={e.status} meta={STATUS_META} /></td>
+                                <td className="px-3 py-1.5 text-xs text-gray-500">
+                                  {e.status === "sent" ? formatDateTime(e.sent_at) : e.status === "cancelled" ? <span className="text-gray-400">Cancelled</span> : e.status === "failed" ? <span className="text-red-600">Failed</span> : e.send_at ? formatDateTime(e.send_at) : "\u2014"}
+                                </td>
+                                <td className="px-3 py-1.5 text-right">
+                                  {e.status === "pending" && e.send_at && new Date(e.send_at).getTime() > Date.now() && (
+                                    <button onClick={() => handleCancelEmail(e.id)} className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">Cancel</button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </Fragment>
+                        );
+                      })}
+
+                      {/* System emails (no campaign_name) */}
+                      {systemEmails.length > 0 && (
+                        <>
+                          <tr className="bg-gray-50">
+                            <td colSpan={5} className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">System Emails</td>
+                          </tr>
+                          {systemEmails.map((e) => (
+                            <tr key={e.id} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 font-mono text-xs text-gray-500">{e.lead_id?.slice(0, 8) || "\u2014"}</td>
+                              <td className="px-3 py-2 text-gray-500">{e.email_type}</td>
+                              <td className="px-3 py-2"><Badge value={e.status} meta={STATUS_META} /></td>
+                              <td className="px-3 py-2 text-gray-500">
+                                {e.status === "sent" ? <span className="text-green-600">Sent {formatDateTime(e.sent_at)}</span> : e.status === "pending" ? (e.send_at && new Date(e.send_at).getTime() > Date.now() ? <span className="text-amber-600">Sends in {formatCountdown(e.send_at)}</span> : <span className="text-green-600">Sending soon...</span>) : e.status === "cancelled" ? <span className="text-gray-400">Cancelled</span> : e.status === "failed" ? <span className="text-red-600">Failed</span> : formatDateTime(e.sent_at)}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                {e.status === "pending" && e.send_at && new Date(e.send_at).getTime() > Date.now() && (
+                                  <button onClick={() => handleCancelEmail(e.id)} className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">Cancel</button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </>
+                      )}
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Create Campaign Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
