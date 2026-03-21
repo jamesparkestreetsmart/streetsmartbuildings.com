@@ -58,15 +58,18 @@ serve(async (_req) => {
 
     const claimedIds = eligibleRows.map((r: any) => r.id);
 
-    // Claim them atomically
-    await supabase
-      .from("z_scheduled_emails")
-      .update({
-        status: "processing",
-        processing_started_at: new Date().toISOString(),
-      })
-      .in("id", claimedIds)
-      .eq("status", "pending"); // Double-check still pending
+    // Claim them atomically and set idempotency_key
+    for (const row of eligibleRows) {
+      await supabase
+        .from("z_scheduled_emails")
+        .update({
+          status: "processing",
+          processing_started_at: new Date().toISOString(),
+          idempotency_key: `send-${row.id}`,
+        })
+        .eq("id", row.id)
+        .eq("status", "pending"); // Double-check still pending
+    }
 
     // Fetch full rows for processing
     const { data: claimedRows, error: claimErr } = await supabase
@@ -278,7 +281,7 @@ serve(async (_req) => {
       event_type: "campaign_send_batch",
       source: "cron",
       message: `Campaign email batch: ${sent} sent, ${failedPermanent} failed permanent, ${failedTransient} transient retry`,
-      metadata: { sent, failed_permanent: failedPermanent, failed_transient: failedTransient, total_claimed: claimedRows.length },
+      metadata: { sent, failed_permanent: failedPermanent, failed_transient: failedTransient, skipped: 0 },
       created_by: "system",
       event_date: new Date().toISOString().split("T")[0],
     });

@@ -35,6 +35,7 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
   // Type & User filters
   const [allEventTypes, setAllEventTypes] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"user" | "system" | "all">("user");
   const [allUsers, setAllUsers] = useState<string[]>([]);
   const [selectedUser, setSelectedUser] = useState<string>(""); // "" = all users
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
@@ -62,18 +63,10 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
       // Extract distinct event types and users
       const types = [...new Set(allRecords.map((r) => r.event_type))].sort();
       setAllEventTypes(types);
-      // Default: exclude noisy event types
-      const NOISY_EVENT_TYPES = new Set([
-        "occupancy_change",
-        "manifest_found",
-        "manifest_fallback",
-        "thermostat_push_attempt",
-        "profile_auto_linked",
-        "thermostat_push",
-      ]);
+      // Default: select all types (viewMode handles user/system filtering)
       setSelectedTypes((prev) => {
         if (prev.size === 0) {
-          return new Set(types.filter((t) => !NOISY_EVENT_TYPES.has(t)));
+          return new Set(types);
         }
         return prev;
       });
@@ -133,8 +126,19 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
       (isDeviceLevel && activeScopes.has("devices"));
     if (!scopeMatch) return false;
 
-    // Type filter
-    if (selectedTypes.size > 0 && !selectedTypes.has(r.event_type)) return false;
+    // View mode filter
+    const SYSTEM_SOURCES = new Set(["eagle_eyes", "cron", "ha_push"]);
+    const isAttentionWorthy = r.event_type.endsWith("_failed") || r.event_type.endsWith("_error") || r.event_type.endsWith("_warning");
+    const isSystemSource = SYSTEM_SOURCES.has(r.created_by || "");
+    if (viewMode === "user") {
+      if (isSystemSource && !isAttentionWorthy) return false;
+    } else if (viewMode === "system") {
+      if (!isSystemSource || isAttentionWorthy) return false;
+    }
+    // "all" = no view mode filtering
+
+    // Type filter (manual checkbox overrides)
+    if (selectedTypes.size > 0 && selectedTypes.size < allEventTypes.length && !selectedTypes.has(r.event_type)) return false;
 
     // User filter
     if (selectedUser && (r.created_by || "system") !== selectedUser) return false;
@@ -267,6 +271,24 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
                       ? "bg-green-600 text-white"
                       : "bg-gray-200 text-gray-500 hover:bg-gray-300"
                   } ${isSite ? "cursor-default" : "cursor-pointer"}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Quick view toggle */}
+          <div className="flex rounded-md border border-gray-300 overflow-hidden">
+            {(["User", "System", "All"] as const).map((label) => {
+              const mode = label.toLowerCase() as "user" | "system" | "all";
+              return (
+                <button
+                  key={label}
+                  onClick={() => setViewMode(mode)}
+                  className={`px-2.5 py-1 text-xs font-medium transition ${
+                    viewMode === mode ? "bg-green-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+                  } ${label !== "User" ? "border-l border-gray-300" : ""}`}
                 >
                   {label}
                 </button>
