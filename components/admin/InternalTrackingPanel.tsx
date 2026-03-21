@@ -215,8 +215,8 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   const [items, setItems] = useState<AnyItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filters — "__default__" = initial load (apply default active statuses), "" = user chose "All"
-  const [filterStatus, setFilterStatus] = useState<string>("__default__");
+  // Filters — "__default__" = apply default active statuses, "" = show all
+  const [filterStatus, setFilterStatus] = useState<string>("");
   const [filterSeverity, setFilterSeverity] = useState<string>("");
   const [filterIssueType, setFilterIssueType] = useState<string>("");
   const [filterWorkType, setFilterWorkType] = useState<string>("");
@@ -390,7 +390,7 @@ export default function InternalTrackingPanel({ userEmail, userId }: Props) {
   function handleTabChange(tab: Tab) {
     setItems([]); // clear stale data before switching tab to prevent type mismatch renders
     setActiveTab(tab);
-    setFilterStatus("__default__");
+    setFilterStatus("");
     setFilterSeverity("");
     setFilterIssueType("");
     setFilterWorkType("");
