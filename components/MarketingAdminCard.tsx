@@ -99,6 +99,9 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditLoading, setAuditLoading] = useState(true);
 
+  // Source filter
+  const [sourceFilter, setSourceFilter] = useState<"all" | "inbound" | "outbound">("all");
+
   // Add Lead modal state
   const [leadModalOpen, setLeadModalOpen] = useState(false);
   const [leadForm, setLeadForm] = useState({
@@ -561,7 +564,25 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
         {/* Leads Table */}
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-semibold text-gray-700">Marketing Leads</h4>
+            <div className="flex items-center gap-3">
+              <h4 className="text-sm font-semibold text-gray-700">Marketing Leads</h4>
+              <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                {(["All", "Inbound", "Outbound"] as const).map((label) => {
+                  const mode = label.toLowerCase() as "all" | "inbound" | "outbound";
+                  return (
+                    <button
+                      key={label}
+                      onClick={() => setSourceFilter(mode)}
+                      className={`px-2.5 py-1 text-xs font-medium transition ${
+                        sourceFilter === mode ? "bg-green-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+                      } ${label !== "All" ? "border-l border-gray-300" : ""}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               <button onClick={() => setLeadModalOpen(true)} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700">
                 + Add Lead
@@ -613,12 +634,19 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {leads.map((lead) => {
+                    {leads
+                      .filter((lead) => {
+                        if (sourceFilter === "inbound") return lead.source_type === "inbound_form";
+                        if (sourceFilter === "outbound") return lead.source_type !== "inbound_form";
+                        return true;
+                      })
+                      .map((lead) => {
                       const isEditing = editingId === lead.id;
                       const incomplete = !lead.organization_name || lead.projected_sites == null;
+                      const isWKS = lead.organization_name?.toLowerCase().includes("wks restaurant group");
 
                       return (
-                        <tr key={lead.id} className={`${incomplete ? "bg-amber-50" : "hover:bg-gray-50"}`}>
+                        <tr key={lead.id} className={`${isWKS ? "border-l-4 border-l-green-500 bg-green-50/30" : incomplete ? "bg-amber-50" : "hover:bg-gray-50"}`}>
                           <td className="px-3 py-2 text-gray-900 text-xs">{lead.email}</td>
 
                           {/* First Name */}
@@ -751,11 +779,22 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
 
                           {/* Welcome Email Status */}
                           <td className="px-3 py-2">
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[lead.welcome_email_status] || "bg-gray-100 text-gray-600"}`}>
-                              {lead.welcome_email_status}
-                            </span>
-                            {lead.welcome_email_error && (
-                              <div className="text-xs text-red-500 mt-0.5 truncate max-w-[200px]" title={lead.welcome_email_error}>{lead.welcome_email_error}</div>
+                            {lead.source_type !== "inbound_form" ? (
+                              <span
+                                className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-400"
+                                title="Outbound leads have a separate outreach flow"
+                              >
+                                Do not send &ndash; outbound
+                              </span>
+                            ) : (
+                              <>
+                                <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[lead.welcome_email_status] || "bg-gray-100 text-gray-600"}`}>
+                                  {lead.welcome_email_status}
+                                </span>
+                                {lead.welcome_email_error && (
+                                  <div className="text-xs text-red-500 mt-0.5 truncate max-w-[200px]" title={lead.welcome_email_error}>{lead.welcome_email_error}</div>
+                                )}
+                              </>
                             )}
                           </td>
 
