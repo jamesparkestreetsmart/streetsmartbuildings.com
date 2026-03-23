@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 interface Profile {
   profile_id: string;
   org_id: string;
+  site_id?: string | null;
   profile_name: string;
   scope?: string;
   is_global?: boolean;
@@ -468,9 +469,11 @@ export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, sa
 
 interface Props {
   orgId: string;
+  siteId?: string;
+  siteName?: string;
 }
 
-export default function ProfileManager({ orgId }: Props) {
+export default function ProfileManager({ orgId, siteId, siteName }: Props) {
   const { isServiceProvider, selectedOrg } = useOrg();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -559,6 +562,61 @@ export default function ProfileManager({ orgId }: Props) {
 
   const handleSave = async (profileId: string) => {
     setFormError(null);
+
+    // Bug 1 fix: If editing an ORG profile from site context, fork to site override
+    const profile = profiles.find((p) => p.profile_id === profileId);
+    if (siteId && profile?.scope === "ORG") {
+      // Check if a site override already exists for this site
+      const existing = profiles.find(
+        (p) => p.scope === "SITE" && p.profile_name.includes(profile.profile_name) && p.profile_name.includes("Override")
+      );
+
+      if (existing) {
+        // Update existing override
+        const res = await fetch("/api/thermostat/profiles", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile_id: existing.profile_id, ...form, profile_name: existing.profile_name }),
+        });
+        if (res.ok) {
+          setEditingId(null);
+          setForm({ ...DEFAULT_FORM });
+          fetchProfiles();
+          setPushResult("Site override updated.");
+          setTimeout(() => setPushResult(null), 5000);
+        } else {
+          const data = await res.json();
+          setFormError(data.error || "Failed to update site override.");
+        }
+      } else {
+        // Create new site override
+        const overrideName = `${profile.profile_name} — ${siteName || "Site"} Override`;
+        const res = await fetch("/api/thermostat/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            org_id: orgId,
+            site_id: siteId,
+            scope: "site",
+            ...form,
+            profile_name: overrideName,
+          }),
+        });
+        if (res.ok) {
+          setEditingId(null);
+          setForm({ ...DEFAULT_FORM });
+          fetchProfiles();
+          setPushResult(`Site override created for ${siteName || "this site"}.`);
+          setTimeout(() => setPushResult(null), 5000);
+        } else {
+          const data = await res.json();
+          setFormError(data.error || "Failed to create site override.");
+        }
+      }
+      return;
+    }
+
+    // Normal save (SITE profile or org admin context)
     const res = await fetch("/api/thermostat/profiles", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -588,11 +646,23 @@ export default function ProfileManager({ orgId }: Props) {
     const profile = profiles.find((p) => p.profile_id === profileId);
     if (!profile) return;
 
-    // Fetch zone types for this profile
-    const { data: zoneData } = await supabase
+    // Fetch eligible zones: for ORG profiles, query by org_id; for SITE, by profile_id
+    let query = supabase
       .from("a_hvac_zones")
-      .select("zone_type, site_id")
-      .eq("profile_id", profileId);
+      .select("zone_type, site_id");
+
+    if (profile.scope === "ORG" || profile.scope === "org") {
+      // ORG profiles target all zones in the org
+      query = query.eq("org_id", profile.org_id) as any;
+    } else if (profile.site_id) {
+      // SITE profiles with site_id target all zones at that site
+      query = query.eq("site_id", profile.site_id) as any;
+    } else {
+      // Fallback: SITE profiles without site_id, query by profile_id
+      query = query.eq("profile_id", profileId) as any;
+    }
+
+    const { data: zoneData } = await query;
 
     const zones = zoneData || [];
     setPushZoneData(zones);

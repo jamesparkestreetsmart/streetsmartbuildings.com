@@ -24,6 +24,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
   const [tab, setTab] = useState(params.get("tab") || "");
   const [orgId, setOrgId] = useState<string | null>(null);
   const [siteStatus, setSiteStatus] = useState<string | null>(null);
+  const [siteName, setSiteName] = useState<string>("");
   const [timezone, setTimezone] = useState<string>("America/Chicago");
   const [loaded, setLoaded] = useState(false);
 
@@ -31,7 +32,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
     const fetchSiteInfo = async () => {
       const { data } = await supabase
         .from("a_sites")
-        .select("org_id, status, timezone")
+        .select("org_id, status, timezone, site_name")
         .eq("site_id", siteId)
         .single();
 
@@ -39,6 +40,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
         setOrgId(data.org_id);
         setSiteStatus(data.status);
         setTimezone(data.timezone || "America/Chicago");
+        setSiteName(data.site_name || "");
       }
       setLoaded(true);
     };
@@ -102,7 +104,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
         <>
           <div className="flex gap-6 items-start">
             <div className="flex-1 min-w-0">
-              <ProfileManager orgId={orgId || ""} />
+              <ProfileManager orgId={orgId || ""} siteId={siteId} siteName={siteName} />
             </div>
             <div className="w-[380px] flex-shrink-0">
               <AnomalyThresholdsPanel siteId={siteId} orgId={orgId || ""} />

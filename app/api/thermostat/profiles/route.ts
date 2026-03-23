@@ -224,6 +224,7 @@ export async function POST(req: NextRequest) {
       name: profile_name,
       is_global: isGlobal,
       scope: fields.scope ?? "org",
+      site_id: siteId,
       occupied_heat_f: fields.occupied_heat_f ?? 68,
       occupied_cool_f: fields.occupied_cool_f ?? 76,
       unoccupied_heat_f: fields.unoccupied_heat_f ?? 55,

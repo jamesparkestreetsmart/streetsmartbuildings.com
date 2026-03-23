@@ -39,11 +39,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Find all zones linked to this profile
-    const { data: zones, error: zonesErr } = await supabase
+    // 2. Find eligible zones — ORG profiles target all zones in the org,
+    //    SITE profiles target zones already linked to the profile
+    let zonesQuery = supabase
       .from("a_hvac_zones")
-      .select("hvac_zone_id, name, site_id, thermostat_device_id, zone_type")
-      .eq("profile_id", profile_id);
+      .select("hvac_zone_id, name, site_id, thermostat_device_id, zone_type");
+
+    if (profile.scope === "ORG" || profile.scope === "org") {
+      zonesQuery = zonesQuery.eq("org_id", profile.org_id) as any;
+    } else if (profile.site_id) {
+      zonesQuery = zonesQuery.eq("site_id", profile.site_id) as any;
+    } else {
+      zonesQuery = zonesQuery.eq("profile_id", profile_id) as any;
+    }
+
+    const { data: zones, error: zonesErr } = await zonesQuery;
 
     if (zonesErr) {
       console.error("[global-push] Zones query failed:", zonesErr.message);

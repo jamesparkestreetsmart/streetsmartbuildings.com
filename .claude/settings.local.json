@@ -60,7 +60,8 @@
       "mcp__claude_ai_Supabase__get_publishable_keys",
       "Bash(cp:*)",
       "mcp__claude_ai_Supabase__list_projects",
-      "mcp__claude_ai_Supabase__get_logs"
+      "mcp__claude_ai_Supabase__get_logs",
+      "Bash(find \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/sites\" -type f -name \"page.tsx\")"
     ]
   }
 }
