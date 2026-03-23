@@ -1391,11 +1391,15 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                       </td>
                       {/* Occupied Heat */}
                       <td className={`py-3 px-2 border-l ${isOpen ? "bg-yellow-50/50" : "bg-green-50/30"}`}>
-                        <SetpointCell zone={zone} field="occ_heat" value={zone.policy_setpoint_min_f} bgClass={isOpen ? "bg-yellow-50/50" : "bg-green-50/30"} textClass={isOpen ? "text-gray-400" : "text-green-700"} />
+                        {zone.policy_hvac_mode === "cool"
+                          ? <span className="text-gray-300 font-mono">&mdash;</span>
+                          : <SetpointCell zone={zone} field="occ_heat" value={zone.policy_setpoint_min_f} bgClass={isOpen ? "bg-yellow-50/50" : "bg-green-50/30"} textClass={isOpen ? "text-gray-400" : "text-green-700"} />}
                       </td>
                       {/* Occupied Cool */}
                       <td className={`py-3 px-2 ${isOpen ? "bg-yellow-50/50" : "bg-green-50/30"}`}>
-                        <SetpointCell zone={zone} field="occ_cool" value={zone.policy_setpoint_max_f} bgClass={isOpen ? "bg-yellow-50/50" : "bg-green-50/30"} textClass={isOpen ? "text-gray-400" : "text-green-700"} />
+                        {zone.policy_hvac_mode === "heat"
+                          ? <span className="text-gray-300 font-mono">&mdash;</span>
+                          : <SetpointCell zone={zone} field="occ_cool" value={zone.policy_setpoint_max_f} bgClass={isOpen ? "bg-yellow-50/50" : "bg-green-50/30"} textClass={isOpen ? "text-gray-400" : "text-green-700"} />}
                       </td>
                       {/* Occupied Mode */}
                       <td className={`py-3 px-2 ${isOpen ? "bg-yellow-50/50" : "bg-green-50/30"}`}>
@@ -1403,11 +1407,15 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                       </td>
                       {/* Unoccupied Heat */}
                       <td className={`py-3 px-2 border-l ${isOpen ? "bg-yellow-50/50" : "bg-gray-50/50"}`}>
-                        <SetpointCell zone={zone} field="unocc_heat" value={zone.policy_setpoint_min_unoccupied_f} bgClass={isOpen ? "bg-yellow-50/50" : "bg-gray-50/50"} textClass={isOpen ? "text-gray-400" : "text-gray-600"} />
+                        {zone.policy_hvac_mode_unoccupied === "cool"
+                          ? <span className="text-gray-300 font-mono">&mdash;</span>
+                          : <SetpointCell zone={zone} field="unocc_heat" value={zone.policy_setpoint_min_unoccupied_f} bgClass={isOpen ? "bg-yellow-50/50" : "bg-gray-50/50"} textClass={isOpen ? "text-gray-400" : "text-gray-600"} />}
                       </td>
                       {/* Unoccupied Cool */}
                       <td className={`py-3 px-2 ${isOpen ? "bg-yellow-50/50" : "bg-gray-50/50"}`}>
-                        <SetpointCell zone={zone} field="unocc_cool" value={zone.policy_setpoint_max_unoccupied_f} bgClass={isOpen ? "bg-yellow-50/50" : "bg-gray-50/50"} textClass={isOpen ? "text-gray-400" : "text-gray-600"} />
+                        {zone.policy_hvac_mode_unoccupied === "heat"
+                          ? <span className="text-gray-300 font-mono">&mdash;</span>
+                          : <SetpointCell zone={zone} field="unocc_cool" value={zone.policy_setpoint_max_unoccupied_f} bgClass={isOpen ? "bg-yellow-50/50" : "bg-gray-50/50"} textClass={isOpen ? "text-gray-400" : "text-gray-600"} />}
                       </td>
                       {/* Unoccupied Mode */}
                       <td className={`py-3 px-2 ${isOpen ? "bg-yellow-50/50" : "bg-gray-50/50"}`}>
