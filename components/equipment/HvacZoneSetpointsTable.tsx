@@ -762,9 +762,6 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
   };
 
   const handleSnapshotApply = async (zoneId: string, snapshotId: string) => {
-    const zone = zones.find((z) => z.hvac_zone_id === zoneId);
-    const zoneName = zone?.zone_name || "Zone";
-
     // Check if this snapshot has an item for this exact zone
     const snapItem = siteSnapshots.find((s) => s.snapshot_id === snapshotId && s.zone_id === zoneId);
     if (!snapItem) {
@@ -772,37 +769,10 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
       return;
     }
 
-    // Check for partial duplicate match against existing SITE profiles
-    const siteProfiles = profiles.filter((p) => !p.is_global);
-    for (const ep of siteProfiles) {
-      let allMatch = true;
-      // Partial match: only compare non-null snapshot fields
-      const fields = ["occupied_heat_f", "occupied_cool_f", "unoccupied_heat_f", "unoccupied_cool_f",
-        "smart_start_enabled", "smart_start_max_adj_f", "occupancy_enabled", "occupancy_max_adj_f",
-        "feels_like_enabled", "feels_like_max_adj_f"] as const;
-      for (const field of fields) {
-        const snapVal = snapItem[field];
-        if (snapVal === null || snapVal === undefined) continue;
-        const profVal = (ep as any)[field];
-        if (profVal === null || profVal === undefined) { allMatch = false; break; }
-        if (typeof snapVal === "boolean" || typeof profVal === "boolean") {
-          if (Boolean(snapVal) !== Boolean(profVal)) { allMatch = false; break; }
-        } else if (Number(snapVal) !== Number(profVal)) { allMatch = false; break; }
-      }
-      if (allMatch) {
-        // Match found — assign existing profile instead of restoring
-        setSnapshotMessage({ zoneId, text: `Settings already match: ${ep.profile_name}`, type: "info" });
-        const res = await fetch("/api/thermostat/zone-setpoints", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: ep.profile_id }),
-        });
-        if (res.ok) { flashSaved(zoneId); fetchZones(); fetchProfiles(); triggerZonePush(zoneId); }
-        return;
-      }
-    }
-
-    // No match — call restore endpoint with single zone_id
+    // Delegate all matching and restore logic to the server endpoint.
+    // The server has full field data (select("*")) and uses snapshotMatchesProfile()
+    // for proper dedup across all 19 THERMOSTAT_FUNCTIONAL_FIELDS.
+    // No client-side partial matching — avoids false positives from incomplete field sets.
     try {
       const res = await fetch(`/api/thermostat/snapshots/${snapshotId}/push`, {
         method: "POST",

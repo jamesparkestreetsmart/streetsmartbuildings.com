@@ -64,7 +64,9 @@ export function profilesAreEqual(
 
 /**
  * Partial match for legacy snapshots: only compare fields that are
- * NON-NULL in the snapshot item. Null fields are unknown, not a mismatch.
+ * explicitly NULL in the snapshot item. Null = "captured before this
+ * field existed" → skip. Undefined = field missing from object →
+ * NOT a match (diagnostic failure, not a silent skip).
  */
 export function snapshotMatchesProfile(
   snapshotItem: Record<string, unknown>,
@@ -72,8 +74,10 @@ export function snapshotMatchesProfile(
 ): boolean {
   return THERMOSTAT_FUNCTIONAL_FIELDS.every(field => {
     const snapVal = snapshotItem[field];
-    // Null in snapshot = unknown (captured before field existed) → skip
-    if (snapVal === null || snapVal === undefined) return true;
+    // Only explicit null means "legacy field not captured" → skip
+    if (snapVal === null) return true;
+    // undefined = field missing from object → not a match
+    if (snapVal === undefined) return false;
     return valuesMatch(snapVal, profile[field]);
   });
 }
