@@ -240,7 +240,14 @@ export default function SeasonalSnapshotsPanel({ orgId }: Props) {
           </p>
         </div>
         <button
-          onClick={() => setSaveOpen(true)}
+          onClick={() => {
+            const now = new Date();
+            const formatted = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+            setSaveName(`Snapshot \u2014 ${formatted}`);
+            setSaveDate(now.toISOString().split("T")[0]);
+            setSaveNotes("");
+            setSaveOpen(true);
+          }}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
         >
           Save Current State

@@ -940,7 +940,7 @@ export default function ProfileManager({ orgId, siteId, siteName }: Props) {
                         {reapplyingId === profile.profile_id ? "..." : "Re-apply"}
                       </button>
                     )}
-                    {profile.scope !== "site" && (
+                    {profile.scope !== "site" && !siteId && (
                       <button
                         onClick={() => handlePush(profile.profile_id)}
                         disabled={pushingId === profile.profile_id}
