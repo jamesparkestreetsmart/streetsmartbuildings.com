@@ -1,22 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdminRole } from "@/lib/auth/requireAdminRole";
+import { PROFILE_IDENTITY_FIELDS, profilesAreEqual } from "@/lib/thermostat/profileIdentity";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// The 13 canonical profile settings fields
-const PROFILE_FIELDS = [
-  "occupied_heat_f", "occupied_cool_f", "occupied_fan_mode", "occupied_hvac_mode",
-  "unoccupied_heat_f", "unoccupied_cool_f", "unoccupied_fan_mode", "unoccupied_hvac_mode",
-  "guardrail_min_f", "guardrail_max_f",
-  "manager_offset_up_f", "manager_offset_down_f", "manager_override_reset_minutes",
-] as const;
-
-// Same 13 fields used to sync zone columns (matches global-push pattern)
-const ZONE_SYNC_FIELDS = PROFILE_FIELDS;
+// Use centralized identity fields for zone sync (matches global-push pattern)
+const ZONE_SYNC_FIELDS = PROFILE_IDENTITY_FIELDS;
 
 export async function POST(
   req: NextRequest,
@@ -101,16 +94,7 @@ export async function POST(
       let reusedProfile: any = null;
       if (existingProfiles) {
         for (const ep of existingProfiles) {
-          // Check all 13 fields match
-          let allMatch = true;
-          for (const field of PROFILE_FIELDS) {
-            const snapVal = item[field];
-            const profVal = ep[field];
-            if (snapVal == null && profVal == null) continue;
-            if (snapVal == null || profVal == null) { allMatch = false; break; }
-            if (Number(snapVal) !== Number(profVal) && String(snapVal) !== String(profVal)) { allMatch = false; break; }
-          }
-          if (allMatch) { reusedProfile = ep; break; }
+          if (profilesAreEqual(item, ep)) { reusedProfile = ep; break; }
         }
       }
 
@@ -130,7 +114,7 @@ export async function POST(
           scope: "site",
           is_system_generated: true,
         };
-        for (const field of PROFILE_FIELDS) {
+        for (const field of PROFILE_IDENTITY_FIELDS) {
           profilePayload[field] = item[field] ?? null;
         }
 

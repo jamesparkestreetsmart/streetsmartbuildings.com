@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { autoLinkProfile } from "@/lib/thermostat/auto-link-profile";
+import { PROFILE_IDENTITY_FIELDS, profilesAreEqual } from "@/lib/thermostat/profileIdentity";
 
 async function getCallerEmail(): Promise<string> {
   try {
@@ -270,15 +271,7 @@ export async function POST(req: NextRequest) {
         .in("profile_id", potentialDupes.map((p: any) => p.profile_id));
 
       for (const existing of fullDupes || []) {
-        let allMatch = true;
-        for (const field of ["occupied_heat_f", "occupied_cool_f", "occupied_fan_mode", "occupied_hvac_mode", "unoccupied_heat_f", "unoccupied_cool_f", "unoccupied_fan_mode", "unoccupied_hvac_mode", "guardrail_min_f", "guardrail_max_f", "manager_offset_up_f", "manager_offset_down_f", "manager_override_reset_minutes"]) {
-          const newVal = row[field];
-          const existVal = existing[field];
-          if (newVal == null && existVal == null) continue;
-          if (newVal == null || existVal == null) { allMatch = false; break; }
-          if (Number(newVal) !== Number(existVal) && String(newVal) !== String(existVal)) { allMatch = false; break; }
-        }
-        if (allMatch) {
+        if (profilesAreEqual(row, existing)) {
           return NextResponse.json(
             { error: "duplicate_settings", existing_profile_id: existing.profile_id, existing_profile_name: existing.name },
             { status: 409 }
@@ -416,15 +409,7 @@ export async function PATCH(req: NextRequest) {
           .in("profile_id", potentialDupes.map((p: any) => p.profile_id));
 
         for (const existing of fullDupes || []) {
-          let allMatch = true;
-          for (const field of ["occupied_heat_f", "occupied_cool_f", "occupied_fan_mode", "occupied_hvac_mode", "unoccupied_heat_f", "unoccupied_cool_f", "unoccupied_fan_mode", "unoccupied_hvac_mode", "guardrail_min_f", "guardrail_max_f", "manager_offset_up_f", "manager_offset_down_f", "manager_override_reset_minutes"]) {
-            const newVal = merged[field];
-            const existVal = existing[field];
-            if (newVal == null && existVal == null) continue;
-            if (newVal == null || existVal == null) { allMatch = false; break; }
-            if (Number(newVal) !== Number(existVal) && String(newVal) !== String(existVal)) { allMatch = false; break; }
-          }
-          if (allMatch) {
+          if (profilesAreEqual(merged, existing)) {
             return NextResponse.json(
               { error: "duplicate_settings", existing_profile_id: existing.profile_id, existing_profile_name: existing.name },
               { status: 409 }
@@ -449,12 +434,7 @@ export async function PATCH(req: NextRequest) {
     // Log profile update with changed fields
     try {
       const changedFields: string[] = [];
-      const trackFields = [
-        "occupied_heat_f", "occupied_cool_f", "unoccupied_heat_f", "unoccupied_cool_f",
-        "occupied_fan_mode", "occupied_hvac_mode", "unoccupied_fan_mode", "unoccupied_hvac_mode",
-        "guardrail_min_f", "guardrail_max_f", "manager_offset_up_f", "manager_offset_down_f",
-        "manager_override_reset_minutes",
-      ];
+      const trackFields = PROFILE_IDENTITY_FIELDS;
       for (const f of trackFields) {
         if (dbFields[f] !== undefined && before && dbFields[f] !== before[f]) {
           changedFields.push(`${f}: ${before[f]} → ${dbFields[f]}`);
