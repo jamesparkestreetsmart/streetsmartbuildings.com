@@ -24,6 +24,7 @@ interface MarketingLead {
   matched_contact_id: string | null;
   contact_id: string | null;
   promoted_at: string | null;
+  company_id: string | null;
 }
 
 interface Stats {
@@ -100,7 +101,7 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
   const [auditLoading, setAuditLoading] = useState(true);
 
   // Source filter
-  const [sourceFilter, setSourceFilter] = useState<"all" | "inbound" | "outbound">("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "inbound" | "outbound" | "promoted">("all");
 
   // Add Lead modal state
   const [leadModalOpen, setLeadModalOpen] = useState(false);
@@ -567,8 +568,8 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
             <div className="flex items-center gap-3">
               <h4 className="text-sm font-semibold text-gray-700">Marketing Leads</h4>
               <div className="flex rounded-md border border-gray-300 overflow-hidden">
-                {(["All", "Inbound", "Outbound"] as const).map((label) => {
-                  const mode = label.toLowerCase() as "all" | "inbound" | "outbound";
+                {(["All", "Inbound", "Outbound", "Promoted"] as const).map((label) => {
+                  const mode = label.toLowerCase() as "all" | "inbound" | "outbound" | "promoted";
                   return (
                     <button
                       key={label}
@@ -636,8 +637,11 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
                   <tbody className="divide-y">
                     {leads
                       .filter((lead) => {
+                        if (sourceFilter === "promoted") return lead.promotion_state === "promoted";
+                        // Hide promoted leads from All/Inbound/Outbound tabs
+                        if (lead.promotion_state === "promoted") return false;
                         if (sourceFilter === "inbound") return lead.source_type === "inbound_form";
-                        if (sourceFilter === "outbound") return lead.source_type !== "inbound_form";
+                        if (sourceFilter === "outbound") return lead.source_type === "outbound_sourced";
                         return true;
                       })
                       .map((lead) => {
@@ -682,10 +686,17 @@ export default function MarketingAdminCard({ userEmail }: { userEmail?: string }
                                 const textColor = status === "linked" ? "text-green-700" : status === "similar" ? "text-blue-700" : isHighValue ? "text-amber-700" : "text-gray-700";
                                 const tooltip = status === "linked" ? "Linked to organization" : status === "similar" ? "Similar to existing org — possible duplicate" : isHighValue ? "High value lead — ready for onboarding" : "Unmatched organization";
                                 return (
-                                  <span className={`inline-flex items-center gap-1.5 text-sm ${textColor}`} title={tooltip}>
-                                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
-                                    {lead.organization_name}
-                                  </span>
+                                  <div>
+                                    <span className={`inline-flex items-center gap-1.5 text-sm ${textColor}`} title={tooltip}>
+                                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
+                                      {lead.organization_name}
+                                    </span>
+                                    {lead.company_id && (
+                                      <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700" title={`Company ID: ${lead.company_id}`}>
+                                        &rarr; CRM
+                                      </span>
+                                    )}
+                                  </div>
                                 );
                               })()
                             ) : (

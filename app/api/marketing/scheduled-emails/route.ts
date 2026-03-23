@@ -14,7 +14,7 @@ export async function GET() {
     const { data: leads, error: leadsError } = await supabase
       .from("view_admin_leads")
       .select(
-        "id, email, first_name, last_name, organization_name, projected_sites, welcome_email_status, welcome_email_sent_at, welcome_email_error, created_at, org_id, title, source_type, lead_status, promotion_state, matched_contact_id, contact_id, promoted_at, outreach_priority"
+        "id, email, first_name, last_name, organization_name, projected_sites, welcome_email_status, welcome_email_sent_at, welcome_email_error, created_at, org_id, title, source_type, lead_status, promotion_state, matched_contact_id, contact_id, promoted_at, outreach_priority, company_id"
       )
       .limit(500);
 
