@@ -65,5 +65,9 @@
       "Bash(DRY_RUN=true npx tsx scripts/cleanup-duplicate-restored-profiles.ts)",
       "Bash(DRY_RUN=false npx tsx scripts/cleanup-duplicate-restored-profiles.ts)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ],
+  "enableAllProjectMcpServers": true
 }
