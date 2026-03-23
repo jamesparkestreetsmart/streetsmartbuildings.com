@@ -87,33 +87,70 @@ export async function POST(
         continue;
       }
 
-      // 4a. Create a new profile from frozen settings — one per zone (profile isolation)
-      const profilePayload: any = {
-        org_id,
-        name: `${snapshot.name} — ${item.zone_name} (Restored ${today})`,
-        scope: "site",
-      };
+      // 4a. Deduplicate: find existing restored SITE profile with identical settings
+      const restoredName = `Restored \u2014 ${snapshot.name} \u2014 ${snapshot.snapshot_date}`;
 
-      for (const field of PROFILE_FIELDS) {
-        profilePayload[field] = item[field] ?? null;
-      }
-
-      const { data: newProfile, error: profErr } = await supabase
+      // Search for existing SITE-scoped system-generated profiles that match all 13 fields
+      const { data: existingProfiles } = await supabase
         .from("b_thermostat_profiles")
-        .insert(profilePayload)
-        .select()
-        .single();
+        .select("*")
+        .eq("org_id", org_id)
+        .eq("scope", "site");
 
-      if (profErr || !newProfile) {
-        errors.push(`Failed to create profile for zone ${item.zone_name}: ${profErr?.message}`);
-        skipped++;
-        continue;
+      let reusedProfile: any = null;
+      if (existingProfiles) {
+        for (const ep of existingProfiles) {
+          // Only reuse system-generated restored profiles
+          if (!ep.name || (!ep.name.startsWith("Restored \u2014") && !ep.name.startsWith("Snapshot \u2014") && !ep.name.includes("(Restored "))) continue;
+          // Check all 13 fields match
+          let allMatch = true;
+          for (const field of PROFILE_FIELDS) {
+            const snapVal = item[field];
+            const profVal = ep[field];
+            if (snapVal == null && profVal == null) continue;
+            if (snapVal == null || profVal == null) { allMatch = false; break; }
+            if (Number(snapVal) !== Number(profVal) && String(snapVal) !== String(profVal)) { allMatch = false; break; }
+          }
+          if (allMatch) { reusedProfile = ep; break; }
+        }
       }
 
-      profilesCreated++;
+      let profileToUse: any;
+      if (reusedProfile) {
+        // Reuse existing profile, update name
+        await supabase
+          .from("b_thermostat_profiles")
+          .update({ name: restoredName })
+          .eq("profile_id", reusedProfile.profile_id);
+        profileToUse = { ...reusedProfile, name: restoredName };
+      } else {
+        // Create new profile
+        const profilePayload: any = {
+          org_id,
+          name: restoredName,
+          scope: "site",
+        };
+        for (const field of PROFILE_FIELDS) {
+          profilePayload[field] = item[field] ?? null;
+        }
 
-      // 4b. Re-assign zone to new profile + sync 13 settings columns (global-push pattern)
-      const zoneUpdate: any = { profile_id: newProfile.profile_id };
+        const { data: newProfile, error: profErr } = await supabase
+          .from("b_thermostat_profiles")
+          .insert(profilePayload)
+          .select()
+          .single();
+
+        if (profErr || !newProfile) {
+          errors.push(`Failed to create profile for zone ${item.zone_name}: ${profErr?.message}`);
+          skipped++;
+          continue;
+        }
+        profileToUse = newProfile;
+        profilesCreated++;
+      }
+
+      // 4b. Re-assign zone to profile + sync 13 settings columns (global-push pattern)
+      const zoneUpdate: any = { profile_id: profileToUse.profile_id };
       for (const field of ZONE_SYNC_FIELDS) {
         zoneUpdate[field] = item[field] ?? null;
       }

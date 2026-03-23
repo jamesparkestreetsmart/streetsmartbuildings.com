@@ -471,9 +471,10 @@ interface Props {
   orgId: string;
   siteId?: string;
   siteName?: string;
+  refreshKey?: number;
 }
 
-export default function ProfileManager({ orgId, siteId, siteName }: Props) {
+export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: Props) {
   const { isServiceProvider, selectedOrg } = useOrg();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -537,6 +538,13 @@ export default function ProfileManager({ orgId, siteId, siteName }: Props) {
     fetchProfiles();
     fetchAvailableZoneTypes();
   }, [fetchProfiles, fetchAvailableZoneTypes]);
+
+  // Re-fetch when parent signals a refresh (e.g. after snapshot apply)
+  useEffect(() => {
+    if (refreshKey && refreshKey > 0) {
+      fetchProfiles();
+    }
+  }, [refreshKey, fetchProfiles]);
 
   const handleCreate = async () => {
     setFormError(null);

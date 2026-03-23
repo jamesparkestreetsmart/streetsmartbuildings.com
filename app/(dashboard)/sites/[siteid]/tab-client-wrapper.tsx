@@ -28,6 +28,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
   const [siteName, setSiteName] = useState<string>("");
   const [timezone, setTimezone] = useState<string>("America/Chicago");
   const [loaded, setLoaded] = useState(false);
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
 
   useEffect(() => {
     const fetchSiteInfo = async () => {
@@ -105,13 +106,13 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
         <>
           <div className="flex gap-6 items-start">
             <div className="flex-1 min-w-0">
-              <ProfileManager orgId={orgId || ""} siteId={siteId} siteName={siteName} />
+              <ProfileManager orgId={orgId || ""} siteId={siteId} siteName={siteName} refreshKey={profileRefreshKey} />
             </div>
             <div className="w-[380px] flex-shrink-0">
               <AnomalyThresholdsPanel siteId={siteId} orgId={orgId || ""} />
             </div>
           </div>
-          <SiteSnapshotPanel siteId={siteId} orgId={orgId || ""} siteName={siteName} />
+          <SiteSnapshotPanel siteId={siteId} orgId={orgId || ""} siteName={siteName} onApplied={() => setProfileRefreshKey((k) => k + 1)} />
           <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />
           <SpaceHvacTable siteId={siteId} />
           <CompressorCycleTable siteId={siteId} />
