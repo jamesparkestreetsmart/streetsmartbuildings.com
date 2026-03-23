@@ -21,7 +21,7 @@ interface RecordLog {
 type Scope = "site" | "equipment" | "devices";
 
 export default function SiteActivityLog({ siteId }: { siteId: string }) {
-  const { userEmail } = useOrg();
+  const { userEmail, selectedOrgId } = useOrg();
   const [records, setRecords] = useState<RecordLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeScopes, setActiveScopes] = useState<Set<Scope>>(new Set(["site", "equipment", "devices"]));
@@ -46,18 +46,38 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
   const fetchLogs = useCallback(async () => {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("b_records_log")
-      .select("*")
-      .eq("site_id", siteId)
-      .order("created_at", { ascending: false })
-      .limit(1000);
+    // Fetch site-level records + org-level profile events (logged with site_id = null)
+    const [siteRes, profileRes] = await Promise.all([
+      supabase
+        .from("b_records_log")
+        .select("*")
+        .eq("site_id", siteId)
+        .order("created_at", { ascending: false })
+        .limit(1000),
+      selectedOrgId
+        ? supabase
+            .from("b_records_log")
+            .select("*")
+            .eq("org_id", selectedOrgId)
+            .is("site_id", null)
+            .eq("source", "thermostat_profiles")
+            .order("created_at", { ascending: false })
+            .limit(100)
+        : Promise.resolve({ data: [] as RecordLog[], error: null }),
+    ]);
 
-    if (error) {
-      console.error("Error fetching site activity:", error);
+    if (siteRes.error) {
+      console.error("Error fetching site activity:", siteRes.error);
       setRecords([]);
     } else {
-      const allRecords = data || [];
+      // Merge and deduplicate by id
+      const merged = [...(siteRes.data || []), ...(profileRes.data || [])];
+      const seen = new Set<number>();
+      const allRecords = merged.filter((r) => {
+        if (seen.has(r.id)) return false;
+        seen.add(r.id);
+        return true;
+      });
       setRecords(allRecords);
 
       // Extract distinct event types and users
@@ -98,7 +118,7 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
       }
     }
     setLoading(false);
-  }, [siteId]);
+  }, [siteId, selectedOrgId]);
 
   useEffect(() => {
     fetchLogs();

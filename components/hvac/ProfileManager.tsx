@@ -875,30 +875,64 @@ export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: 
                     <h3 className="font-semibold text-base">{profile.profile_name}</h3>
                   </div>
                   <div className="text-sm text-gray-600 mt-1 space-y-0.5">
-                    <p>
-                      <span className="text-xs text-gray-400 mr-1">{formatHvacMode(profile.occupied_hvac_mode)}</span>
-                      <span className="mx-1 text-gray-300">|</span>
-                      <span className="text-green-700 font-medium">Occupied:</span>{" "}
-                      {(() => {
-                        const m = mapHvacMode(profile.occupied_hvac_mode);
-                        if (m === "heat") return `${profile.occupied_heat_f}°F`;
-                        if (m === "cool") return `${profile.occupied_cool_f}°F`;
-                        return `${profile.occupied_heat_f}°–${profile.occupied_cool_f}°F`;
-                      })()}
-                      {" / "}{formatFanMode(profile.occupied_fan_mode)}
-                      <span className="mx-2 text-gray-300">|</span>
-                      <span className="text-gray-500 font-medium">Unoccupied:</span>{" "}
-                      {(() => {
-                        const m = mapHvacMode(profile.unoccupied_hvac_mode);
-                        if (m === "heat") return `${profile.unoccupied_heat_f}°F`;
-                        if (m === "cool") return `${profile.unoccupied_cool_f}°F`;
-                        return `${profile.unoccupied_heat_f}°–${profile.unoccupied_cool_f}°F`;
-                      })()}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Guardrails: {profile.guardrail_min_f ?? 45}&deg;&ndash;{profile.guardrail_max_f ?? 95}&deg;F
-                      <span className="mx-2 text-gray-300">|</span>
-                      Manager: &plusmn;{profile.manager_offset_up_f ?? 4}&deg;F / {formatResetLabel(profile.manager_override_reset_minutes ?? 120)} reset
+                    <div className="flex flex-col md:flex-row md:gap-8">
+                      {/* Left column — setpoints, guardrails, manager */}
+                      <div className="space-y-0.5 min-w-0">
+                        <p>
+                          <span className="text-xs text-gray-400 mr-1">{formatHvacMode(profile.occupied_hvac_mode)}</span>
+                          <span className="mx-1 text-gray-300">|</span>
+                          <span className="text-green-700 font-medium">Occupied:</span>{" "}
+                          {(() => {
+                            const m = mapHvacMode(profile.occupied_hvac_mode);
+                            if (m === "heat") return `${profile.occupied_heat_f}°F`;
+                            if (m === "cool") return `${profile.occupied_cool_f}°F`;
+                            return `${profile.occupied_heat_f}°–${profile.occupied_cool_f}°F`;
+                          })()}
+                          {" / "}{formatFanMode(profile.occupied_fan_mode)}
+                          <span className="mx-2 text-gray-300">|</span>
+                          <span className="text-gray-500 font-medium">Unoccupied:</span>{" "}
+                          {(() => {
+                            const m = mapHvacMode(profile.unoccupied_hvac_mode);
+                            if (m === "heat") return `${profile.unoccupied_heat_f}°F`;
+                            if (m === "cool") return `${profile.unoccupied_cool_f}°F`;
+                            return `${profile.unoccupied_heat_f}°–${profile.unoccupied_cool_f}°F`;
+                          })()}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          Guardrails: {profile.guardrail_min_f ?? 45}&deg;&ndash;{profile.guardrail_max_f ?? 95}&deg;F
+                          <span className="mx-2 text-gray-300">|</span>
+                          Manager: &plusmn;{profile.manager_offset_up_f ?? 4}&deg;F / {formatResetLabel(profile.manager_override_reset_minutes ?? 120)} reset
+                        </p>
+                      </div>
+                      {/* Center column — setpoint adjustments (desktop: beside left col, narrow: compact line) */}
+                      <div className="hidden md:flex flex-col text-xs text-gray-400 space-y-0.5 shrink-0">
+                        <p>
+                          Smart Start:{" "}
+                          {profile.smart_start_enabled
+                            ? <span className="font-medium text-gray-600">+{profile.smart_start_max_adj_f ?? 1}&deg;F</span>
+                            : <span className="text-gray-300">off</span>}
+                        </p>
+                        <p>
+                          Occupancy:{" "}
+                          {profile.occupancy_enabled
+                            ? <span className="font-medium text-gray-600">+{profile.occupancy_max_adj_f ?? 1}&deg;F</span>
+                            : <span className="text-gray-300">off</span>}
+                        </p>
+                        <p>
+                          Feels Like:{" "}
+                          {profile.feels_like_enabled
+                            ? <span className="font-medium text-gray-600">+{profile.feels_like_max_adj_f ?? 2}&deg;F</span>
+                            : <span className="text-gray-300">off</span>}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Narrow screen fallback — compact single line */}
+                    <p className="md:hidden text-xs text-gray-400">
+                      Smart Start {profile.smart_start_enabled ? <span className="font-medium text-gray-600">+{profile.smart_start_max_adj_f ?? 1}&deg;F</span> : <span className="text-gray-300">off</span>}
+                      {" \u00B7 "}
+                      Occupancy {profile.occupancy_enabled ? <span className="font-medium text-gray-600">+{profile.occupancy_max_adj_f ?? 1}&deg;F</span> : <span className="text-gray-300">off</span>}
+                      {" \u00B7 "}
+                      Feels Like {profile.feels_like_enabled ? <span className="font-medium text-gray-600">+{profile.feels_like_max_adj_f ?? 2}&deg;F</span> : <span className="text-gray-300">off</span>}
                     </p>
                   </div>
                   {/* Zone type badges */}
