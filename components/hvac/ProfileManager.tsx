@@ -136,6 +136,9 @@ export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, sa
         />
       </div>
 
+      {/* AUTO-LINK TO ZONE TYPES: intentionally removed. Do not re-add.
+          target_zone_types field is kept in the interface for push flow use only. */}
+
       {/* THERMOSTAT MODE */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Thermostat Mode</label>
