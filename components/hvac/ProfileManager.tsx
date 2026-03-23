@@ -112,21 +112,15 @@ const RESET_OPTIONS = [
   { label: "Never", minutes: 0 },
 ];
 
-const WELL_KNOWN_ZONE_TYPES = [
-  "employee", "customer", "kitchen", "storage", "server", "office", "common_area",
-];
-
 // Extracted as a top-level component so parent re-renders don't destroy/recreate inputs
-export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, saveLabel, availableZoneTypes }: {
+export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, saveLabel }: {
   form: FormState;
   setForm: (f: FormState) => void;
   onSave: () => void;
   onSaveAndPush?: () => void;
   onCancel: () => void;
   saveLabel: string;
-  availableZoneTypes?: string[];
 }) {
-  const zoneTypeOptions = [...new Set([...WELL_KNOWN_ZONE_TYPES, ...(availableZoneTypes || [])])].sort();
 
   return (
     <div className="space-y-4">
@@ -140,35 +134,6 @@ export function ProfileForm({ form, setForm, onSave, onSaveAndPush, onCancel, sa
           placeholder="e.g., Wendy's Standard"
           className="w-full border rounded-lg px-3 py-2 text-sm"
         />
-      </div>
-
-      {/* Auto-link Zone Types */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Auto-link to zone types</label>
-        <div className="flex flex-wrap gap-2">
-          {zoneTypeOptions.map((zt) => {
-            const checked = form.target_zone_types.includes(zt);
-            return (
-              <label key={zt} className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => {
-                    const next = checked
-                      ? form.target_zone_types.filter((t) => t !== zt)
-                      : [...form.target_zone_types, zt];
-                    setForm({ ...form, target_zone_types: next });
-                  }}
-                  className="rounded border-gray-300 text-green-600"
-                />
-                <span className="text-sm text-gray-700">{zt}</span>
-              </label>
-            );
-          })}
-        </div>
-        <p className="text-xs text-gray-400 mt-1">
-          This profile will be automatically assigned to all unassigned zones of these types within scope.
-        </p>
       </div>
 
       {/* THERMOSTAT MODE */}
@@ -855,11 +820,6 @@ export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: 
         </div>
       )}
 
-      {formError && (
-        <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
-          {formError}
-        </div>
-      )}
 
       {(() => {
         const ssbTemplates = profiles.filter((p) => p.is_global);
@@ -872,14 +832,25 @@ export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: 
             return (
               <div key={profile.profile_id} className="border rounded-xl p-5">
                 <h3 className="text-base font-semibold mb-3">Edit Profile: {profile.profile_name}</h3>
+                {formError && (
+                  <div className={`mb-3 px-3 py-2 rounded-lg text-sm ${formError.includes("identical profile") ? "bg-amber-50 border border-amber-200 text-amber-800" : "bg-red-50 border border-red-200 text-red-800"}`}>
+                    {formError}
+                    {formError.includes("identical profile") && (
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={() => { setEditingId(null); setFormError(null); setForm({ ...DEFAULT_FORM }); }} className="px-3 py-1 rounded text-xs font-medium border border-amber-300 text-amber-700 hover:bg-amber-100">Use Existing</button>
+                        <button onClick={() => setFormError(null)} className="px-3 py-1 rounded text-xs font-medium border text-gray-600 hover:bg-gray-100">Dismiss</button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <ProfileForm
                   form={form}
                   setForm={setForm}
                   onSave={() => handleSave(profile.profile_id)}
                   onSaveAndPush={profile.scope !== "site" ? () => handleSaveAndPush(profile.profile_id) : undefined}
-                  onCancel={() => { setEditingId(null); setForm({ ...DEFAULT_FORM }); }}
+                  onCancel={() => { setEditingId(null); setForm({ ...DEFAULT_FORM }); setFormError(null); }}
                   saveLabel="Save"
-                  availableZoneTypes={availableZoneTypes}
+
                 />
               </div>
             );
@@ -1020,13 +991,23 @@ export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: 
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">New Thermostat Profile</h3>
+            {formError && (
+              <div className={`mb-3 px-3 py-2 rounded-lg text-sm ${formError.includes("identical profile") ? "bg-amber-50 border border-amber-200 text-amber-800" : "bg-red-50 border border-red-200 text-red-800"}`}>
+                {formError}
+                {formError.includes("identical profile") && (
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => { setShowNewModal(false); setFormError(null); setForm({ ...DEFAULT_FORM }); }} className="px-3 py-1 rounded text-xs font-medium border border-amber-300 text-amber-700 hover:bg-amber-100">Use Existing</button>
+                    <button onClick={() => setFormError(null)} className="px-3 py-1 rounded text-xs font-medium border text-gray-600 hover:bg-gray-100">Dismiss</button>
+                  </div>
+                )}
+              </div>
+            )}
             <ProfileForm
               form={form}
               setForm={setForm}
               onSave={handleCreate}
-              onCancel={() => { setShowNewModal(false); setForm({ ...DEFAULT_FORM }); }}
+              onCancel={() => { setShowNewModal(false); setForm({ ...DEFAULT_FORM }); setFormError(null); }}
               saveLabel="Create Profile"
-              availableZoneTypes={availableZoneTypes}
             />
           </div>
         </div>
