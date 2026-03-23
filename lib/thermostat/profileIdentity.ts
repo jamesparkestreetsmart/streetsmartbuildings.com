@@ -6,8 +6,9 @@
 //   1. Add the column to b_thermostat_profiles (migration)
 //   2. Add the column to a_org_thermostat_snapshot_items as NULLABLE,
 //      no default, no backfill (null = "captured before this field existed")
-//   3. Add the field name here
-//   4. Everything else (dedup, capture, restore, UI) updates automatically.
+//   3. Add the column to a_hvac_zones as NULLABLE
+//   4. Add the field name here
+//   Everything else (dedup, capture, restore, UI) updates automatically.
 //
 // Never hardcode field lists anywhere else. Always import from here.
 

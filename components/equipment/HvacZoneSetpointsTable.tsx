@@ -75,6 +75,7 @@ interface Profile {
   profile_id: string;
   profile_name: string;
   is_global?: boolean;
+  is_system_generated?: boolean;
   occupied_heat_f?: number | null;
   occupied_cool_f?: number | null;
   unoccupied_heat_f?: number | null;
@@ -456,6 +457,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
           profile_id: p.profile_id,
           profile_name: p.profile_name,
           is_global: p.is_global ?? false,
+          is_system_generated: p.is_system_generated ?? false,
           occupied_heat_f: p.occupied_heat_f,
           occupied_cool_f: p.occupied_cool_f,
           unoccupied_heat_f: p.unoccupied_heat_f,
@@ -1373,13 +1375,19 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                           >
                             {!zone.profile_id && <option value="">No profile</option>}
                             {(() => {
-                              const ssbProfiles = profiles.filter((p) => p.is_global);
-                              const orgProfiles = profiles.filter((p) => !p.is_global);
+                              // Show operator-created profiles only (not system-generated)
+                              const operatorProfiles = profiles.filter((p) => !p.is_system_generated);
+                              const ssbProfiles = operatorProfiles.filter((p) => p.is_global);
+                              const orgProfiles = operatorProfiles.filter((p) => !p.is_global);
                               const zoneSnaps = siteSnapshots.filter((s) => s.zone_id === zone.hvac_zone_id);
-                              // Deduplicate snapshots by snapshot_id for this zone
                               const uniqueSnaps = [...new Map(zoneSnaps.map((s) => [s.snapshot_id, s])).values()];
+                              // If zone's current profile is system-generated, include it as the current selection only
+                              const currentIsSystem = zone.profile_id && profiles.find((p) => p.profile_id === zone.profile_id && p.is_system_generated);
                               return (
                                 <>
+                                  {currentIsSystem && (
+                                    <option value={zone.profile_id!}>{currentIsSystem.profile_name}</option>
+                                  )}
                                   {ssbProfiles.length > 0 && (
                                     <optgroup label="SSB Templates">
                                       {ssbProfiles.map((p) => <option key={p.profile_id} value={p.profile_id}>{p.profile_name}</option>)}

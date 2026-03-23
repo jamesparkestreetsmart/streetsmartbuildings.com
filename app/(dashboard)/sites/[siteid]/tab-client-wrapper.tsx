@@ -112,7 +112,7 @@ export default function TabClientWrapper({ siteId }: { siteId: string }) {
               <AnomalyThresholdsPanel siteId={siteId} orgId={orgId || ""} />
             </div>
           </div>
-          <SiteSnapshotPanel siteId={siteId} orgId={orgId || ""} siteName={siteName} onApplied={() => setProfileRefreshKey((k) => k + 1)} />
+          <SiteSnapshotPanel siteId={siteId} orgId={orgId || ""} />
           <HvacZoneSetpointsTable siteId={siteId} orgId={orgId || ""} />
           <SpaceHvacTable siteId={siteId} />
           <CompressorCycleTable siteId={siteId} />

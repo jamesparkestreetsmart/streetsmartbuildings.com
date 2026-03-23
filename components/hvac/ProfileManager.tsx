@@ -12,6 +12,7 @@ interface Profile {
   profile_name: string;
   scope?: string;
   is_global?: boolean;
+  is_system_generated?: boolean;
   occupied_heat_f: number;
   occupied_cool_f: number;
   unoccupied_heat_f: number;
@@ -825,8 +826,9 @@ export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: 
 
 
       {(() => {
-        const ssbTemplates = profiles.filter((p) => p.is_global);
-        const orgProfiles = profiles.filter((p) => !p.is_global);
+        const visibleProfiles = profiles.filter((p) => !p.is_system_generated);
+        const ssbTemplates = visibleProfiles.filter((p) => p.is_global);
+        const orgProfiles = visibleProfiles.filter((p) => !p.is_global);
 
         const renderProfileCard = (profile: Profile, readOnly: boolean) => {
           const isEditing = editingId === profile.profile_id;
