@@ -500,6 +500,12 @@ export default function ProfileManager({ orgId, siteId, siteName }: Props) {
   const [filteredSiteCount, setFilteredSiteCount] = useState(0);
   const [pushZoneData, setPushZoneData] = useState<{ zone_type: string; site_id: string }[]>([]);
 
+  // Snapshot modal state
+  const [snapshotModalOpen, setSnapshotModalOpen] = useState(false);
+  const [snapshotName, setSnapshotName] = useState("");
+  const [snapshotNotes, setSnapshotNotes] = useState("");
+  const [snapshotSaving, setSnapshotSaving] = useState(false);
+
   // Show SSB templates for: service providers OR client orgs (have a parent)
   const showSSBTemplates = isServiceProvider || selectedOrg?.parent_org_id !== null;
 
@@ -745,6 +751,45 @@ export default function ProfileManager({ orgId, siteId, siteName }: Props) {
     }
   };
 
+  const openSnapshotModal = () => {
+    const orgName = selectedOrg?.org_name || "Org";
+    const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    setSnapshotName(`Pre-edit \u2014 ${orgName} \u2014 ${dateStr}`);
+    setSnapshotNotes("");
+    setSnapshotModalOpen(true);
+  };
+
+  const handleSaveSnapshot = async () => {
+    if (!snapshotName.trim()) return;
+    setSnapshotSaving(true);
+    try {
+      const res = await fetch("/api/thermostat/snapshots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          org_id: orgId,
+          name: snapshotName.trim(),
+          snapshot_date: new Date().toISOString().split("T")[0],
+          notes: snapshotNotes.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSnapshotModalOpen(false);
+        setPushResult(`Org snapshot saved \u2014 ${data.zone_count} zones across ${data.site_count} sites`);
+        setTimeout(() => setPushResult(null), 5000);
+      } else {
+        setPushResult(`Snapshot failed \u2014 ${data.error || "please try again"}`);
+        setTimeout(() => setPushResult(null), 5000);
+      }
+    } catch {
+      setPushResult("Snapshot failed \u2014 please try again");
+      setTimeout(() => setPushResult(null), 5000);
+    } finally {
+      setSnapshotSaving(false);
+    }
+  };
+
   // Map legacy fan mode values to HA T6 Pro values
   const mapFanMode = (v: string | null | undefined): string => {
     if (!v) return "Auto low";
@@ -819,12 +864,20 @@ export default function ProfileManager({ orgId, siteId, siteName }: Props) {
     <div className="rounded-xl bg-white shadow p-4 mb-4">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold">Thermostat Profiles</h2>
-        <button
-          onClick={() => { setForm({ ...DEFAULT_FORM }); setFormError(null); setShowNewModal(true); }}
-          className="px-4 py-2 bg-[#12723A] text-white rounded-lg hover:bg-[#0e5c2e] transition-colors text-sm"
-        >
-          + New Profile
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openSnapshotModal}
+            className="px-3 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+          >
+            Save Org Snapshot
+          </button>
+          <button
+            onClick={() => { setForm({ ...DEFAULT_FORM }); setFormError(null); setShowNewModal(true); }}
+            className="px-4 py-2 bg-[#12723A] text-white rounded-lg hover:bg-[#0e5c2e] transition-colors text-sm"
+          >
+            + New Profile
+          </button>
+        </div>
       </div>
 
       {pushResult && (
@@ -1098,6 +1151,55 @@ export default function ProfileManager({ orgId, siteId, siteName }: Props) {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot Modal */}
+      {snapshotModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold mb-2">Save Org Snapshot</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              This will save the current thermostat settings for all assigned zones across your entire organization, not just this site.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+                <input
+                  type="text"
+                  value={snapshotName}
+                  onChange={(e) => setSnapshotName(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                <textarea
+                  value={snapshotNotes}
+                  onChange={(e) => setSnapshotNotes(e.target.value)}
+                  placeholder="e.g. Before adjusting Oneida profile"
+                  rows={2}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setSnapshotModalOpen(false)}
+                className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveSnapshot}
+                disabled={snapshotSaving || !snapshotName.trim()}
+                className="px-4 py-2 bg-[#12723A] text-white rounded-lg text-sm hover:bg-[#0e5c2e] disabled:opacity-50"
+              >
+                {snapshotSaving ? "Saving..." : "Save Snapshot"}
+              </button>
+            </div>
           </div>
         </div>
       )}

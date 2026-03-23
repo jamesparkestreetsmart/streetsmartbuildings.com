@@ -84,7 +84,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
   const [success, setSuccess] = useState<string | null>(null);
 
   // Profile-first state
-  const [mode, setMode] = useState<"view" | "create">("view");
+  const [mode, setMode] = useState<"view" | "create" | "edit">("view");
   const [templateName, setTemplateName] = useState("");
 
   // Template list state
@@ -236,6 +236,33 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
     return true;
   }
 
+  // Enter edit mode for the site's base schedule
+  function startEditSchedule() {
+    setEditRows([...rows]);
+    setMode("edit");
+    setError(null);
+    setSuccess(null);
+  }
+
+  // Save site schedule directly (no template)
+  async function handleSaveSchedule() {
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const applied = await applyRowsToSite(editRows);
+      if (applied) {
+        setMode("view");
+        setSuccess("Site schedule updated.");
+        fetchHours();
+      }
+    } catch {
+      setError("Network error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // Enter create mode pre-filled with current site hours
   function startNewTemplate() {
     setEditRows([...rows]);
@@ -376,13 +403,22 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
     }
   }
 
-  const displayedRows = mode === "create" ? editRows : rows;
+  const displayedRows = mode === "view" ? rows : editRows;
 
   return (
     <div className="bg-white rounded-lg shadow border border-gray-200 p-4">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Store Hours</h2>
+        {mode === "view" && (
+          <button
+            onClick={startEditSchedule}
+            disabled={loading}
+            className="px-3 py-1.5 text-xs font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
+          >
+            Edit Schedule
+          </button>
+        )}
       </div>
 
       {error && (
@@ -506,7 +542,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
                       {row.day_of_week}
                     </td>
                     <td className="py-2 px-3">
-                      {mode === "create" ? (
+                      {mode !== "view" ? (
                         <input
                           type="time"
                           value={toTimeInputValue(row.open_time)}
@@ -525,7 +561,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
                       )}
                     </td>
                     <td className="py-2 px-3">
-                      {mode === "create" ? (
+                      {mode !== "view" ? (
                         <input
                           type="time"
                           value={toTimeInputValue(row.close_time)}
@@ -544,7 +580,7 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
                       )}
                     </td>
                     <td className="py-2 px-3">
-                      {mode === "create" ? (
+                      {mode !== "view" ? (
                         <Checkbox
                           checked={closed}
                           onCheckedChange={(c) =>
@@ -561,6 +597,25 @@ export default function StoreHoursManager({ siteId, orgId }: StoreHoursManagerPr
           </tbody>
         </table>
       </div>
+
+      {/* Footer (edit mode) */}
+      {mode === "edit" && (
+        <div className="mt-4 flex items-center justify-between border-t pt-3">
+          <button
+            onClick={() => { setMode("view"); setError(null); }}
+            className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSaveSchedule}
+            disabled={saving}
+            className="px-4 py-1.5 text-sm font-medium bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            {saving ? "Saving..." : "Save Schedule"}
+          </button>
+        </div>
+      )}
 
       {/* Footer (create mode only) */}
       {mode === "create" && (
