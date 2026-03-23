@@ -158,6 +158,8 @@ export default function AdminCampaignsPanel() {
 
   // Email log expand
   const [expandedEmailGroup, setExpandedEmailGroup] = useState<string | null>(null);
+  const [emailGroupRecipients, setEmailGroupRecipients] = useState<any[]>([]);
+  const [emailGroupLoading, setEmailGroupLoading] = useState(false);
 
   // Countdown tick
   const [, setTick] = useState(0);
@@ -335,6 +337,29 @@ export default function AdminCampaignsPanel() {
       }
     } catch {
       showToast("Cancel failed", "error");
+    }
+  }
+
+  async function fetchEmailGroupRecipients(campaignName: string) {
+    setEmailGroupLoading(true);
+    try {
+      const res = await fetch(`/api/admin/campaigns?recipients_by_name=${encodeURIComponent(campaignName)}`);
+      const data = await res.json();
+      setEmailGroupRecipients(data.recipients || []);
+    } catch {
+      setEmailGroupRecipients([]);
+    } finally {
+      setEmailGroupLoading(false);
+    }
+  }
+
+  function handleExpandEmailGroup(name: string) {
+    if (expandedEmailGroup === name) {
+      setExpandedEmailGroup(null);
+      setEmailGroupRecipients([]);
+    } else {
+      setExpandedEmailGroup(name);
+      fetchEmailGroupRecipients(name);
     }
   }
 
@@ -783,7 +808,7 @@ export default function AdminCampaignsPanel() {
 
                         return (
                           <Fragment key={name}>
-                            <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedEmailGroup(isExpanded ? null : name)}>
+                            <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => handleExpandEmailGroup(name)}>
                               <td className="px-3 py-2 font-medium">{name}</td>
                               <td className="px-3 py-2 text-gray-600">{group.length}</td>
                               <td className="px-3 py-2">
@@ -815,21 +840,36 @@ export default function AdminCampaignsPanel() {
                                 </div>
                               </td>
                             </tr>
-                            {isExpanded && group.map((e) => (
-                              <tr key={e.id} className="bg-gray-50 hover:bg-gray-100">
-                                <td className="px-3 py-1.5 pl-8 font-mono text-xs text-gray-500">{e.lead_id?.slice(0, 8) || "\u2014"}</td>
-                                <td className="px-3 py-1.5 text-xs text-gray-500">{e.email_type}</td>
-                                <td className="px-3 py-1.5"><Badge value={e.status} meta={STATUS_META} /></td>
-                                <td className="px-3 py-1.5 text-xs text-gray-500">
-                                  {e.status === "sent" ? formatDateTime(e.sent_at) : e.status === "cancelled" ? <span className="text-gray-400">Cancelled</span> : e.status === "failed" ? <span className="text-red-600">Failed</span> : e.send_at ? formatDateTime(e.send_at) : "\u2014"}
-                                </td>
-                                <td className="px-3 py-1.5 text-right">
-                                  {e.status === "pending" && e.send_at && new Date(e.send_at).getTime() > Date.now() && (
-                                    <button onClick={() => handleCancelEmail(e.id)} className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">Cancel</button>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
+                            {isExpanded && (
+                              emailGroupLoading ? (
+                                <tr className="bg-gray-50"><td colSpan={5} className="px-3 py-3 pl-8 text-xs text-gray-400 text-center">Loading recipients...</td></tr>
+                              ) : emailGroupRecipients.length > 0 ? (
+                                emailGroupRecipients.map((r: any) => (
+                                  <tr key={r.id} className="bg-gray-50 hover:bg-gray-100">
+                                    <td className="px-3 py-1.5 pl-8 text-xs">
+                                      <div className="font-medium text-gray-700">{r.email || r.email_normalized}</div>
+                                      {r.name && <div className="text-gray-400">{r.name}</div>}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-xs text-gray-500">{r.organization_name || "\u2014"}</td>
+                                    <td className="px-3 py-1.5"><Badge value={r.status} meta={STATUS_META} /></td>
+                                    <td className="px-3 py-1.5 text-xs text-gray-500">
+                                      {r.sent_at ? formatDateTime(r.sent_at) : r.enrolled_at ? formatDateTime(r.enrolled_at) : "\u2014"}
+                                    </td>
+                                    <td className="px-3 py-1.5"></td>
+                                  </tr>
+                                ))
+                              ) : group.map((e) => (
+                                <tr key={e.id} className="bg-gray-50 hover:bg-gray-100">
+                                  <td className="px-3 py-1.5 pl-8 font-mono text-xs text-gray-500">{e.lead_id?.slice(0, 8) || "\u2014"}</td>
+                                  <td className="px-3 py-1.5 text-xs text-gray-500">{e.email_type}</td>
+                                  <td className="px-3 py-1.5"><Badge value={e.status} meta={STATUS_META} /></td>
+                                  <td className="px-3 py-1.5 text-xs text-gray-500">
+                                    {e.status === "sent" ? formatDateTime(e.sent_at) : e.send_at ? formatDateTime(e.send_at) : "\u2014"}
+                                  </td>
+                                  <td className="px-3 py-1.5"></td>
+                                </tr>
+                              ))
+                            )}
                           </Fragment>
                         );
                       })}

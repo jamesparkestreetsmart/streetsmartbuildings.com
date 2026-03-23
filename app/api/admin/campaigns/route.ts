@@ -17,6 +17,53 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const recipientsFor = searchParams.get("recipients_for");
 
+    const recipientsByName = searchParams.get("recipients_by_name");
+
+    if (recipientsByName) {
+      // Find campaign by name, then fetch recipients with lead details
+      const { data: campaign } = await supabase
+        .from("z_marketing_campaigns")
+        .select("id")
+        .eq("name", recipientsByName)
+        .single();
+
+      if (!campaign) return NextResponse.json({ recipients: [] });
+
+      const { data: recipients, error } = await supabase
+        .from("z_campaign_recipients")
+        .select("id, campaign_id, lead_id, contact_id, email_normalized, is_eligible, ineligible_reason, status, sent_at, enrolled_at")
+        .eq("campaign_id", campaign.id)
+        .order("enrolled_at", { ascending: false });
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      const leadIds = (recipients || []).filter((r: any) => r.lead_id).map((r: any) => r.lead_id);
+      const contactIds = (recipients || []).filter((r: any) => r.contact_id).map((r: any) => r.contact_id);
+
+      const [leadsRes, contactsRes] = await Promise.all([
+        leadIds.length > 0 ? supabase.from("z_marketing_leads").select("id, first_name, last_name, email, organization_name, source_type").in("id", leadIds) : { data: [] },
+        contactIds.length > 0 ? supabase.from("zz_contacts").select("id, first_name, last_name, email, organization_name").in("id", contactIds) : { data: [] },
+      ]);
+
+      const leadMap: Record<string, any> = {};
+      for (const l of leadsRes.data || []) leadMap[l.id] = l;
+      const contactMap: Record<string, any> = {};
+      for (const c of contactsRes.data || []) contactMap[c.id] = c;
+
+      const enriched = (recipients || []).map((r: any) => {
+        const person = r.contact_id ? contactMap[r.contact_id] : r.lead_id ? leadMap[r.lead_id] : null;
+        return {
+          ...r,
+          name: person ? [person.first_name, person.last_name].filter(Boolean).join(" ") || null : null,
+          email: person?.email || r.email_normalized,
+          organization_name: person?.organization_name || null,
+          type: r.contact_id ? "contact" : "lead",
+        };
+      });
+
+      return NextResponse.json({ recipients: enriched });
+    }
+
     if (recipientsFor) {
       // Fetch recipients for a specific campaign
       const { data: recipients, error } = await supabase
