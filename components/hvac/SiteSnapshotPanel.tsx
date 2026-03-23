@@ -74,7 +74,6 @@ export default function SiteSnapshotPanel({ siteId, orgId, siteName, onApplied }
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [applyingId, setApplyingId] = useState<string | null>(null);
-  const [confirmSnapshot, setConfirmSnapshot] = useState<Snapshot | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   // Detail modal state
@@ -177,7 +176,6 @@ export default function SiteSnapshotPanel({ siteId, orgId, siteName, onApplied }
 
   const handleApply = async (snapshot: Snapshot) => {
     setApplyingId(snapshot.snapshot_id);
-    setConfirmSnapshot(null);
     setDetailSnapshot(null);
     setDetailConfirmApply(false);
     try {
@@ -232,54 +230,22 @@ export default function SiteSnapshotPanel({ siteId, orgId, siteName, onApplied }
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Name</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Date</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Zones (this site)</th>
-                <th className="text-right px-3 py-2 font-medium text-gray-600 w-[200px]"></th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {snapshots.map((s) => (
-                <tr key={s.snapshot_id} className="hover:bg-gray-50">
+                <tr
+                  key={s.snapshot_id}
+                  onClick={() => openDetail(s)}
+                  className="hover:bg-green-50/50 cursor-pointer transition-colors"
+                >
                   <td className="px-3 py-2 font-medium">{s.name}</td>
                   <td className="px-3 py-2 text-gray-600">{formatDate(s.snapshot_date)}</td>
                   <td className="px-3 py-2 text-gray-600">{s.site_zone_count} zone{s.site_zone_count !== 1 ? "s" : ""}</td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => openDetail(s)}
-                        className="px-3 py-1 rounded text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
-                      >
-                        View Details
-                      </button>
-                      <button
-                        onClick={() => setConfirmSnapshot(s)}
-                        disabled={applyingId === s.snapshot_id}
-                        className="px-3 py-1 rounded text-xs font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
-                      >
-                        {applyingId === s.snapshot_id ? "Applying..." : "Apply to Site"}
-                      </button>
-                    </div>
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* Apply Confirmation Modal */}
-      {confirmSnapshot && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-3">Apply Snapshot to {siteName || "this site"}</h3>
-            <div className="text-sm text-gray-600 space-y-2 mb-4">
-              <p>Apply &ldquo;{confirmSnapshot.name}&rdquo; settings to {confirmSnapshot.site_zone_count} zone{confirmSnapshot.site_zone_count !== 1 ? "s" : ""} at this site?</p>
-              <p className="text-gray-500">This will update thermostat settings for zones at this site only. Other sites are not affected.</p>
-              <p className="text-gray-500 text-xs">This action creates new site-level profiles for each zone and reassigns zones to them.</p>
-            </div>
-            <div className="flex flex-col sm:flex-row justify-end gap-2">
-              <button onClick={() => setConfirmSnapshot(null)} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50 w-full sm:w-auto">Cancel</button>
-              <button onClick={() => handleApply(confirmSnapshot)} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 w-full sm:w-auto">Apply</button>
-            </div>
-          </div>
         </div>
       )}
 
