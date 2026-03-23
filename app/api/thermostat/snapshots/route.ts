@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdminRole } from "@/lib/auth/requireAdminRole";
+import { THERMOSTAT_FUNCTIONAL_FIELDS } from "@/lib/thermostat/profileIdentity";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// The 13 canonical profile settings fields
-const PROFILE_FIELDS = [
-  "occupied_heat_f", "occupied_cool_f", "occupied_fan_mode", "occupied_hvac_mode",
-  "unoccupied_heat_f", "unoccupied_cool_f", "unoccupied_fan_mode", "unoccupied_hvac_mode",
-  "guardrail_min_f", "guardrail_max_f",
-  "manager_offset_up_f", "manager_offset_down_f", "manager_override_reset_minutes",
-] as const;
 
 export async function GET(req: NextRequest) {
   const orgId = req.nextUrl.searchParams.get("org_id");
@@ -119,8 +113,8 @@ export async function POST(req: NextRequest) {
         source_profile_name: profile.name,
       };
 
-      // Copy the 13 canonical profile fields
-      for (const field of PROFILE_FIELDS) {
+      // Copy all functional fields from profile to snapshot item
+      for (const field of THERMOSTAT_FUNCTIONAL_FIELDS) {
         item[field] = profile[field] ?? null;
       }
 

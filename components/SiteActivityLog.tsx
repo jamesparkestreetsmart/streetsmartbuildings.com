@@ -147,13 +147,14 @@ export default function SiteActivityLog({ siteId }: { siteId: string }) {
     if (!scopeMatch) return false;
 
     // View mode filter
-    const SYSTEM_SOURCES = new Set(["eagle_eyes", "cron", "ha_push"]);
+    const SYSTEM_ACTORS = new Set(["system", "eagle_eyes", "cron", "ha_push", "service_role"]);
+    const createdBy = r.created_by || "";
+    const isSystemSource = !createdBy || SYSTEM_ACTORS.has(createdBy);
     const isAttentionWorthy = r.event_type.endsWith("_failed") || r.event_type.endsWith("_error") || r.event_type.endsWith("_warning");
-    const isSystemSource = SYSTEM_SOURCES.has(r.created_by || "");
     if (viewMode === "user") {
       if (isSystemSource && !isAttentionWorthy) return false;
     } else if (viewMode === "system") {
-      if (!isSystemSource || isAttentionWorthy) return false;
+      if (!isSystemSource) return false;
     }
     // "all" = no view mode filtering
 

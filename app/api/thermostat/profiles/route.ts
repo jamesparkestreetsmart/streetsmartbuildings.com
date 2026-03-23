@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { autoLinkProfile } from "@/lib/thermostat/auto-link-profile";
-import { PROFILE_IDENTITY_FIELDS, profilesAreEqual } from "@/lib/thermostat/profileIdentity";
+import { THERMOSTAT_FUNCTIONAL_FIELDS, profilesAreEqual } from "@/lib/thermostat/profileIdentity";
 
 async function getCallerEmail(): Promise<string> {
   try {
@@ -434,7 +434,7 @@ export async function PATCH(req: NextRequest) {
     // Log profile update with changed fields
     try {
       const changedFields: string[] = [];
-      const trackFields = PROFILE_IDENTITY_FIELDS;
+      const trackFields = THERMOSTAT_FUNCTIONAL_FIELDS;
       for (const f of trackFields) {
         if (dbFields[f] !== undefined && before && dbFields[f] !== before[f]) {
           changedFields.push(`${f}: ${before[f]} → ${dbFields[f]}`);

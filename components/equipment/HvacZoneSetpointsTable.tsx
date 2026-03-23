@@ -81,6 +81,29 @@ interface Profile {
   unoccupied_cool_f?: number | null;
   occupied_hvac_mode?: string | null;
   unoccupied_hvac_mode?: string | null;
+  smart_start_enabled?: boolean | null;
+  smart_start_max_adj_f?: number | null;
+  occupancy_enabled?: boolean | null;
+  occupancy_max_adj_f?: number | null;
+  feels_like_enabled?: boolean | null;
+  feels_like_max_adj_f?: number | null;
+}
+
+interface SnapshotOption {
+  snapshot_id: string;
+  name: string;
+  snapshot_date: string;
+  zone_id: string;
+  occupied_heat_f: number | null;
+  occupied_cool_f: number | null;
+  unoccupied_heat_f: number | null;
+  unoccupied_cool_f: number | null;
+  smart_start_enabled: boolean | null;
+  smart_start_max_adj_f: number | null;
+  occupancy_enabled: boolean | null;
+  occupancy_max_adj_f: number | null;
+  feels_like_enabled: boolean | null;
+  feels_like_max_adj_f: number | null;
 }
 
 // ── Zone-config types (from ZoneSpaceConfig) ────────────────────────
@@ -194,6 +217,8 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
   const [pendingProfileChange, setPendingProfileChange] = useState<{
     zoneId: string; profileId: string; zoneName: string; profileName: string;
   } | null>(null);
+  const [siteSnapshots, setSiteSnapshots] = useState<SnapshotOption[]>([]);
+  const [snapshotMessage, setSnapshotMessage] = useState<{ zoneId: string; text: string; type: "info" | "error" } | null>(null);
 
   // Zone push status: "pushing" | "applied" | "failed" per zone
   const [zonePushStatus, setZonePushStatus] = useState<Record<string, "pushing" | "applied" | "failed">>({});
@@ -437,12 +462,65 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
           unoccupied_cool_f: p.unoccupied_cool_f,
           occupied_hvac_mode: p.occupied_hvac_mode,
           unoccupied_hvac_mode: p.unoccupied_hvac_mode,
+          smart_start_enabled: p.smart_start_enabled,
+          smart_start_max_adj_f: p.smart_start_max_adj_f,
+          occupancy_enabled: p.occupancy_enabled,
+          occupancy_max_adj_f: p.occupancy_max_adj_f,
+          feels_like_enabled: p.feels_like_enabled,
+          feels_like_max_adj_f: p.feels_like_max_adj_f,
         })));
       }
     } catch (err) {
       console.error("Error fetching profiles:", err);
     }
   }, [orgId]);
+
+  const fetchSnapshots = useCallback(async () => {
+    if (!orgId || !siteId) return;
+    try {
+      // Fetch org snapshots
+      const { data: snapshots } = await supabase
+        .from("a_org_thermostat_snapshots")
+        .select("snapshot_id, name, snapshot_date")
+        .eq("org_id", orgId)
+        .order("snapshot_date", { ascending: false });
+      if (!snapshots || snapshots.length === 0) { setSiteSnapshots([]); return; }
+
+      // Fetch snapshot items for this site
+      const { data: items } = await supabase
+        .from("a_org_thermostat_snapshot_items")
+        .select("snapshot_id, zone_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, smart_start_enabled, smart_start_max_adj_f, occupancy_enabled, occupancy_max_adj_f, feels_like_enabled, feels_like_max_adj_f")
+        .in("snapshot_id", snapshots.map((s: any) => s.snapshot_id))
+        .eq("site_id", siteId);
+
+      if (!items || items.length === 0) { setSiteSnapshots([]); return; }
+
+      // Build options: one per snapshot that has items at this site
+      const snapMap = new Map(snapshots.map((s: any) => [s.snapshot_id, s]));
+      const options: SnapshotOption[] = items.map((item: any) => {
+        const snap = snapMap.get(item.snapshot_id);
+        return {
+          snapshot_id: item.snapshot_id,
+          name: snap?.name || "Snapshot",
+          snapshot_date: snap?.snapshot_date || "",
+          zone_id: item.zone_id,
+          occupied_heat_f: item.occupied_heat_f,
+          occupied_cool_f: item.occupied_cool_f,
+          unoccupied_heat_f: item.unoccupied_heat_f,
+          unoccupied_cool_f: item.unoccupied_cool_f,
+          smart_start_enabled: item.smart_start_enabled,
+          smart_start_max_adj_f: item.smart_start_max_adj_f,
+          occupancy_enabled: item.occupancy_enabled,
+          occupancy_max_adj_f: item.occupancy_max_adj_f,
+          feels_like_enabled: item.feels_like_enabled,
+          feels_like_max_adj_f: item.feels_like_max_adj_f,
+        };
+      });
+      setSiteSnapshots(options);
+    } catch (err) {
+      console.error("Error fetching snapshots:", err);
+    }
+  }, [orgId, siteId]);
 
   const fetchZones = useCallback(async () => {
     try {
@@ -600,10 +678,11 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
       fetchProfiles();
       fetchZones();
       fetchZoneConfig();
+      fetchSnapshots();
     };
 
     if (orgId) initZones();
-  }, [siteId, orgId, fetchProfiles, fetchZones, fetchZoneConfig]);
+  }, [siteId, orgId, fetchProfiles, fetchZones, fetchZoneConfig, fetchSnapshots]);
 
   // ── Auto-create zones (unchanged) ───────────────────────────────
 
@@ -659,16 +738,88 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   // ── Profile / inline setpoint handlers (unchanged) ──────────────
 
-  const handleProfileChange = async (zoneId: string, profileId: string) => {
-    if (!profileId) return;
+  const handleProfileChange = async (zoneId: string, value: string) => {
+    if (!value) return;
+    setSnapshotMessage(null);
+
+    // Check if this is a snapshot selection (format: "snap:snapshotId")
+    if (value.startsWith("snap:")) {
+      const snapshotId = value.slice(5);
+      await handleSnapshotApply(zoneId, snapshotId);
+      return;
+    }
+
     const zone = zones.find((z) => z.hvac_zone_id === zoneId);
-    const profile = profiles.find((p) => p.profile_id === profileId);
+    const profile = profiles.find((p) => p.profile_id === value);
     setPendingProfileChange({
       zoneId,
-      profileId,
+      profileId: value,
       zoneName: zone?.zone_name || "Zone",
       profileName: profile?.profile_name || "Profile",
     });
+  };
+
+  const handleSnapshotApply = async (zoneId: string, snapshotId: string) => {
+    const zone = zones.find((z) => z.hvac_zone_id === zoneId);
+    const zoneName = zone?.zone_name || "Zone";
+
+    // Check if this snapshot has an item for this exact zone
+    const snapItem = siteSnapshots.find((s) => s.snapshot_id === snapshotId && s.zone_id === zoneId);
+    if (!snapItem) {
+      setSnapshotMessage({ zoneId, text: "This snapshot does not contain settings for this zone.", type: "error" });
+      return;
+    }
+
+    // Check for partial duplicate match against existing SITE profiles
+    const siteProfiles = profiles.filter((p) => !p.is_global);
+    for (const ep of siteProfiles) {
+      let allMatch = true;
+      // Partial match: only compare non-null snapshot fields
+      const fields = ["occupied_heat_f", "occupied_cool_f", "unoccupied_heat_f", "unoccupied_cool_f",
+        "smart_start_enabled", "smart_start_max_adj_f", "occupancy_enabled", "occupancy_max_adj_f",
+        "feels_like_enabled", "feels_like_max_adj_f"] as const;
+      for (const field of fields) {
+        const snapVal = snapItem[field];
+        if (snapVal === null || snapVal === undefined) continue;
+        const profVal = (ep as any)[field];
+        if (profVal === null || profVal === undefined) { allMatch = false; break; }
+        if (typeof snapVal === "boolean" || typeof profVal === "boolean") {
+          if (Boolean(snapVal) !== Boolean(profVal)) { allMatch = false; break; }
+        } else if (Number(snapVal) !== Number(profVal)) { allMatch = false; break; }
+      }
+      if (allMatch) {
+        // Match found — assign existing profile instead of restoring
+        setSnapshotMessage({ zoneId, text: `Settings already match: ${ep.profile_name}`, type: "info" });
+        const res = await fetch("/api/thermostat/zone-setpoints", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hvac_zone_id: zoneId, profile_id: ep.profile_id }),
+        });
+        if (res.ok) { flashSaved(zoneId); fetchZones(); fetchProfiles(); triggerZonePush(zoneId); }
+        return;
+      }
+    }
+
+    // No match — call restore endpoint with single zone_id
+    try {
+      const res = await fetch(`/api/thermostat/snapshots/${snapshotId}/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ org_id: orgId, zone_id: zoneId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.pushed > 0) {
+        flashSaved(zoneId);
+        fetchZones();
+        fetchProfiles();
+        triggerZonePush(zoneId);
+        setSnapshotMessage({ zoneId, text: `Snapshot "${snapItem.name}" applied`, type: "info" });
+      } else {
+        setSnapshotMessage({ zoneId, text: data.error || "Failed to apply snapshot", type: "error" });
+      }
+    } catch {
+      setSnapshotMessage({ zoneId, text: "Failed to apply snapshot", type: "error" });
+    }
   };
 
   const saveInlineEdit = async (zoneId: string, field: string, value: number) => {
@@ -1216,7 +1367,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                       <td className="py-3 px-2">
                         <div className="flex flex-col gap-1">
                           <select
-                            className="text-xs border rounded px-1 py-0.5 max-w-[120px]"
+                            className="text-xs border rounded px-1 py-0.5 max-w-[160px]"
                             value={zone.profile_id || ""}
                             onChange={(e) => handleProfileChange(zone.hvac_zone_id, e.target.value)}
                           >
@@ -1224,6 +1375,9 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                             {(() => {
                               const ssbProfiles = profiles.filter((p) => p.is_global);
                               const orgProfiles = profiles.filter((p) => !p.is_global);
+                              const zoneSnaps = siteSnapshots.filter((s) => s.zone_id === zone.hvac_zone_id);
+                              // Deduplicate snapshots by snapshot_id for this zone
+                              const uniqueSnaps = [...new Map(zoneSnaps.map((s) => [s.snapshot_id, s])).values()];
                               return (
                                 <>
                                   {ssbProfiles.length > 0 && (
@@ -1236,11 +1390,25 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                                       {orgProfiles.map((p) => <option key={p.profile_id} value={p.profile_id}>{p.profile_name}</option>)}
                                     </optgroup>
                                   )}
+                                  {uniqueSnaps.length > 0 && (
+                                    <optgroup label="Snapshots">
+                                      {uniqueSnaps.map((s) => (
+                                        <option key={`snap-${s.snapshot_id}`} value={`snap:${s.snapshot_id}`}>
+                                          {s.name} ({new Date(s.snapshot_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })})
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
                                 </>
                               );
                             })()}
                           </select>
                           {getSourceBadge(zone)}
+                          {snapshotMessage?.zoneId === zone.hvac_zone_id && (
+                            <span className={`text-[10px] ${snapshotMessage.type === "error" ? "text-red-600" : "text-green-700"}`}>
+                              {snapshotMessage.text}
+                            </span>
+                          )}
                         </div>
                       </td>
                       {/* Occupied Heat */}
