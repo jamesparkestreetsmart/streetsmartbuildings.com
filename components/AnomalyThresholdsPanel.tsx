@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import TierBadge from "@/components/ui/TierBadge";
+import Link from "next/link";
+import { resolveAnomalyDefinition } from "@/lib/anomalies/anomaly-definitions";
 
 interface Zone {
   hvac_zone_id: string;
@@ -496,11 +498,20 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
           const isOverridden = currentValue !== undefined && currentValue !== null;
           const displayValue = isOverridden ? currentValue : config.default;
 
+          const anomalyDef = resolveAnomalyDefinition(key);
+          const detailHref = anomalyDef ? `/sites/${siteId}/anomalies/${anomalyDef.key}` : null;
+
           return (
             <div key={key} className="px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-gray-700">{config.label}</span>
+                  {detailHref ? (
+                    <Link href={detailHref} className="text-xs font-medium text-green-700 hover:underline">
+                      {config.label}
+                    </Link>
+                  ) : (
+                    <span className="text-xs font-medium text-gray-700">{config.label}</span>
+                  )}
                   {mode === "view" && isOverridden && (
                     <span className="text-[9px] font-bold text-purple-600 bg-purple-50 px-1 rounded">CUSTOM</span>
                   )}
