@@ -95,13 +95,12 @@ export async function POST(
         .from("b_thermostat_profiles")
         .select("*")
         .eq("org_id", org_id)
-        .eq("scope", "site");
+        .eq("scope", "site")
+        .eq("is_system_generated", true);
 
       let reusedProfile: any = null;
       if (existingProfiles) {
         for (const ep of existingProfiles) {
-          // Only reuse system-generated restored profiles
-          if (!ep.name || (!ep.name.startsWith("Restored \u2014") && !ep.name.startsWith("Snapshot \u2014") && !ep.name.includes("(Restored "))) continue;
           // Check all 13 fields match
           let allMatch = true;
           for (const field of PROFILE_FIELDS) {
@@ -129,6 +128,7 @@ export async function POST(
           org_id,
           name: restoredName,
           scope: "site",
+          is_system_generated: true,
         };
         for (const field of PROFILE_FIELDS) {
           profilePayload[field] = item[field] ?? null;

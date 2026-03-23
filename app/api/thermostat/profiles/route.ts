@@ -247,6 +247,46 @@ export async function POST(req: NextRequest) {
       target_zone_types: fields.target_zone_types ?? [],
     };
 
+    // Check for identical settings within same scope boundary
+    const dupeSettingsQuery = supabase
+      .from("b_thermostat_profiles")
+      .select("profile_id, name")
+      .eq("org_id", org_id)
+      .eq("scope", row.scope);
+
+    if (siteId) {
+      dupeSettingsQuery.eq("site_id", siteId);
+    } else {
+      dupeSettingsQuery.is("site_id", null);
+    }
+
+    const { data: potentialDupes } = await dupeSettingsQuery;
+
+    if (potentialDupes && potentialDupes.length > 0) {
+      // Need to fetch full rows with settings to compare
+      const { data: fullDupes } = await supabase
+        .from("b_thermostat_profiles")
+        .select("*")
+        .in("profile_id", potentialDupes.map((p: any) => p.profile_id));
+
+      for (const existing of fullDupes || []) {
+        let allMatch = true;
+        for (const field of ["occupied_heat_f", "occupied_cool_f", "occupied_fan_mode", "occupied_hvac_mode", "unoccupied_heat_f", "unoccupied_cool_f", "unoccupied_fan_mode", "unoccupied_hvac_mode", "guardrail_min_f", "guardrail_max_f", "manager_offset_up_f", "manager_offset_down_f", "manager_override_reset_minutes"]) {
+          const newVal = row[field];
+          const existVal = existing[field];
+          if (newVal == null && existVal == null) continue;
+          if (newVal == null || existVal == null) { allMatch = false; break; }
+          if (Number(newVal) !== Number(existVal) && String(newVal) !== String(existVal)) { allMatch = false; break; }
+        }
+        if (allMatch) {
+          return NextResponse.json(
+            { error: "duplicate_settings", existing_profile_id: existing.profile_id, existing_profile_name: existing.name },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     let { data, error } = await supabase
       .from("b_thermostat_profiles")
       .insert(row)
@@ -349,6 +389,48 @@ export async function PATCH(req: NextRequest) {
           { error: "A profile with this name already exists. Please choose a unique name." },
           { status: 409 }
         );
+      }
+    }
+
+    // Check if edited values would create duplicate
+    if (before) {
+      const merged: any = { ...before, ...dbFields };
+      const dupeQuery = supabase
+        .from("b_thermostat_profiles")
+        .select("profile_id, name")
+        .eq("org_id", before.org_id)
+        .eq("scope", before.scope)
+        .neq("profile_id", profile_id);
+
+      if (before.site_id) {
+        dupeQuery.eq("site_id", before.site_id);
+      } else {
+        dupeQuery.is("site_id", null);
+      }
+
+      const { data: potentialDupes } = await dupeQuery;
+      if (potentialDupes && potentialDupes.length > 0) {
+        const { data: fullDupes } = await supabase
+          .from("b_thermostat_profiles")
+          .select("*")
+          .in("profile_id", potentialDupes.map((p: any) => p.profile_id));
+
+        for (const existing of fullDupes || []) {
+          let allMatch = true;
+          for (const field of ["occupied_heat_f", "occupied_cool_f", "occupied_fan_mode", "occupied_hvac_mode", "unoccupied_heat_f", "unoccupied_cool_f", "unoccupied_fan_mode", "unoccupied_hvac_mode", "guardrail_min_f", "guardrail_max_f", "manager_offset_up_f", "manager_offset_down_f", "manager_override_reset_minutes"]) {
+            const newVal = merged[field];
+            const existVal = existing[field];
+            if (newVal == null && existVal == null) continue;
+            if (newVal == null || existVal == null) { allMatch = false; break; }
+            if (Number(newVal) !== Number(existVal) && String(newVal) !== String(existVal)) { allMatch = false; break; }
+          }
+          if (allMatch) {
+            return NextResponse.json(
+              { error: "duplicate_settings", existing_profile_id: existing.profile_id, existing_profile_name: existing.name },
+              { status: 409 }
+            );
+          }
+        }
       }
     }
 

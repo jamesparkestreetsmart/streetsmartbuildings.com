@@ -61,7 +61,9 @@
       "Bash(cp:*)",
       "mcp__claude_ai_Supabase__list_projects",
       "mcp__claude_ai_Supabase__get_logs",
-      "Bash(find \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/sites\" -type f -name \"page.tsx\")"
+      "Bash(find \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/sites\" -type f -name \"page.tsx\")",
+      "Bash(DRY_RUN=true npx tsx scripts/cleanup-duplicate-restored-profiles.ts)",
+      "Bash(DRY_RUN=false npx tsx scripts/cleanup-duplicate-restored-profiles.ts)"
     ]
   }
 }

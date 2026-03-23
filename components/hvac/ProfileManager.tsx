@@ -564,7 +564,11 @@ export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: 
       }
     } else {
       const data = await res.json();
-      setFormError(data.error || "Failed to create profile.");
+      if (data.error === "duplicate_settings") {
+        setFormError(`An identical profile already exists: "${data.existing_profile_name}"`);
+      } else {
+        setFormError(data.error || "Failed to create profile.");
+      }
     }
   };
 
@@ -641,7 +645,11 @@ export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: 
       }
     } else {
       const data = await res.json();
-      setFormError(data.error || "Failed to update profile.");
+      if (data.error === "duplicate_settings") {
+        setFormError(`An identical profile already exists: "${data.existing_profile_name}"`);
+      } else {
+        setFormError(data.error || "Failed to update profile.");
+      }
     }
   };
 
