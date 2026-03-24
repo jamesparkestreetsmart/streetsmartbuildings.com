@@ -1,3 +1,8 @@
+// Key resolution: always use resolveAnomalyDefinition(rawKey)
+// and query b_anomaly_events against ALL configKeys[] variants.
+// Never construct anomaly key strings directly in queries.
+// This ensures sidebar and detail page always read the same events.
+//
 // Lightweight batch query for sidebar status + threshold + last event.
 // Single query for all anomaly types at a site, filtered to last 7 days.
 

@@ -453,31 +453,37 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                     Applies to: {(p.scope || "org") === "site" ? "This site only" : "All sites"}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                  <button
-                    onClick={() => handleApplyExistingProfile(p.profile_id)}
-                    disabled={saving}
-                    className="px-2 py-0.5 text-[11px] font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
-                  >
-                    {(p.scope || "org") === "site" ? "Set for this Site" : "Set for All Sites"}
-                  </button>
-                  <button
-                    onClick={() => startFromProfile(p.profile_id)}
-                    disabled={mode === "create"}
-                    className="px-2 py-0.5 text-[11px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
-                  >
-                    Edit Preset
-                  </button>
-                  {!p.is_global && (p.scope || "org") === "site" && (
+                {/* On site pages, ORG presets are read-only (org owns them).
+                    Option A chosen: show "Org-managed" label instead of action buttons. */}
+                {(p.scope || "org") !== "site" ? (
+                  <span className="text-[11px] text-gray-400 shrink-0 ml-2">Org-managed</span>
+                ) : (
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                     <button
-                      onClick={() => handleDeleteProfile(p.profile_id)}
-                      disabled={deletingProfileId === p.profile_id}
-                      className="px-1.5 py-0.5 text-[11px] text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
+                      onClick={() => handleApplyExistingProfile(p.profile_id)}
+                      disabled={saving}
+                      className="px-2 py-0.5 text-[11px] font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
                     >
-                      {deletingProfileId === p.profile_id ? "..." : "Delete"}
+                      Set for this Site
                     </button>
-                  )}
-                </div>
+                    <button
+                      onClick={() => startFromProfile(p.profile_id)}
+                      disabled={mode === "create"}
+                      className="px-2 py-0.5 text-[11px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
+                    >
+                      Edit Preset
+                    </button>
+                    {!p.is_global && (
+                      <button
+                        onClick={() => handleDeleteProfile(p.profile_id)}
+                        disabled={deletingProfileId === p.profile_id}
+                        className="px-1.5 py-0.5 text-[11px] text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
+                      >
+                        {deletingProfileId === p.profile_id ? "..." : "Delete"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

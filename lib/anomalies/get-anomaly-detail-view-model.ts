@@ -1,3 +1,8 @@
+// Key resolution: always use resolveAnomalyDefinition(rawKey)
+// and query b_anomaly_events against ALL configKeys[] variants.
+// Never construct anomaly key strings directly in queries.
+// This ensures sidebar and detail page always read the same events.
+//
 // View model builder for the anomaly detail page.
 // Combines static definitions with live threshold/event data from Supabase.
 //
@@ -133,11 +138,13 @@ export async function getAnomalyDetailViewModel(params: {
 
     // For delayed-response, peak_value stores the response window (minutes),
     // NOT the observed temperature delta. The actual temp delta is not stored
-    // in b_anomaly_events for this anomaly type — show placeholder instead.
+    // in b_anomaly_events for this anomaly type. Show null value but mark
+    // isPlaceholder = false since the event exists — prevents misleading
+    // "No recent event" badge when the sidebar shows "Cleared".
     if (definition.key === "delayed-response") {
       observedValue = null;
       observedTimestamp = event.started_at;
-      isPlaceholder = true;
+      isPlaceholder = false;
     } else {
       observedValue = event.peak_value != null ? Number(event.peak_value) : null;
       observedTimestamp = event.started_at;
