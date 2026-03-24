@@ -1,5 +1,6 @@
 import { getAnomalyDetailViewModel } from "@/lib/anomalies/get-anomaly-detail-view-model";
-import AnomalyDetailPage from "@/components/anomalies/AnomalyDetailPage";
+import { getAnomalySidebarStatus } from "@/lib/anomalies/get-anomaly-sidebar-status";
+import AnomalyDetailLayout from "@/components/anomalies/AnomalyDetailLayout";
 import Link from "next/link";
 
 export default async function AnomalyDetailRoute({
@@ -7,18 +8,21 @@ export default async function AnomalyDetailRoute({
   searchParams,
 }: {
   params: Promise<{ siteid: string; anomalyKey: string }>;
-  searchParams: Promise<{ equipmentId?: string; zoneId?: string; date?: string; alertId?: string }>;
+  searchParams: Promise<{ equipmentId?: string; zoneId?: string; date?: string; alertId?: string; tab?: string }>;
 }) {
   const { siteid, anomalyKey } = await params;
   const query = await searchParams;
 
-  const viewModel = await getAnomalyDetailViewModel({
-    siteId: siteid,
-    anomalyKey,
-    equipmentId: query.equipmentId,
-    zoneId: query.zoneId,
-    date: query.date,
-  });
+  const [viewModel, sidebarItems] = await Promise.all([
+    getAnomalyDetailViewModel({
+      siteId: siteid,
+      anomalyKey,
+      equipmentId: query.equipmentId,
+      zoneId: query.zoneId,
+      date: query.date,
+    }),
+    getAnomalySidebarStatus(siteid),
+  ]);
 
   if (!viewModel) {
     return (
@@ -37,5 +41,11 @@ export default async function AnomalyDetailRoute({
     );
   }
 
-  return <AnomalyDetailPage viewModel={viewModel} />;
+  return (
+    <AnomalyDetailLayout
+      viewModel={viewModel}
+      sidebarItems={sidebarItems}
+      currentTab={query.tab}
+    />
+  );
 }

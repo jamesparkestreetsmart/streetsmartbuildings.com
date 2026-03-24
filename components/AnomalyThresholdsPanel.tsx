@@ -458,7 +458,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                     disabled={mode === "create"}
                     className="px-2 py-0.5 text-[11px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
                   >
-                    Use as Base
+                    Clone & Edit
                   </button>
                   {!p.is_global && (p.scope || "org") === "site" && (
                     <button
@@ -502,7 +502,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
           const detailHref = anomalyDef ? `/sites/${siteId}/anomalies/${anomalyDef.key}` : null;
 
           return (
-            <div key={key} className="px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50">
+            <div key={key} className="group px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   {detailHref ? (
@@ -512,9 +512,10 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                   ) : (
                     <span className="text-xs font-medium text-gray-700">{config.label}</span>
                   )}
-                  {mode === "view" && isOverridden && (
-                    <span className="text-[9px] font-bold text-purple-600 bg-purple-50 px-1 rounded">CUSTOM</span>
-                  )}
+                  {/* Scope badge — TODO: populate from threshold config source field once schema supports it */}
+                  <span className={`text-[9px] px-1 rounded font-medium ${isOverridden ? "text-amber-600 bg-amber-50" : "text-gray-400 bg-gray-100"}`}>
+                    {isOverridden ? "override" : "default"}
+                  </span>
                 </div>
                 <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{config.description}</p>
               </div>
@@ -534,6 +535,32 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                   </span>
                 )}
                 <span className="text-[10px] text-gray-400 w-10">{config.unit}</span>
+                {/* Per-row reset: restarts measurement window, NOT value reversion */}
+                {mode === "view" && (
+                  <button
+                    onClick={async () => {
+                      // TODO: reset requires window_start support in anomaly engine.
+                      // Marker inserted to b_records_log. Engine must be updated to
+                      // respect t_reset before this button has operational effect.
+                      if (!selectedZoneId) return;
+                      const zone = zones.find((z) => z.hvac_zone_id === selectedZoneId);
+                      await supabase.from("b_records_log").insert({
+                        org_id: orgId,
+                        site_id: siteId,
+                        event_type: "anomaly_window_reset",
+                        event_date: new Date().toISOString().split("T")[0],
+                        message: `Reset measurement window for ${config.label} on zone ${zone?.name || selectedZoneId}`,
+                        source: "anomaly_thresholds",
+                        metadata: { anomaly_key: key, zone_id: selectedZoneId, t_reset: new Date().toISOString() },
+                        created_by: "user",
+                      });
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-[10px] text-gray-400 hover:text-gray-600 transition-opacity px-1"
+                    title="Restart measurement window for this anomaly (does not change threshold value)"
+                  >
+                    Reset window
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -565,13 +592,6 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                 ? `${Object.keys(thresholds).length} custom override${Object.keys(thresholds).length !== 1 ? "s" : ""}`
                 : "All system defaults"}
             </span>
-            <button
-              onClick={handleReset}
-              disabled={saving || !hasOverrides}
-              className="text-xs text-red-600 hover:text-red-700 disabled:opacity-40"
-            >
-              Reset to Defaults
-            </button>
           </>
         )}
       </div>

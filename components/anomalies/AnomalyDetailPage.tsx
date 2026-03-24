@@ -56,7 +56,7 @@ export default function AnomalyDetailPage({ viewModel }: Props) {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header zone — fixed height */}
       <div className="shrink-0 px-4 pt-4 pb-2 max-w-5xl mx-auto w-full">
         <AnomalyHeader
@@ -114,6 +114,7 @@ export default function AnomalyDetailPage({ viewModel }: Props) {
                   siteId={context.siteId}
                   equipmentId={context.equipmentId}
                   zoneId={context.zoneId}
+                  threshold={threshold}
                 />
               )}
               {activeTab === "why-it-matters" && (

@@ -22,6 +22,7 @@ export type AnomalyDefinition = {
   thresholdLabel: string;
   observedValueLabel: string;
   thresholdDirection: "above" | "below";
+  defaultThreshold?: number;
   napkinMath: NapkinMathRow[];
   requiredInputs: string[];
   whyItMatters: {
@@ -48,6 +49,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Min safe supply temperature",
     observedValueLabel: "Measured supply temperature",
     thresholdDirection: "below",
+    defaultThreshold: 35,
     napkinMath: [
       { label: "Measured supply air temp", value: "33°F", note: "from supply temp sensor" },
       { label: "Threshold", value: "35°F", note: "configured limit" },
@@ -89,6 +91,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Response window (minutes)",
     observedValueLabel: "Temperature change during window",
     thresholdDirection: "above",
+    defaultThreshold: 15,
     napkinMath: [
       { label: "HVAC start time", value: "1:00 PM" },
       { label: "Zone temp at start", value: "76°F" },
@@ -132,6 +135,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Max allowable idle drift (°F)",
     observedValueLabel: "Measured temp drift from baseline",
     thresholdDirection: "above",
+    defaultThreshold: 2,
     napkinMath: [
       { label: "Idle baseline/setpoint", value: "72°F" },
       { label: "Current zone temp", value: "74°F" },
@@ -175,6 +179,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Max continuous runtime (minutes)",
     observedValueLabel: "Measured continuous runtime (minutes)",
     thresholdDirection: "above",
+    defaultThreshold: 120,
     napkinMath: [
       { label: "Continuous runtime", value: "137 min" },
       { label: "Threshold", value: "120 min" },
@@ -216,6 +221,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Max starts per rolling hour",
     observedValueLabel: "Measured starts in rolling hour",
     thresholdDirection: "above",
+    defaultThreshold: 4,
     napkinMath: [
       { label: "Compressor starts in rolling 1hr", value: "6" },
       { label: "Threshold", value: "4 cycles/hr" },
@@ -257,6 +263,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Max allowable ΔT (°F)",
     observedValueLabel: "Measured ΔT (zone − supply)",
     thresholdDirection: "above",
+    defaultThreshold: 25,
     napkinMath: [
       { label: "Zone temp", value: "76°F" },
       { label: "Supply temp", value: "48°F" },
@@ -300,6 +307,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Min expected ΔT (°F)",
     observedValueLabel: "Measured ΔT (zone − supply)",
     thresholdDirection: "below",
+    defaultThreshold: 5,
     napkinMath: [
       { label: "Zone temp", value: "72°F" },
       { label: "Supply temp", value: "68°F" },
@@ -343,6 +351,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Min efficiency ratio",
     observedValueLabel: "Measured efficiency ratio",
     thresholdDirection: "below",
+    defaultThreshold: 40,
     // TODO: Formula pending finalization in the backend. Placeholder napkin math.
     napkinMath: [
       { label: "Measured efficiency ratio", value: "TBD", note: "formula pending finalization" },
@@ -384,6 +393,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdLabel: "Compressor detection threshold (A)",
     observedValueLabel: "Measured current (A)",
     thresholdDirection: "above",
+    defaultThreshold: 1.0,
     napkinMath: [
       { label: "Measured current", value: "1.4 A", note: "from current sensor" },
       { label: "Threshold", value: "1.0 A" },

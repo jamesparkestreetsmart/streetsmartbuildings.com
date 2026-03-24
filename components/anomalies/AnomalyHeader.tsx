@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { AnomalyDefinition } from "@/lib/anomalies/anomaly-definitions";
 
 interface Props {
@@ -33,12 +32,6 @@ function formatTimestamp(ts: string | null): string {
 export default function AnomalyHeader({ definition, context, status, lastTriggered }: Props) {
   return (
     <div>
-      <Link
-        href={`/sites/${context.siteId}?tab=space-hvac`}
-        className="text-xs text-green-600 hover:underline mb-2 inline-block"
-      >
-        &larr; Space & HVAC
-      </Link>
       <h1 className="text-2xl font-bold mb-1">{definition.displayName}</h1>
       <p className="text-sm text-gray-500 mb-3">{definition.shortDescription}</p>
       <div className="flex flex-wrap items-center gap-2 text-xs">

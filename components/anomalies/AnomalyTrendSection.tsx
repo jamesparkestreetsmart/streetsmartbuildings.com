@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import AnomalyTrendChart from "./AnomalyTrendChart";
 
 interface Props {
   anomalyKey: string;
@@ -8,15 +9,17 @@ interface Props {
   siteId: string;
   equipmentId: string | null;
   zoneId: string | null;
+  threshold?: { value: number | null; unit: string } | null;
 }
 
 const RANGES = ["1h", "6h", "24h", "7d"] as const;
 
-// TODO: Wire to real telemetry query when chart data layer is ready.
-// This is a structured placeholder so upgrading is a single component swap.
-
-export default function AnomalyTrendSection({ chartConfig }: Props) {
+export default function AnomalyTrendSection({ anomalyKey, chartConfig, siteId, zoneId, threshold }: Props) {
   const [range, setRange] = useState<string>(chartConfig.defaultRange);
+
+  const thresholdLine = threshold?.value != null
+    ? { value: threshold.value, label: `Threshold: ${threshold.value}${threshold.unit || ""}` }
+    : null;
 
   return (
     <div>
@@ -38,18 +41,14 @@ export default function AnomalyTrendSection({ chartConfig }: Props) {
           ))}
         </div>
       </div>
-      <div className="flex items-center justify-center h-48 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-        <div className="text-center">
-          <p className="text-sm text-gray-400 mb-2">Chart placeholder — {range} range</p>
-          <div className="flex flex-wrap gap-2 justify-center">
-            {chartConfig.series.map((s) => (
-              <span key={s} className="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">
-                {s}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
+      <AnomalyTrendChart
+        anomalyKey={anomalyKey}
+        siteId={siteId}
+        zoneId={zoneId}
+        threshold={thresholdLine}
+        range={range}
+        chartSeries={chartConfig.series}
+      />
     </div>
   );
 }

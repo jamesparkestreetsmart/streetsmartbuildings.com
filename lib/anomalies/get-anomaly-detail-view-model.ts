@@ -90,6 +90,12 @@ export async function getAnomalyDetailViewModel(params: {
     }
   }
 
+  // Fall back to definition default if no site override found
+  if (thresholdValue === null && definition.defaultThreshold != null) {
+    thresholdValue = definition.defaultThreshold;
+    thresholdSource = "default";
+  }
+
   // 4. Fetch equipment context if provided
   let equipmentName: string | null = null;
   if (equipmentId) {
