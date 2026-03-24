@@ -105,6 +105,7 @@ export default function AnomalyDetailPage({ viewModel }: Props) {
                   definition={definition}
                   observedValue={observedValue}
                   threshold={threshold}
+                  onViewTimeline={!observedValue.isPlaceholder ? () => handleTabChange("trend") : undefined}
                 />
               )}
               {activeTab === "trend" && (

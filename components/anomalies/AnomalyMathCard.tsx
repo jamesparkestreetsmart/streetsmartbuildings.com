@@ -4,9 +4,10 @@ interface Props {
   definition: AnomalyDefinition;
   observedValue: { value: number | null; isPlaceholder: boolean };
   threshold: { value: number | null; unit: string };
+  onViewTimeline?: () => void;
 }
 
-export default function AnomalyMathCard({ definition, observedValue, threshold }: Props) {
+export default function AnomalyMathCard({ definition, observedValue, threshold, onViewTimeline }: Props) {
   const hasRealData = !observedValue.isPlaceholder && observedValue.value != null;
 
   return (
@@ -41,6 +42,14 @@ export default function AnomalyMathCard({ definition, observedValue, threshold }
                 {" "}{definition.thresholdDirection === "above" ? ">" : "<"}{" "}
                 threshold <span className="font-mono font-semibold">{threshold.value}{threshold.unit}</span>
               </p>
+              {onViewTimeline && (
+                <button
+                  onClick={onViewTimeline}
+                  className="text-xs text-green-600 hover:underline mt-2"
+                >
+                  View event history &rarr;
+                </button>
+              )}
             </div>
           )}
         </div>

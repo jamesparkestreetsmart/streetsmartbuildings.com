@@ -365,7 +365,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
     return (
       <div className="border rounded-lg bg-white">
         <div className="px-4 py-3 border-b bg-gray-50 rounded-t-lg">
-          <h3 className="text-sm font-semibold text-gray-800">Anomaly Thresholds</h3>
+          <h3 className="text-sm font-semibold text-gray-800">Detection System</h3>
         </div>
         <div className="px-4 py-6 text-center text-xs text-gray-400">Loading zones...</div>
       </div>
@@ -376,7 +376,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
     return (
       <div className="border rounded-lg bg-white">
         <div className="px-4 py-3 border-b bg-gray-50 rounded-t-lg">
-          <h3 className="text-sm font-semibold text-gray-800">Anomaly Thresholds</h3>
+          <h3 className="text-sm font-semibold text-gray-800">Detection System</h3>
         </div>
         <div className="px-4 py-6 text-center text-xs text-gray-400">No managed zones</div>
       </div>
@@ -389,8 +389,8 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
       <div className="px-4 py-3 border-b bg-gray-50 rounded-t-lg">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-gray-800">Anomaly Thresholds</h3>
-            <p className="text-[11px] text-gray-500 mt-0.5">Per-zone detection settings</p>
+            <h3 className="text-sm font-semibold text-gray-800">Detection System</h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">Per-zone monitoring & configuration</p>
           </div>
           {saved && (
             <span className="text-[11px] font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded">Saved</span>
@@ -410,18 +410,21 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
         )}
       </div>
 
-      {/* Profiles list (always visible) */}
+      {/* Detection Presets sub-section */}
       <div className="px-3 py-2.5 border-b">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-gray-600">
-            Profiles {orgProfiles.length > 0 && `(${orgProfiles.length})`}
-          </span>
+        <div className="flex items-center justify-between mb-1">
+          <div>
+            <span className="text-xs font-medium text-gray-600">
+              Detection Presets {orgProfiles.length > 0 && `(${orgProfiles.length})`}
+            </span>
+            <p className="text-[11px] text-gray-400">Standardize across locations</p>
+          </div>
           <button
             onClick={startNewProfile}
             disabled={mode === "create"}
             className="text-[11px] font-medium text-green-600 hover:text-green-700 disabled:opacity-40 transition-colors"
           >
-            + New Profile
+            + New Preset
           </button>
         </div>
 
@@ -429,7 +432,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
           <div className="text-[11px] text-gray-400 py-1">Loading profiles...</div>
         ) : orgProfiles.length === 0 ? (
           <p className="text-[11px] text-gray-400 leading-snug py-1">
-            No profiles yet. Click &ldquo;+ New Profile&rdquo; to create one from current zone values.
+            No presets yet. Click &ldquo;+ New Preset&rdquo; to create one from current zone values.
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -438,11 +441,16 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                 key={p.profile_id}
                 className="flex items-center justify-between px-2.5 py-2 rounded border border-gray-200 bg-white text-xs"
               >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <TierBadge tier={(p.scope || "org") === "site" ? "SITE" : "ORG"} />
-                  <span className="font-medium text-gray-700 truncate">{p.profile_name}</span>
-                  <span className="text-[10px] text-gray-400 flex-shrink-0">
-                    {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <TierBadge tier={(p.scope || "org") === "site" ? "SITE" : "ORG"} />
+                    <span className="font-medium text-gray-700 truncate">{p.profile_name || "Unnamed preset"}</span>
+                    <span className="text-[10px] text-gray-400 flex-shrink-0">
+                      {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-gray-400 ml-0.5">
+                    Applies to: {(p.scope || "org") === "site" ? "This site only" : "All sites"}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
@@ -451,14 +459,14 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                     disabled={saving}
                     className="px-2 py-0.5 text-[11px] font-medium text-green-600 border border-green-300 rounded hover:bg-green-50 disabled:opacity-40 transition-colors"
                   >
-                    Apply
+                    {(p.scope || "org") === "site" ? "Set for this Site" : "Set for All Sites"}
                   </button>
                   <button
                     onClick={() => startFromProfile(p.profile_id)}
                     disabled={mode === "create"}
                     className="px-2 py-0.5 text-[11px] font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-40 transition-colors"
                   >
-                    Clone & Edit
+                    Edit Preset
                   </button>
                   {!p.is_global && (p.scope || "org") === "site" && (
                     <button
@@ -479,7 +487,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
       {/* Profile name input (create mode only) */}
       {mode === "create" && (
         <div className="px-4 py-3 border-b bg-green-50/50">
-          <label className="block text-[11px] font-medium text-gray-600 mb-1">New Profile Name</label>
+          <label className="block text-[11px] font-medium text-gray-600 mb-1">New Preset Name</label>
           <input
             type="text"
             value={profileName}
@@ -491,7 +499,10 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
         </div>
       )}
 
-      {/* Thresholds list */}
+      {/* Anomalies sub-section */}
+      <div className="px-4 pt-2.5 pb-1">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Anomalies</span>
+      </div>
       <div className="divide-y max-h-[400px] overflow-y-auto">
         {Object.entries(DEFAULTS).map(([key, config]) => {
           const currentValue = thresholds[key];
@@ -556,9 +567,9 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
                       });
                     }}
                     className="opacity-0 group-hover:opacity-100 text-[10px] text-gray-400 hover:text-gray-600 transition-opacity px-1"
-                    title="Restart measurement window for this anomaly (does not change threshold value)"
+                    title="Restart measurement from now (does not change threshold value)"
                   >
-                    Reset window
+                    Restart measurement
                   </button>
                 )}
               </div>
@@ -590,7 +601,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
             <span className="text-[10px] text-gray-400">
               {hasOverrides
                 ? `${Object.keys(thresholds).length} custom override${Object.keys(thresholds).length !== 1 ? "s" : ""}`
-                : "All system defaults"}
+                : "All values are system defaults"}
             </span>
           </>
         )}
