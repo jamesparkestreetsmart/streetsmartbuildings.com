@@ -122,11 +122,21 @@ export async function getAnomalyDetailViewModel(params: {
 
   if (events && events.length > 0) {
     const event = events[0];
-    observedValue = event.peak_value != null ? Number(event.peak_value) : null;
-    observedTimestamp = event.started_at;
-    isPlaceholder = false;
     lastTriggered = event.started_at;
     status = event.ended_at ? "cleared" : "active";
+
+    // For delayed-response, peak_value stores the response window (minutes),
+    // NOT the observed temperature delta. The actual temp delta is not stored
+    // in b_anomaly_events for this anomaly type — show placeholder instead.
+    if (definition.key === "delayed-response") {
+      observedValue = null;
+      observedTimestamp = event.started_at;
+      isPlaceholder = true;
+    } else {
+      observedValue = event.peak_value != null ? Number(event.peak_value) : null;
+      observedTimestamp = event.started_at;
+      isPlaceholder = event.peak_value == null;
+    }
   }
 
   // TODO: V1 does not distinguish "historical" status — would need alert-level data

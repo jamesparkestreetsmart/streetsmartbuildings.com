@@ -15,7 +15,7 @@ const CARDS = [
 export default function AnomalyWhyItMatters({ whyItMatters }: Props) {
   return (
     <div>
-      <h2 className="text-lg font-semibold mb-4">Why It Matters</h2>
+      <h2 className="text-sm font-medium text-gray-600 mb-4">Why It Matters</h2>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {CARDS.map(({ key, title, color }) => (
           <div key={key} className={`border rounded-xl p-4 border-l-4 ${color}`}>

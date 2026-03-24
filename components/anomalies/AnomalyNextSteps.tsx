@@ -8,7 +8,7 @@ interface Props {
 
 const SECTIONS = [
   { key: "inspectNow", title: "Inspect Now", subtitle: "Immediate physical checks" },
-  { key: "monitor", title: "Monitor", subtitle: "Watch over next 24\u201372 hours" },
+  { key: "monitor", title: "Monitor", subtitle: "Watch over next 24–72 hours" },
   { key: "escalate", title: "Escalate", subtitle: "When to call a technician" },
 ] as const;
 

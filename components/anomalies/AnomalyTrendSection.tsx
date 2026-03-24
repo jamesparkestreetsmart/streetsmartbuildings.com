@@ -19,9 +19,9 @@ export default function AnomalyTrendSection({ chartConfig }: Props) {
   const [range, setRange] = useState<string>(chartConfig.defaultRange);
 
   return (
-    <div className="border rounded-xl p-6">
+    <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Trend</h2>
+        <h2 className="text-sm font-medium text-gray-600">Trend</h2>
         <div className="flex gap-1">
           {RANGES.map((r) => (
             <button
@@ -40,7 +40,7 @@ export default function AnomalyTrendSection({ chartConfig }: Props) {
       </div>
       <div className="flex items-center justify-center h-48 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
         <div className="text-center">
-          <p className="text-sm text-gray-400 mb-2">Chart placeholder \u2014 {range} range</p>
+          <p className="text-sm text-gray-400 mb-2">Chart placeholder — {range} range</p>
           <div className="flex flex-wrap gap-2 justify-center">
             {chartConfig.series.map((s) => (
               <span key={s} className="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">

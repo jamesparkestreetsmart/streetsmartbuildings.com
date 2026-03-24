@@ -10,8 +10,7 @@ export default function AnomalyMathCard({ definition, observedValue, threshold }
   const hasRealData = !observedValue.isPlaceholder && observedValue.value != null;
 
   return (
-    <div className="border rounded-xl p-6">
-      <h2 className="text-lg font-semibold mb-4">How We Flagged This</h2>
+    <div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Left: Napkin Math */}
         <div>

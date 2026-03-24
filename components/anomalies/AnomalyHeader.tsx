@@ -23,7 +23,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 function formatTimestamp(ts: string | null): string {
-  if (!ts) return "\u2014";
+  if (!ts) return "—";
   return new Date(ts).toLocaleString("en-US", {
     month: "short", day: "numeric", year: "numeric",
     hour: "numeric", minute: "2-digit",
@@ -52,7 +52,7 @@ export default function AnomalyHeader({ definition, context, status, lastTrigger
           <span className="px-2 py-1 rounded bg-gray-100 text-gray-600">{context.zoneName}</span>
         )}
         <span className={`px-2 py-1 rounded font-medium ${STATUS_STYLES[status]}`}>
-          {status.charAt(0).toUpperCase() + status.slice(1)}
+          {status === "unknown" ? "No Recent Events" : status.charAt(0).toUpperCase() + status.slice(1)}
         </span>
         {lastTriggered && (
           <span className="px-2 py-1 rounded bg-gray-50 text-gray-500">

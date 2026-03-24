@@ -44,14 +44,14 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     configKeys: ["coil_freeze_temp_f", "coil_freeze"],
     displayName: "Coil Freeze",
     shortDescription: "Supply air dropped below a threshold that may indicate coil freezing risk.",
-    unit: "\u00B0F",
+    unit: "°F",
     thresholdLabel: "Min safe supply temperature",
     observedValueLabel: "Measured supply temperature",
     thresholdDirection: "below",
     napkinMath: [
-      { label: "Measured supply air temp", value: "33\u00B0F", note: "from supply temp sensor" },
-      { label: "Threshold", value: "35\u00B0F", note: "configured limit" },
-      { label: "Result", value: "33\u00B0F < 35\u00B0F \u2192 flagged" },
+      { label: "Measured supply air temp", value: "33°F", note: "from supply temp sensor" },
+      { label: "Threshold", value: "35°F", note: "configured limit" },
+      { label: "Result", value: "33°F < 35°F → flagged" },
     ],
     requiredInputs: ["Supply temperature", "Compressor running state", "Compressor current"],
     whyItMatters: {
@@ -91,14 +91,14 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     thresholdDirection: "above",
     napkinMath: [
       { label: "HVAC start time", value: "1:00 PM" },
-      { label: "Zone temp at start", value: "76\u00B0F" },
-      { label: "Zone temp at 1:15 PM", value: "76\u00B0F" },
-      { label: "Movement in 15 min", value: "0\u00B0F" },
-      { label: "Result", value: "15 min window, no movement \u2192 flagged" },
+      { label: "Zone temp at start", value: "76°F" },
+      { label: "Zone temp at 1:15 PM", value: "76°F" },
+      { label: "Movement in 15 min", value: "0°F" },
+      { label: "Result", value: "15 min window, no movement → flagged" },
     ],
     requiredInputs: ["Zone temperature", "HVAC active state", "Setpoint", "Timestamp"],
     whyItMatters: {
-      operationalRisk: "Zone may not be reaching setpoint \u2014 space comfort or food safety may be affected.",
+      operationalRisk: "Zone may not be reaching setpoint — space comfort or food safety may be affected.",
       businessImpact: "Undetected HVAC failure can lead to prolonged temperature excursion.",
       recommendedAction: "Verify unit is running, confirm no airflow obstruction, check controls.",
     },
@@ -109,7 +109,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
         "Verify thermostat is calling for heat or cool",
       ],
       monitor: [
-        "Watch zone temp over the next 30\u201360 minutes",
+        "Watch zone temp over the next 30–60 minutes",
         "Compare with outdoor temp trend",
       ],
       escalate: [
@@ -128,16 +128,16 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     configKeys: ["idle_heat_gain_f", "idle_heat_gain"],
     displayName: "Idle Heat Gain",
     shortDescription: "Zone temperature drifted upward while the space was idle, beyond the acceptable limit.",
-    unit: "\u00B0F",
-    thresholdLabel: "Max allowable idle drift (\u00B0F)",
+    unit: "°F",
+    thresholdLabel: "Max allowable idle drift (°F)",
     observedValueLabel: "Measured temp drift from baseline",
     thresholdDirection: "above",
     napkinMath: [
-      { label: "Idle baseline/setpoint", value: "72\u00B0F" },
-      { label: "Current zone temp", value: "74\u00B0F" },
-      { label: "Drift", value: "+2\u00B0F" },
-      { label: "Threshold", value: "2\u00B0F" },
-      { label: "Result", value: "2\u00B0F \u2265 2\u00B0F \u2192 flagged" },
+      { label: "Idle baseline/setpoint", value: "72°F" },
+      { label: "Current zone temp", value: "74°F" },
+      { label: "Drift", value: "+2°F" },
+      { label: "Threshold", value: "2°F" },
+      { label: "Result", value: "2°F ≥ 2°F → flagged" },
     ],
     requiredInputs: ["Zone temperature", "Setpoint", "Occupancy phase"],
     whyItMatters: {
@@ -178,7 +178,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     napkinMath: [
       { label: "Continuous runtime", value: "137 min" },
       { label: "Threshold", value: "120 min" },
-      { label: "Result", value: "137 > 120 \u2192 flagged" },
+      { label: "Result", value: "137 > 120 → flagged" },
     ],
     requiredInputs: ["Compressor running state", "Compressor current", "Event duration"],
     whyItMatters: {
@@ -202,7 +202,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     },
     technicalNotes: [
       "Long cycle detection uses compressor current to determine run state.",
-      "Hot outdoor conditions can cause legitimately long runtimes \u2014 consider weather context.",
+      "Hot outdoor conditions can cause legitimately long runtimes — consider weather context.",
     ],
     chartSeries: ["compressor_runtime", "threshold"],
   },
@@ -219,7 +219,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     napkinMath: [
       { label: "Compressor starts in rolling 1hr", value: "6" },
       { label: "Threshold", value: "4 cycles/hr" },
-      { label: "Result", value: "6 > 4 \u2192 flagged" },
+      { label: "Result", value: "6 > 4 → flagged" },
     ],
     requiredInputs: ["Compressor running state", "Compressor current", "Rolling event count", "Timestamp window"],
     whyItMatters: {
@@ -234,7 +234,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
         "Inspect refrigerant charge",
       ],
       monitor: [
-        "Track cycle frequency over 24\u201348 hours",
+        "Track cycle frequency over 24–48 hours",
         "Note correlation with outdoor temp or occupancy changes",
       ],
       escalate: [
@@ -251,18 +251,18 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
   "filter-restriction-dt": {
     key: "filter-restriction-dt",
     configKeys: ["filter_restriction_delta_t_max", "filter_restriction"],
-    displayName: "Filter Restriction \u0394T",
+    displayName: "Filter Restriction ΔT",
     shortDescription: "A large zone-to-supply temperature split while running may indicate poor airflow or a restricted filter.",
-    unit: "\u00B0F",
-    thresholdLabel: "Max allowable \u0394T (\u00B0F)",
-    observedValueLabel: "Measured \u0394T (zone \u2212 supply)",
+    unit: "°F",
+    thresholdLabel: "Max allowable ΔT (°F)",
+    observedValueLabel: "Measured ΔT (zone − supply)",
     thresholdDirection: "above",
     napkinMath: [
-      { label: "Zone temp", value: "76\u00B0F" },
-      { label: "Supply temp", value: "48\u00B0F" },
-      { label: "\u0394T = 76 \u2212 48", value: "28\u00B0F" },
-      { label: "Threshold", value: "25\u00B0F" },
-      { label: "Result", value: "28 > 25 \u2192 flagged" },
+      { label: "Zone temp", value: "76°F" },
+      { label: "Supply temp", value: "48°F" },
+      { label: "ΔT = 76 − 48", value: "28°F" },
+      { label: "Threshold", value: "25°F" },
+      { label: "Result", value: "28 > 25 → flagged" },
     ],
     requiredInputs: ["Zone temperature", "Supply temperature", "Compressor running state"],
     whyItMatters: {
@@ -277,16 +277,16 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
         "Inspect blower motor operation",
       ],
       monitor: [
-        "Track \u0394T trend \u2014 does it improve after filter change?",
-        "Compare \u0394T across units to find outliers",
+        "Track ΔT trend — does it improve after filter change?",
+        "Compare ΔT across units to find outliers",
       ],
       escalate: [
-        "If \u0394T remains high after filter replacement, inspect ductwork and blower",
+        "If ΔT remains high after filter replacement, inspect ductwork and blower",
       ],
     },
     technicalNotes: [
-      "\u0394T is calculated as zone_temp minus supply_temp while compressor is confirmed running.",
-      "A dirty filter increases \u0394T by restricting airflow across the evaporator coil.",
+      "ΔT is calculated as zone_temp minus supply_temp while compressor is confirmed running.",
+      "A dirty filter increases ΔT by restricting airflow across the evaporator coil.",
     ],
     chartSeries: ["zone_temp", "supply_temp", "delta_t", "threshold"],
   },
@@ -294,22 +294,22 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
   "refrigerant-low-dt": {
     key: "refrigerant-low-dt",
     configKeys: ["refrigerant_low_delta_t_min", "refrigerant_low"],
-    displayName: "Refrigerant Low \u0394T",
+    displayName: "Refrigerant Low ΔT",
     shortDescription: "A small zone-to-supply temperature split while running may indicate weak cooling performance.",
-    unit: "\u00B0F",
-    thresholdLabel: "Min expected \u0394T (\u00B0F)",
-    observedValueLabel: "Measured \u0394T (zone \u2212 supply)",
+    unit: "°F",
+    thresholdLabel: "Min expected ΔT (°F)",
+    observedValueLabel: "Measured ΔT (zone − supply)",
     thresholdDirection: "below",
     napkinMath: [
-      { label: "Zone temp", value: "72\u00B0F" },
-      { label: "Supply temp", value: "68\u00B0F" },
-      { label: "\u0394T = 72 \u2212 68", value: "4\u00B0F" },
-      { label: "Threshold", value: "5\u00B0F" },
-      { label: "Result", value: "4 < 5 \u2192 flagged" },
+      { label: "Zone temp", value: "72°F" },
+      { label: "Supply temp", value: "68°F" },
+      { label: "ΔT = 72 − 68", value: "4°F" },
+      { label: "Threshold", value: "5°F" },
+      { label: "Result", value: "4 < 5 → flagged" },
     ],
     requiredInputs: ["Zone temperature", "Supply temperature", "Compressor running state"],
     whyItMatters: {
-      operationalRisk: "Low \u0394T suggests the unit is not producing adequate cooling.",
+      operationalRisk: "Low ΔT suggests the unit is not producing adequate cooling.",
       businessImpact: "Spaces may not reach setpoint; food safety risk in QSR environments.",
       recommendedAction: "Check refrigerant charge and inspect for airflow or coil issues.",
     },
@@ -320,15 +320,15 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
         "Inspect coil for frost or dirt buildup",
       ],
       monitor: [
-        "Track \u0394T trend over 24 hours \u2014 consistent low \u0394T confirms issue",
+        "Track ΔT trend over 24 hours — consistent low ΔT confirms issue",
         "Compare with similar units",
       ],
       escalate: [
-        "If \u0394T remains low, dispatch technician for refrigerant charge check",
+        "If ΔT remains low, dispatch technician for refrigerant charge check",
       ],
     },
     technicalNotes: [
-      "Low \u0394T while the compressor is running indicates reduced cooling capacity.",
+      "Low ΔT while the compressor is running indicates reduced cooling capacity.",
       "Common causes: low refrigerant charge, restricted liquid line, or failing compressor valve.",
     ],
     chartSeries: ["zone_temp", "supply_temp", "delta_t", "threshold"],
@@ -347,7 +347,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     napkinMath: [
       { label: "Measured efficiency ratio", value: "TBD", note: "formula pending finalization" },
       { label: "Threshold", value: "40%" },
-      { label: "Result", value: "Pending formula \u2192 placeholder" },
+      { label: "Result", value: "Pending formula → placeholder" },
     ],
     requiredInputs: ["Power draw", "Cooling output (computed)", "Runtime"],
     whyItMatters: {
@@ -387,7 +387,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     napkinMath: [
       { label: "Measured current", value: "1.4 A", note: "from current sensor" },
       { label: "Threshold", value: "1.0 A" },
-      { label: "Result", value: "1.4 > 1.0 \u2192 compressor considered running" },
+      { label: "Result", value: "1.4 > 1.0 → compressor considered running" },
     ],
     requiredInputs: ["Compressor current"],
     whyItMatters: {
@@ -410,7 +410,7 @@ const DEFINITIONS: Record<string, AnomalyDefinition> = {
     },
     technicalNotes: [
       "This is a detection gate, not a fault condition. It determines when the compressor is considered 'on.'",
-      "Other anomalies (coil freeze, filter restriction, refrigerant low \u0394T) depend on accurate compressor detection.",
+      "Other anomalies (coil freeze, filter restriction, refrigerant low ΔT) depend on accurate compressor detection.",
       "Threshold should be set above idle/standby draw but below minimum running draw.",
     ],
     chartSeries: ["compressor_current", "threshold"],

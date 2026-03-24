@@ -18,7 +18,7 @@ export default function AnomalyTechnicalLogicAccordion({ technicalNotes, definit
         className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-gray-50 rounded-xl transition-colors"
       >
         <span className="text-sm font-medium text-gray-700">Technical Details</span>
-        <span className="text-gray-400 text-xs">{open ? "\u25B2" : "\u25BC"}</span>
+        <span className="text-gray-400 text-xs">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
         <div className="px-6 pb-6 space-y-4 border-t">
@@ -52,7 +52,7 @@ export default function AnomalyTechnicalLogicAccordion({ technicalNotes, definit
             <h4 className="text-xs font-medium text-gray-500 mb-2">Required Data Inputs</h4>
             <ul className="text-xs text-gray-600 space-y-0.5">
               {definition.requiredInputs.map((input, i) => (
-                <li key={i}>\u2022 {input}</li>
+                <li key={i}>• {input}</li>
               ))}
             </ul>
           </div>
@@ -64,7 +64,7 @@ export default function AnomalyTechnicalLogicAccordion({ technicalNotes, definit
               <ul className="text-xs text-gray-600 space-y-1">
                 {technicalNotes.map((note, i) => (
                   <li key={i} className="flex items-start gap-2">
-                    <span className="text-gray-400 shrink-0">\u2022</span>
+                    <span className="text-gray-400 shrink-0">•</span>
                     {note}
                   </li>
                 ))}
