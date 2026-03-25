@@ -64,7 +64,9 @@
       "Bash(find \"C:/Projects/EagleEyes/eagle-eyes-dashboard/app/\\(dashboard\\)/sites\" -type f -name \"page.tsx\")",
       "Bash(DRY_RUN=true npx tsx scripts/cleanup-duplicate-restored-profiles.ts)",
       "Bash(DRY_RUN=false npx tsx scripts/cleanup-duplicate-restored-profiles.ts)",
-      "mcp__supabase__execute_sql"
+      "mcp__supabase__execute_sql",
+      "Bash(pip install:*)",
+      "Bash(python scripts/finance/seed_securities.py)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Users, Shield, ShieldCheck, ChevronDown, Building2, MessageSquare, Inbox } from "lucide-react";
+import { Users, Shield, ShieldCheck, ChevronDown, Building2, MessageSquare, Inbox, BarChart2 } from "lucide-react";
 import { useOrg } from "@/context/OrgContext";
 import { useState, useRef, useEffect } from "react";
 import FeedbackModal from "@/components/FeedbackModal";
@@ -126,6 +126,17 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             >
               <Inbox className="w-4 h-4 inline-block mr-2" />
               Inbox
+            </Link>
+            <div className="border-t my-2 mx-4" />
+            <div className="px-4 py-1 text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Finance</div>
+            <Link
+              href="/admin/finance/securities"
+              className={`block px-4 py-2 pl-8 text-sm font-medium hover:bg-gray-100 ${
+                pathname.startsWith("/admin/finance") ? "bg-gray-200 text-black" : "text-gray-500"
+              }`}
+            >
+              <BarChart2 className="w-4 h-4 inline-block mr-2" />
+              Investment Database
             </Link>
           </>
         )}
