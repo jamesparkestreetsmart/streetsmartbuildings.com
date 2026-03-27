@@ -54,27 +54,19 @@ export default function AnomalyDetailPage({ viewModel }: Props) {
 
   useEffect(() => {
     const fetchZones = async () => {
-      // Eligibility: thermostat OR equipment OR anomaly event history.
-      // Same predicate as AnomalyThresholdsPanel — template zones excluded.
-      const [zonesRes, allEventsRes, activeEventsRes] = await Promise.all([
-        supabase.from("a_hvac_zones").select("hvac_zone_id, name, thermostat_device_id, equipment_id").eq("site_id", context.siteId).order("name"),
-        supabase.from("b_anomaly_events").select("hvac_zone_id").eq("site_id", context.siteId),
+      // Fetch monitored zones from server-side view (single source of truth).
+      // No client-side eligibility filtering — view computes is_monitored.
+      const [zonesRes, activeEventsRes] = await Promise.all([
+        supabase.from("view_monitored_hvac_zones").select("hvac_zone_id, zone_name").eq("site_id", context.siteId).eq("is_monitored", true).order("zone_name"),
         supabase.from("b_anomaly_events").select("hvac_zone_id").eq("site_id", context.siteId).is("ended_at", null),
       ]);
-      const zonesWithEvents = new Set<string>();
-      for (const e of allEventsRes.data || []) {
-        if (e.hvac_zone_id) zonesWithEvents.add(e.hvac_zone_id);
-      }
       const counts: Record<string, number> = {};
       for (const e of activeEventsRes.data || []) {
         if (e.hvac_zone_id) counts[e.hvac_zone_id] = (counts[e.hvac_zone_id] || 0) + 1;
       }
-      const eligible = (zonesRes.data || []).filter((z: any) =>
-        z.thermostat_device_id != null || z.equipment_id != null || zonesWithEvents.has(z.hvac_zone_id)
-      );
-      setSiteZones(eligible.map((z: any) => ({
+      setSiteZones((zonesRes.data || []).map((z: any) => ({
         hvac_zone_id: z.hvac_zone_id,
-        name: z.name,
+        name: z.zone_name,
         activeCount: counts[z.hvac_zone_id] || 0,
       })));
     };

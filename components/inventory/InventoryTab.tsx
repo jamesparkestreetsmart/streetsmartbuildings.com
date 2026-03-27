@@ -57,6 +57,7 @@ export default function InventoryTab({
   const [sitesMap, setSitesMap] = useState<Record<string, SiteInfo>>({});
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [orgName, setOrgName] = useState<string | null>(null);
   const [showAddSpace, setShowAddSpace] = useState(false);
 
   // Sort state
@@ -66,10 +67,10 @@ export default function InventoryTab({
   const loadData = useCallback(async () => {
     setLoading(true);
 
-    // Get org_id from this site
+    // Get org_id + org_name from this site (org_name used for inventory site label)
     const { data: siteData } = await supabase
       .from("a_sites")
-      .select("org_id")
+      .select("org_id, a_organizations(org_name)")
       .eq("site_id", siteId)
       .single();
 
@@ -77,6 +78,8 @@ export default function InventoryTab({
     if (currentOrgId) {
       setOrgId(currentOrgId);
     }
+    const resolvedOrgName = (siteData as any)?.a_organizations?.org_name || null;
+    setOrgName(resolvedOrgName);
 
     let spaceData: InventorySpace[] = [];
 
@@ -217,7 +220,7 @@ export default function InventoryTab({
 
     const rows = sortedSpaces.map((space) => {
       const site = sitesMap[space.site_id];
-      const siteName = site?.status === "inventory" ? "Org HQ" : (site?.site_name || "—");
+      const siteName = site?.status === "inventory" ? `${orgName || "Org"} — Inventory` : (site?.site_name || "—");
 
       if (mode === "org") {
         return [space.name, String(space.device_count), siteName, space.space_type];
@@ -357,7 +360,7 @@ export default function InventoryTab({
                       <td className="px-5 py-3 text-gray-700">
                         {site ? (
                           isInventorySite ? (
-                            <span className="text-gray-400 italic">Org HQ</span>
+                            <span className="text-gray-400 italic">{orgName || "Org"} — Inventory</span>
                           ) : (
                             <Link
                               href={`/sites/${site.site_id}`}

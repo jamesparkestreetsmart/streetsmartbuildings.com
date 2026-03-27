@@ -106,23 +106,18 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
   // Anomaly event status per zone
   const [zoneEventCounts, setZoneEventCounts] = useState<Record<string, number>>({});
 
-  // Fetch eligible zones: has thermostat OR equipment OR anomaly event history.
-  // Template zones (no hardware, no events) are excluded from the Detection panel.
-  // Shared eligibility predicate — must match AnomalyDetailPage zone selector.
+  // Fetch monitored zones from server-side view (single source of truth for eligibility).
+  // view_monitored_hvac_zones computes is_monitored/is_template server-side.
+  // No client-side eligibility filtering needed.
   useEffect(() => {
     const fetchZones = async () => {
-      const [zonesRes, allEventsRes, activeEventsRes] = await Promise.all([
+      const [zonesRes, activeEventsRes] = await Promise.all([
         supabase
-          .from("a_hvac_zones")
-          .select("hvac_zone_id, name, anomaly_thresholds, thermostat_device_id, equipment_id")
+          .from("view_monitored_hvac_zones")
+          .select("hvac_zone_id, zone_name, zone_type, equipment_id, thermostat_device_id")
           .eq("site_id", siteId)
-          .order("name"),
-        // All-time event zone_ids (for eligibility)
-        supabase
-          .from("b_anomaly_events")
-          .select("hvac_zone_id")
-          .eq("site_id", siteId),
-        // Active events (for status counts)
+          .eq("is_monitored", true)
+          .order("zone_name"),
         supabase
           .from("b_anomaly_events")
           .select("hvac_zone_id")
@@ -130,23 +125,32 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
           .is("ended_at", null),
       ]);
 
-      // Build set of zone_ids that have any anomaly event history
-      const zonesWithEvents = new Set<string>();
-      for (const e of allEventsRes.data || []) {
-        if (e.hvac_zone_id) zonesWithEvents.add(e.hvac_zone_id);
-      }
-
-      // Eligibility: thermostat OR equipment OR event history
-      const eligible = (zonesRes.data || []).filter((z: any) =>
-        z.thermostat_device_id != null || z.equipment_id != null || zonesWithEvents.has(z.hvac_zone_id)
-      );
+      const eligible = (zonesRes.data || []).map((z: any) => ({
+        hvac_zone_id: z.hvac_zone_id,
+        name: z.zone_name,
+        anomaly_thresholds: null,
+      }));
 
       setZones(eligible);
       if (eligible.length > 0 && !selectedZoneId) {
         setSelectedZoneId(eligible[0].hvac_zone_id);
       }
 
-      // Active event counts
+      // Fetch actual anomaly_thresholds for the selected zone
+      if (eligible.length > 0) {
+        const zoneId = selectedZoneId || eligible[0].hvac_zone_id;
+        const { data: zoneData } = await supabase
+          .from("a_hvac_zones")
+          .select("anomaly_thresholds")
+          .eq("hvac_zone_id", zoneId)
+          .single();
+        if (zoneData) {
+          setZones((prev) => prev.map((z) =>
+            z.hvac_zone_id === zoneId ? { ...z, anomaly_thresholds: zoneData.anomaly_thresholds } : z
+          ));
+        }
+      }
+
       const counts: Record<string, number> = {};
       for (const e of activeEventsRes.data || []) {
         if (e.hvac_zone_id) counts[e.hvac_zone_id] = (counts[e.hvac_zone_id] || 0) + 1;

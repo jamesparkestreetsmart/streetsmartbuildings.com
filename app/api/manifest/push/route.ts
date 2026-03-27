@@ -610,24 +610,34 @@ async function buildThermostats(
 
   if (!devices || devices.length === 0) return [];
 
-  // Get HVAC zones for this site (with profile-based setpoint columns)
+  // Get HVAC zones for this site — EXCLUDE open zones entirely.
+  // Open zones must not appear in the manifest at all, so HA never
+  // receives a schedule for them and the device retains its current state.
   let hvacZones: any[] | null = null;
   {
     const { data: fullZones, error: zoneErr } = await supabase
       .from("a_hvac_zones")
-      .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode")
+      .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, control_scope, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode")
       .eq("site_id", siteId);
 
     if (zoneErr) {
       console.error("[buildThermostats] Full zone query failed:", zoneErr.message);
-      // Fallback to basic columns
       const { data: basicZones } = await supabase
         .from("a_hvac_zones")
-        .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, fan_mode, hvac_mode")
+        .select("hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, control_scope, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, fan_mode, hvac_mode")
         .eq("site_id", siteId);
       hvacZones = basicZones;
     } else {
       hvacZones = fullZones;
+    }
+
+    // Hard filter: exclude open zones from manifest
+    if (hvacZones) {
+      const openZones = hvacZones.filter((z: any) => z.control_scope === "open");
+      if (openZones.length > 0) {
+        console.log(`[buildThermostats] SKIPPED_MANIFEST: ${openZones.length} open zone(s): ${openZones.map((z: any) => z.name).join(", ")} reason=control_scope=open`);
+      }
+      hvacZones = hvacZones.filter((z: any) => z.control_scope !== "open");
     }
   }
 

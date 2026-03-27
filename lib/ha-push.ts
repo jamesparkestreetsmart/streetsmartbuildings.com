@@ -644,17 +644,40 @@ export async function executePushForSite(
     }
   }
 
-  // Load managed HVAC zones for this site (only managed zones get setpoint pushes)
-  const { data: zones } = await supabase
+  // Load ALL HVAC zones for this site, then hard-guard on control_scope + race condition
+  const { data: allZones } = await supabase
     .from("a_hvac_zones")
     .select(
-      "hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode"
+      "hvac_zone_id, name, zone_type, equipment_id, thermostat_device_id, profile_id, control_scope, updated_at, occupied_heat_f, occupied_cool_f, unoccupied_heat_f, unoccupied_cool_f, occupied_fan_mode, occupied_hvac_mode, unoccupied_fan_mode, unoccupied_hvac_mode, guardrail_min_f, guardrail_max_f, manager_offset_up_f, manager_offset_down_f, manager_override_reset_minutes, fan_mode, hvac_mode"
     )
-    .eq("site_id", siteId)
-    .eq("control_scope", "managed");
+    .eq("site_id", siteId);
 
-  if (!zones || zones.length === 0) {
+  if (!allZones || allZones.length === 0) {
     console.log("[ha-push] No HVAC zones found for site");
+    return { results: [], ha_connected: true, trigger };
+  }
+
+  // Hard guard: skip open zones and recently-changed zones (race condition protection)
+  const zones: typeof allZones = [];
+  for (const zone of allZones) {
+    const recentlyChanged = zone.updated_at && (Date.now() - new Date(zone.updated_at).getTime() < 60_000);
+    if (zone.control_scope === "open") {
+      console.log(`SKIPPED_ENFORCEMENT: zone_id=${zone.hvac_zone_id} zone_name=${zone.name} reason=control_scope=open`);
+      continue;
+    }
+    if (recentlyChanged) {
+      console.log(`SKIPPED_ENFORCEMENT: zone_id=${zone.hvac_zone_id} zone_name=${zone.name} reason=recently_changed`);
+      continue;
+    }
+    if (zone.control_scope !== "managed") {
+      console.log(`SKIPPED_ENFORCEMENT: zone_id=${zone.hvac_zone_id} zone_name=${zone.name} reason=control_scope=${zone.control_scope}`);
+      continue;
+    }
+    zones.push(zone);
+  }
+
+  if (zones.length === 0) {
+    console.log("[ha-push] No managed zones eligible for enforcement");
     return { results: [], ha_connected: true, trigger };
   }
 

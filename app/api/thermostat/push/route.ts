@@ -48,6 +48,29 @@ export async function POST(req: NextRequest) {
 
     const results = await executePushForSite(supabase, site_id, trigger, undefined, auth.email, hvac_zone_id || undefined);
 
+    // FIX 4: Log manual setpoint changes immediately to b_zone_setpoint_log
+    // Do not rely on the next cron cycle to capture the change.
+    if (trigger === "manual") {
+      const pushedZones = results.results.filter((r) => r.pushed);
+      for (const result of pushedZones) {
+        try {
+          const actions: any[] = result.actions || [];
+          const setTempAction: any = actions.find((a: any) => a.action === "set_temperature" || a.service === "set_temperature");
+          await supabase.from("b_zone_setpoint_log").insert({
+            hvac_zone_id: result.hvac_zone_id,
+            site_id: site_id,
+            source: "manual",
+            recorded_at: new Date().toISOString(),
+            active_heat_f: setTempAction?.target_temp_low ?? null,
+            active_cool_f: setTempAction?.target_temp_high ?? null,
+            triggered_by: auth.email,
+          });
+        } catch (logErr: any) {
+          console.error(`[thermostat/push] Manual log failed for zone ${result.hvac_zone_id}:`, logErr.message);
+        }
+      }
+    }
+
     if (!results.ha_connected) {
       return NextResponse.json(
         {

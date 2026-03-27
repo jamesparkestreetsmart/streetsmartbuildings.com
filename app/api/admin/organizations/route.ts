@@ -113,6 +113,24 @@ export async function POST(req: NextRequest) {
       event_date: today,
     });
 
+    // Auto-provision org-level inventory site + space
+    const { data: inventorySite } = await supabase
+      .from("a_sites")
+      .insert({
+        org_id: data.org_id,
+        site_name: "Inventory",
+        status: "inventory",
+      })
+      .select("site_id")
+      .single();
+
+    if (inventorySite) {
+      await supabase.from("a_spaces").insert([
+        { site_id: inventorySite.site_id, name: "Unassigned", space_type: "inventory_storage" },
+        { site_id: inventorySite.site_id, name: `${org_name} — Inventory`, space_type: "inventory_storage" },
+      ]);
+    }
+
     return NextResponse.json({ organization: data });
   } catch (err: any) {
     console.error("Failed to create org:", err);
