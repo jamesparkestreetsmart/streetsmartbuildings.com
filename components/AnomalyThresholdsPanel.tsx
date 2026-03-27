@@ -103,24 +103,56 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
 
-  // Fetch zones for this site
+  // Anomaly event status per zone
+  const [zoneEventCounts, setZoneEventCounts] = useState<Record<string, number>>({});
+
+  // Fetch eligible zones: has thermostat OR equipment OR anomaly event history.
+  // Template zones (no hardware, no events) are excluded from the Detection panel.
+  // Shared eligibility predicate — must match AnomalyDetailPage zone selector.
   useEffect(() => {
     const fetchZones = async () => {
-      const { data } = await supabase
-        .from("a_hvac_zones")
-        .select("hvac_zone_id, name, anomaly_thresholds")
-        .eq("site_id", siteId)
-        .eq("control_scope", "managed")
-        .not("thermostat_device_id", "is", null)
-        .not("equipment_id", "is", null)
-        .order("name");
+      const [zonesRes, allEventsRes, activeEventsRes] = await Promise.all([
+        supabase
+          .from("a_hvac_zones")
+          .select("hvac_zone_id, name, anomaly_thresholds, thermostat_device_id, equipment_id")
+          .eq("site_id", siteId)
+          .order("name"),
+        // All-time event zone_ids (for eligibility)
+        supabase
+          .from("b_anomaly_events")
+          .select("hvac_zone_id")
+          .eq("site_id", siteId),
+        // Active events (for status counts)
+        supabase
+          .from("b_anomaly_events")
+          .select("hvac_zone_id")
+          .eq("site_id", siteId)
+          .is("ended_at", null),
+      ]);
 
-      if (data) {
-        setZones(data);
-        if (data.length > 0 && !selectedZoneId) {
-          setSelectedZoneId(data[0].hvac_zone_id);
-        }
+      // Build set of zone_ids that have any anomaly event history
+      const zonesWithEvents = new Set<string>();
+      for (const e of allEventsRes.data || []) {
+        if (e.hvac_zone_id) zonesWithEvents.add(e.hvac_zone_id);
       }
+
+      // Eligibility: thermostat OR equipment OR event history
+      const eligible = (zonesRes.data || []).filter((z: any) =>
+        z.thermostat_device_id != null || z.equipment_id != null || zonesWithEvents.has(z.hvac_zone_id)
+      );
+
+      setZones(eligible);
+      if (eligible.length > 0 && !selectedZoneId) {
+        setSelectedZoneId(eligible[0].hvac_zone_id);
+      }
+
+      // Active event counts
+      const counts: Record<string, number> = {};
+      for (const e of activeEventsRes.data || []) {
+        if (e.hvac_zone_id) counts[e.hvac_zone_id] = (counts[e.hvac_zone_id] || 0) + 1;
+      }
+      setZoneEventCounts(counts);
+
       setLoading(false);
     };
     fetchZones();
@@ -378,7 +410,7 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
         <div className="px-4 py-3 border-b bg-gray-50 rounded-t-lg">
           <h3 className="text-sm font-semibold text-gray-800">Detection System</h3>
         </div>
-        <div className="px-4 py-6 text-center text-xs text-gray-400">No managed zones</div>
+        <div className="px-4 py-6 text-center text-xs text-gray-400">No zones configured for this site</div>
       </div>
     );
   }
@@ -397,17 +429,33 @@ export default function AnomalyThresholdsPanel({ siteId, orgId, onUpdate }: Prop
           )}
         </div>
 
-        {zones.length > 1 && (
-          <select
-            value={selectedZoneId}
-            onChange={(e) => setSelectedZoneId(e.target.value)}
-            className="mt-2 w-full text-xs border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-green-500"
-          >
-            {zones.map((z) => (
-              <option key={z.hvac_zone_id} value={z.hvac_zone_id}>{z.name}</option>
-            ))}
-          </select>
-        )}
+        {/* Zone status summary */}
+        {(() => {
+          const totalActive = Object.values(zoneEventCounts).reduce((a, b) => a + b, 0);
+          return totalActive === 0 ? (
+            <p className="mt-1.5 text-[11px] text-green-600 font-medium">All zones healthy</p>
+          ) : (
+            <p className="mt-1.5 text-[11px] text-amber-600 font-medium">
+              {totalActive} active anomal{totalActive !== 1 ? "ies" : "y"} across {Object.keys(zoneEventCounts).length} zone{Object.keys(zoneEventCounts).length !== 1 ? "s" : ""}
+            </p>
+          );
+        })()}
+
+        {/* Zone selector with event counts */}
+        <select
+          value={selectedZoneId}
+          onChange={(e) => setSelectedZoneId(e.target.value)}
+          className="mt-2 w-full text-xs border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-green-500"
+        >
+          {zones.map((z) => {
+            const count = zoneEventCounts[z.hvac_zone_id] || 0;
+            return (
+              <option key={z.hvac_zone_id} value={z.hvac_zone_id}>
+                {z.name}{count > 0 ? ` (${count} active)` : ""}
+              </option>
+            );
+          })}
+        </select>
       </div>
 
       {/* Detection Presets sub-section */}

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 import type { AnomalyDetailViewModel } from "@/lib/anomalies/get-anomaly-detail-view-model";
 import AnomalyHeader from "./AnomalyHeader";
 import AnomalySummaryCards from "./AnomalySummaryCards";
@@ -48,6 +49,46 @@ export default function AnomalyDetailPage({ viewModel }: Props) {
     }
   }, [searchParams]);
 
+  // Zone selector state
+  const [siteZones, setSiteZones] = useState<{ hvac_zone_id: string; name: string; activeCount: number }[]>([]);
+
+  useEffect(() => {
+    const fetchZones = async () => {
+      // Eligibility: thermostat OR equipment OR anomaly event history.
+      // Same predicate as AnomalyThresholdsPanel — template zones excluded.
+      const [zonesRes, allEventsRes, activeEventsRes] = await Promise.all([
+        supabase.from("a_hvac_zones").select("hvac_zone_id, name, thermostat_device_id, equipment_id").eq("site_id", context.siteId).order("name"),
+        supabase.from("b_anomaly_events").select("hvac_zone_id").eq("site_id", context.siteId),
+        supabase.from("b_anomaly_events").select("hvac_zone_id").eq("site_id", context.siteId).is("ended_at", null),
+      ]);
+      const zonesWithEvents = new Set<string>();
+      for (const e of allEventsRes.data || []) {
+        if (e.hvac_zone_id) zonesWithEvents.add(e.hvac_zone_id);
+      }
+      const counts: Record<string, number> = {};
+      for (const e of activeEventsRes.data || []) {
+        if (e.hvac_zone_id) counts[e.hvac_zone_id] = (counts[e.hvac_zone_id] || 0) + 1;
+      }
+      const eligible = (zonesRes.data || []).filter((z: any) =>
+        z.thermostat_device_id != null || z.equipment_id != null || zonesWithEvents.has(z.hvac_zone_id)
+      );
+      setSiteZones(eligible.map((z: any) => ({
+        hvac_zone_id: z.hvac_zone_id,
+        name: z.name,
+        activeCount: counts[z.hvac_zone_id] || 0,
+      })));
+    };
+    fetchZones();
+  }, [context.siteId]);
+
+  const handleZoneChange = useCallback((zoneId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("zoneId", zoneId);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    // Force page reload to re-fetch view model with new zone
+    window.location.href = `${pathname}?${params.toString()}`;
+  }, [searchParams, pathname, router]);
+
   const handleTabChange = (tab: TabKey) => {
     setActiveTab(tab);
     const params = new URLSearchParams(searchParams.toString());
@@ -59,12 +100,31 @@ export default function AnomalyDetailPage({ viewModel }: Props) {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header zone — fixed height */}
       <div className="shrink-0 px-4 pt-4 pb-2 max-w-5xl mx-auto w-full">
-        <AnomalyHeader
-          definition={definition}
-          context={context}
-          status={status}
-          lastTriggered={lastTriggered}
-        />
+        <div className="flex items-start justify-between gap-4">
+          <AnomalyHeader
+            definition={definition}
+            context={context}
+            status={status}
+            lastTriggered={lastTriggered}
+          />
+          {/* Zone selector */}
+          {siteZones.length > 1 && (
+            <div className="shrink-0">
+              <label className="text-[10px] text-gray-400 block mb-0.5">Zone</label>
+              <select
+                value={context.zoneId || ""}
+                onChange={(e) => handleZoneChange(e.target.value)}
+                className="text-xs border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-green-500 min-w-[140px]"
+              >
+                {siteZones.map((z) => (
+                  <option key={z.hvac_zone_id} value={z.hvac_zone_id}>
+                    {z.name}{z.activeCount > 0 ? ` (${z.activeCount} active)` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Summary band — fixed height */}

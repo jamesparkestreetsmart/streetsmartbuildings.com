@@ -580,8 +580,14 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
             served_spaces: view?.served_spaces ?? null,
           };
         });
-        // Filter out template zones (no equipment linked)
-        setZones(merged.filter((z) => z.equipment_id));
+        // Sort: live zones first, then template zones (no equipment/thermostat)
+        merged.sort((a, b) => {
+          const aTemplate = !a.thermostat_device_id && !a.equipment_id;
+          const bTemplate = !b.thermostat_device_id && !b.equipment_id;
+          if (aTemplate !== bTemplate) return aTemplate ? 1 : -1;
+          return a.zone_name.localeCompare(b.zone_name);
+        });
+        setZones(merged);
       } else {
         const { data, error } = await supabase
           .from("view_hvac_zones_with_state")
@@ -589,8 +595,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
           .eq("site_id", siteId)
           .order("zone_name");
         if (!error && data) {
-          // Filter out template zones (no equipment linked)
-          setZones(data.filter((d: any) => d.equipment_id).map((d: any) => ({ ...d, profile_id: null, resolved_setpoints: null })));
+          setZones(data.map((d: any) => ({ ...d, profile_id: null, resolved_setpoints: null })));
         }
       }
     } catch (err) {
@@ -1302,7 +1307,8 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
               </tr>
             </thead>
             <tbody>
-              {sortedZones.map((zone) => {
+              {sortedZones.map((zone, zoneIdx) => {
+                const isTemplate = !zone.thermostat_device_id && !zone.equipment_id;
                 const isOpen = zone.control_scope === "open";
                 const isSaved = savedZoneId === zone.hvac_zone_id;
                 const isExpanded = expandedZones.has(zone.hvac_zone_id);
@@ -1310,6 +1316,43 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                 const spaceNames = zone.served_spaces
                   ? zone.served_spaces.split(",").map((s) => s.trim()).filter(Boolean)
                   : [];
+
+                // Divider between live and template zones
+                const prevZone = zoneIdx > 0 ? sortedZones[zoneIdx - 1] : null;
+                const prevIsTemplate = prevZone ? (!prevZone.thermostat_device_id && !prevZone.equipment_id) : false;
+                const showDivider = isTemplate && !prevIsTemplate && zoneIdx > 0;
+
+                if (isTemplate) {
+                  return (
+                    <React.Fragment key={zone.hvac_zone_id}>
+                      {showDivider && (
+                        <tr><td colSpan={20} className="border-t px-3 py-1.5 text-[11px] text-gray-400 bg-gray-50/50">
+                          Available zone types — not yet configured
+                        </td></tr>
+                      )}
+                      <tr className="border-b opacity-50">
+                        <td className="py-3 px-2" />
+                        <td className="py-3 px-2 italic text-gray-400">{zone.zone_name}</td>
+                        <td className="py-3 px-2">
+                          <span className={`text-xs px-2 py-1 rounded opacity-50 ${zone.zone_type === "customer" ? "bg-blue-100 text-blue-800" : zone.zone_type === "employee" ? "bg-amber-100 text-amber-800" : zone.zone_type === "storage" ? "bg-gray-100 text-gray-800" : "bg-orange-100 text-orange-800"}`}>
+                            {zone.zone_type === "undefined" ? "Undefined" : zone.zone_type.charAt(0).toUpperCase() + zone.zone_type.slice(1)}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-xs text-gray-300">No profile</td>
+                        <td className="py-3 px-2 text-gray-300 border-l" colSpan={3}><span className="text-xs">—</span></td>
+                        <td className="py-3 px-2 text-gray-300 border-l" colSpan={3}><span className="text-xs">—</span></td>
+                        <td className="py-3 px-2 border-l" colSpan={4}>
+                          <button
+                            onClick={() => setEditingZone(zone)}
+                            className="text-[11px] text-blue-600 border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-50"
+                          >
+                            Assign equipment →
+                          </button>
+                        </td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                }
 
                 return (
                   <React.Fragment key={zone.hvac_zone_id}>
