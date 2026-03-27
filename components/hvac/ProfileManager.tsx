@@ -520,7 +520,7 @@ export default function ProfileManager({ orgId, siteId, siteName, refreshKey }: 
     const res = await fetch("/api/thermostat/profiles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ org_id: orgId, scope: "site", ...form }),
+      body: JSON.stringify({ org_id: orgId, scope: "site", site_id: siteId || null, ...form }),
     });
     if (res.ok) {
       const data = await res.json();

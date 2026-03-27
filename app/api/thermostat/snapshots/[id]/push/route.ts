@@ -147,6 +147,7 @@ export async function POST(
           org_id,
           name: restoredName,
           scope: "site",
+          site_id: liveZone.site_id || null,
           is_system_generated: true,
           ...mergedFields,
         };
