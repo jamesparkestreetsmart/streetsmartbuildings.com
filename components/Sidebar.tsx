@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Users, Shield, ShieldCheck, ChevronDown, Building2, MessageSquare, Inbox, BarChart2 } from "lucide-react";
+import { Users, Shield, ShieldCheck, ChevronDown, Building2, MessageSquare, Inbox, BarChart2, Package } from "lucide-react";
 import { useOrg } from "@/context/OrgContext";
 import { useState, useRef, useEffect } from "react";
 import FeedbackModal from "@/components/FeedbackModal";
@@ -137,6 +137,15 @@ export default function Sidebar({ userEmail }: { userEmail?: string | null }) {
             >
               <BarChart2 className="w-4 h-4 inline-block mr-2" />
               Investment Database
+            </Link>
+            <Link
+              href="/admin/hardware-catalog"
+              className={`block px-4 py-2 pl-8 text-sm font-medium hover:bg-gray-100 ${
+                pathname.startsWith("/admin/hardware-catalog") ? "bg-gray-200 text-black" : "text-gray-500"
+              }`}
+            >
+              <Package className="w-4 h-4 inline-block mr-2" />
+              Hardware Catalog
             </Link>
           </>
         )}
