@@ -5,11 +5,13 @@ import { supabase } from "@/lib/supabaseClient";
 import ProductCatalogueTab from "./ProductCatalogueTab";
 import PurchaseOrdersTab from "./PurchaseOrdersTab";
 import VendorRegistryTab from "./VendorRegistryTab";
+import DocumentsTab from "./DocumentsTab";
 
 const TABS = [
   { key: "catalogue", label: "Product Catalogue" },
   { key: "purchase-orders", label: "Purchase Orders" },
   { key: "vendors", label: "Vendor Registry" },
+  { key: "documents", label: "Documents" },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
@@ -114,6 +116,7 @@ export default function HardwareCatalogPage() {
       {activeTab === "catalogue" && <ProductCatalogueTab />}
       {activeTab === "purchase-orders" && <PurchaseOrdersTab />}
       {activeTab === "vendors" && <VendorRegistryTab />}
+      {activeTab === "documents" && <DocumentsTab />}
     </div>
   );
 }
