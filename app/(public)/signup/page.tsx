@@ -59,6 +59,7 @@ function SignupForm() {
 
   const isInvited = !!inviteOrg;
 
+  const [smsConsent, setSmsConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -76,6 +77,12 @@ function SignupForm() {
     setLoading(true);
     setError(null);
     setSuccessMessage(null);
+
+    if (!smsConsent) {
+      setError("You must agree to receive SMS alerts to create an account.");
+      setLoading(false);
+      return;
+    }
 
     if (form.password !== form.confirm_password) {
       setError("Passwords do not match.");
@@ -209,12 +216,24 @@ function SignupForm() {
               onChange={(e) => handleChange("phone_number", e.target.value)}
               required
             />
-            <p className="text-xs text-gray-400 mt-1">
-              By providing your number you agree to receive SMS alert notifications
-              from Eagle Eyes Building Solutions. Reply STOP to unsubscribe.
-              Msg &amp; data rates may apply. See our{" "}
-              <a href="/privacy-policy" className="underline">Privacy Policy</a>.
-            </p>
+            <label className="flex items-start gap-2 mt-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={smsConsent}
+                onChange={(e) => setSmsConsent(e.target.checked)}
+                required
+                className="mt-0.5 rounded"
+              />
+              <span className="text-xs text-gray-500 leading-relaxed">
+                I agree to receive SMS alert notifications from Eagle Eyes Building
+                Solutions LLC about facility alerts, equipment issues, and account
+                updates. Message &amp; data rates may apply. Reply STOP to opt out, HELP
+                for help. View our{" "}
+                <a href="https://streetsmartbuildings.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-green-700 underline">Privacy Policy</a>
+                {" "}and{" "}
+                <a href="https://streetsmartbuildings.com/terms" target="_blank" rel="noopener noreferrer" className="text-green-700 underline">Terms</a>.
+              </span>
+            </label>
 
             <input
               type="password"
