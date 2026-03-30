@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, X, SlidersHorizontal } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   Tooltip,
@@ -273,10 +273,12 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
         return;
       }
 
-      // Build entity value map from available entities for collapsed row display
+      // Build entity value + timestamp maps from available entities
       const entityValueMap: Record<string, string | null> = {};
+      const entityTimestampMap: Record<string, string | null> = {};
       for (const e of [...availTemp, ...availHumidity, ...availMotion]) {
         entityValueMap[e.entity_id] = e.last_state;
+        entityTimestampMap[e.entity_id] = e.last_seen_at || null;
       }
 
       const spaces = zoneSpaces.map((sp: any) => {
@@ -301,6 +303,18 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
           }
           if (hasData && totalW > 0) weightedHumidity = Math.round((sum / totalW) * 10) / 10;
         }
+        // Compute latest timestamps per sensor type from entity data
+        let latestTempTs: string | null = null;
+        for (const s of tempSensors) {
+          const ts = s.entity_id ? entityTimestampMap[s.entity_id] : null;
+          if (ts && (!latestTempTs || ts > latestTempTs)) latestTempTs = ts;
+        }
+        let latestHumTs: string | null = null;
+        for (const s of humSensors) {
+          const ts = s.entity_id ? entityTimestampMap[s.entity_id] : null;
+          if (ts && (!latestHumTs || ts > latestHumTs)) latestHumTs = ts;
+        }
+
         return {
           space_id: sp.space_id,
           name: sp.name,
@@ -312,6 +326,8 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
           weightedHumidity,
           hasTempSensors: tempSensors.length > 0,
           hasHumSensors: humSensors.length > 0,
+          latestTempTs,
+          latestHumTs,
         };
       });
       setServedSpacesMap(prev => ({ ...prev, [zoneId]: { spaces, availTemp, availHumidity, availMotion, mappedEntities, loading: false } }));
@@ -1393,14 +1409,14 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                         </button>
                       </td>
                       <td className="py-3 px-2 font-medium">
-                        <div className="flex items-center gap-2">
-                          <Link href={`/sites/${siteId}/zones/${zone.hvac_zone_id}`} className="text-blue-700 hover:text-blue-900 hover:underline">{zone.zone_name}</Link>
-                          {spaceNames.length > 0 && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium whitespace-nowrap">
-                              {spaceNames.length} space{spaceNames.length !== 1 ? "s" : ""}
-                            </span>
-                          )}
-                        </div>
+                        <Link href={`/sites/${siteId}/zones/${zone.hvac_zone_id}`} className="text-blue-700 hover:text-blue-900 hover:underline">{zone.zone_name}</Link>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleZoneExpand(zone.hvac_zone_id, zone.equipment_id); }}
+                          className="flex items-center gap-1 mt-1 text-xs text-gray-400 border border-gray-300/40 rounded px-2 py-0.5 hover:text-gray-700 hover:border-gray-500/60 transition-colors"
+                        >
+                          <SlidersHorizontal className="w-3 h-3" />
+                          {spaceNames.length > 0 ? "Modify Space Weightings" : "Add Space Weightings"}
+                        </button>
                       </td>
                       <td className="py-3 px-2">
                         <span className={`text-xs px-2 py-1 rounded ${zone.zone_type === "customer" ? "bg-blue-100 text-blue-800" : zone.zone_type === "employee" ? "bg-amber-100 text-amber-800" : zone.zone_type === "storage" ? "bg-gray-100 text-gray-800" : "bg-orange-100 text-orange-800"}`}>
@@ -1672,11 +1688,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                                                 </td>
                                                 {/* Temp Updated */}
                                                 <td className="py-2 px-3 text-right text-xs text-gray-400">
-                                                  {fmtAge(tempSensors.reduce((latest: string | null, s: any) => {
-                                                    if (!s.last_seen_at) return latest;
-                                                    if (!latest || s.last_seen_at > latest) return s.last_seen_at;
-                                                    return latest;
-                                                  }, null as string | null))}
+                                                  {fmtAge(sp.latestTempTs)}
                                                 </td>
                                                 {/* Space Humidity */}
                                                 <td className="py-2 px-3 text-right">
@@ -1690,11 +1702,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                                                 </td>
                                                 {/* Hum Updated */}
                                                 <td className="py-2 px-3 text-right text-xs text-gray-400">
-                                                  {fmtAge(humSensors.reduce((latest: string | null, s: any) => {
-                                                    if (!s.last_seen_at) return latest;
-                                                    if (!latest || s.last_seen_at > latest) return s.last_seen_at;
-                                                    return latest;
-                                                  }, null as string | null))}
+                                                  {fmtAge(sp.latestHumTs)}
                                                 </td>
                                                 {/* Sensors badge */}
                                                 <td className="py-2 px-3 text-center">
