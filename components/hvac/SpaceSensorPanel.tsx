@@ -112,7 +112,7 @@ export default function SpaceSensorPanel({
           </div>
           {space.computed_temp != null && (
             <span className="text-xs font-mono text-gray-600">
-              Computed: {space.computed_temp}°F
+              Computed: {Number(space.computed_temp).toFixed(1)}°F
             </span>
           )}
         </div>
@@ -204,7 +204,7 @@ export default function SpaceSensorPanel({
         ) : (
           <div className="text-[11px] text-gray-400 italic py-1">
             {thermostatTemp != null
-              ? `Using thermostat fallback: ${thermostatTemp}°F`
+              ? `Using thermostat fallback: ${Number(thermostatTemp).toFixed(1)}°F`
               : "No temperature sensors assigned"}
           </div>
         )}

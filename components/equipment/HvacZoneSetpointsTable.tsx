@@ -1148,6 +1148,25 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
 
   const formatZoneType = (type: string) => type.charAt(0).toUpperCase() + type.slice(1);
 
+  /** Format a value with exactly 1 decimal place. Returns "—" for null/undefined/NaN. */
+  const fmt1 = (v: number | null | undefined, suffix = ""): string => {
+    if (v == null || isNaN(v)) return "—";
+    return `${Number(v).toFixed(1)}${suffix}`;
+  };
+
+  /** Relative timestamp for sensor last_seen_at. */
+  const fmtAge = (ts: string | null): string => {
+    if (!ts) return "—";
+    const ms = Date.now() - new Date(ts).getTime();
+    const min = Math.floor(ms / 60000);
+    if (min < 5) return "Just now";
+    if (min < 60) return `${min}m ago`;
+    const hrs = Math.floor(min / 60);
+    const remMin = min % 60;
+    if (hrs < 24) return `${hrs}h ${remMin}m ago`;
+    return new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+
   const formatMode = (mode: string) => ({ auto: "Auto", heat: "Heat", cool: "Cool", off: "Off" }[mode] || mode);
 
   const getModeColor = (mode: string) => {
@@ -1358,7 +1377,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                   <React.Fragment key={zone.hvac_zone_id}>
                     {/* ── Main zone row ── */}
                     <tr
-                      className={`border-b hover:bg-gray-50 transition-all ${isOpen ? "bg-yellow-50/50" : ""} ${isSaved ? "ring-2 ring-green-400 ring-inset" : ""}`}
+                      className={`border-b hover:bg-gray-50 cursor-pointer transition-all ${isOpen ? "bg-yellow-50/50" : ""} ${isSaved ? "ring-2 ring-green-400 ring-inset" : ""}`}
                     >
                       {/* Expand toggle */}
                       <td className="py-3 px-2">
@@ -1373,7 +1392,16 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                           }
                         </button>
                       </td>
-                      <td className="py-3 px-2 font-medium"><Link href={`/sites/${siteId}/zones/${zone.hvac_zone_id}`} className="text-blue-700 hover:text-blue-900 hover:underline">{zone.zone_name}</Link></td>
+                      <td className="py-3 px-2 font-medium">
+                        <div className="flex items-center gap-2">
+                          <Link href={`/sites/${siteId}/zones/${zone.hvac_zone_id}`} className="text-blue-700 hover:text-blue-900 hover:underline">{zone.zone_name}</Link>
+                          {spaceNames.length > 0 && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium whitespace-nowrap">
+                              {spaceNames.length} space{spaceNames.length !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="py-3 px-2">
                         <span className={`text-xs px-2 py-1 rounded ${zone.zone_type === "customer" ? "bg-blue-100 text-blue-800" : zone.zone_type === "employee" ? "bg-amber-100 text-amber-800" : zone.zone_type === "storage" ? "bg-gray-100 text-gray-800" : "bg-orange-100 text-orange-800"}`}>
                           {zone.zone_type === "undefined" ? "Undefined" : formatZoneType(zone.zone_type)}
@@ -1606,7 +1634,9 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                                           <th className="py-2 px-3 font-medium">Space Name</th>
                                           <th className="py-2 px-3 font-medium">Space Type</th>
                                           <th className="py-2 px-3 font-medium text-right">Space Temp</th>
+                                          <th className="py-2 px-3 font-medium text-right">Temp Updated</th>
                                           <th className="py-2 px-3 font-medium text-right">Space Humidity</th>
+                                          <th className="py-2 px-3 font-medium text-right">Hum Updated</th>
                                           <th className="py-2 px-3 font-medium text-center">Sensors</th>
                                           <th className="py-2 px-3 font-medium text-right">Zone %</th>
                                         </tr>
@@ -1634,21 +1664,37 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                                                 <td className="py-2 px-3 text-right">
                                                   {sp.hasTempSensors ? (
                                                     sp.weightedTemp !== null
-                                                      ? <span className="text-green-600 font-mono text-xs">{sp.weightedTemp}°F</span>
+                                                      ? <span className="text-green-600 font-mono text-xs">{fmt1(sp.weightedTemp, "°F")}</span>
                                                       : <span className="text-amber-500 text-xs">No data</span>
                                                   ) : (
                                                     <span className="text-gray-400 text-xs">—</span>
                                                   )}
                                                 </td>
+                                                {/* Temp Updated */}
+                                                <td className="py-2 px-3 text-right text-xs text-gray-400">
+                                                  {fmtAge(tempSensors.reduce((latest: string | null, s: any) => {
+                                                    if (!s.last_seen_at) return latest;
+                                                    if (!latest || s.last_seen_at > latest) return s.last_seen_at;
+                                                    return latest;
+                                                  }, null as string | null))}
+                                                </td>
                                                 {/* Space Humidity */}
                                                 <td className="py-2 px-3 text-right">
                                                   {sp.hasHumSensors ? (
                                                     sp.weightedHumidity !== null
-                                                      ? <span className="text-green-600 font-mono text-xs">{sp.weightedHumidity}%</span>
+                                                      ? <span className="text-green-600 font-mono text-xs">{fmt1(sp.weightedHumidity, "%")}</span>
                                                       : <span className="text-amber-500 text-xs">No data</span>
                                                   ) : (
                                                     <span className="text-gray-400 text-xs">—</span>
                                                   )}
+                                                </td>
+                                                {/* Hum Updated */}
+                                                <td className="py-2 px-3 text-right text-xs text-gray-400">
+                                                  {fmtAge(humSensors.reduce((latest: string | null, s: any) => {
+                                                    if (!s.last_seen_at) return latest;
+                                                    if (!latest || s.last_seen_at > latest) return s.last_seen_at;
+                                                    return latest;
+                                                  }, null as string | null))}
                                                 </td>
                                                 {/* Sensors badge */}
                                                 <td className="py-2 px-3 text-center">
@@ -1661,7 +1707,7 @@ export default function HvacZoneSetpointsTable({ siteId, orgId }: Props) {
                                               </tr>
                                               {spExpanded && (
                                                 <tr className="bg-gray-50/80">
-                                                  <td colSpan={7} className="px-4 py-3">
+                                                  <td colSpan={9} className="px-4 py-3">
                                                     <div className="flex gap-6 flex-wrap">
                                                       {(() => {
                                                         const sensorSections = [
