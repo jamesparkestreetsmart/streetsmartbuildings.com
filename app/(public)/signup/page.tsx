@@ -60,10 +60,29 @@ function SignupForm() {
   const isInvited = !!inviteOrg;
 
   const [smsConsent, setSmsConsent] = useState(false);
+  const [phoneError, setPhoneError] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const passwordMismatch = form.confirm_password.length > 0 && form.password !== form.confirm_password;
+
+  // Auto-format phone for display as user types (US format)
+  const formatPhoneDisplay = (value: string): string => {
+    const digits = value.replace(/\D/g, "").slice(0, 10);
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  };
+
+  const isValidPhone = (value: string): boolean => {
+    const digits = value.replace(/\D/g, "");
+    return digits.length === 10 || (digits.length >= 11 && digits.length <= 15);
+  };
+
+  const handlePhoneChange = (value: string) => {
+    setForm((prev) => ({ ...prev, phone_number: formatPhoneDisplay(value) }));
+    setPhoneError("");
+  };
 
   const handleChange = (field: keyof typeof form, value: string) => {
     setForm((prev) => ({
@@ -77,6 +96,12 @@ function SignupForm() {
     setLoading(true);
     setError(null);
     setSuccessMessage(null);
+
+    if (!form.phone_number || !isValidPhone(form.phone_number)) {
+      setPhoneError("Please enter a valid phone number");
+      setLoading(false);
+      return;
+    }
 
     if (!smsConsent) {
       setError("You must agree to receive SMS alerts to create an account.");
@@ -208,14 +233,19 @@ function SignupForm() {
               required
             />
 
-            <input
-              className="border p-2 rounded w-full"
-              placeholder="Phone Number"
-              type="tel"
-              value={form.phone_number}
-              onChange={(e) => handleChange("phone_number", e.target.value)}
-              required
-            />
+            <div>
+              <input
+                className={`border p-2 rounded w-full ${phoneError ? "border-red-400" : ""}`}
+                placeholder="Phone Number"
+                type="tel"
+                value={form.phone_number}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                required
+              />
+              {phoneError && (
+                <p className="text-xs text-red-600 mt-1">{phoneError}</p>
+              )}
+            </div>
             <label className="flex items-start gap-2 mt-2 cursor-pointer">
               <input
                 type="checkbox"
