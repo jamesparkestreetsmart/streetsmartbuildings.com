@@ -61,6 +61,8 @@ function SignupForm() {
 
   const [smsConsent, setSmsConsent] = useState(false);
   const [phoneError, setPhoneError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -265,26 +267,44 @@ function SignupForm() {
               </span>
             </label>
 
-            <input
-              type="password"
-              className="border p-2 rounded w-full"
-              placeholder="Password"
-              value={form.password}
-              onChange={(e) => handleChange("password", e.target.value)}
-              required
-              minLength={8}
-            />
-
-            <div>
+            <div className="relative">
               <input
-                type="password"
-                className={`border p-2 rounded w-full ${passwordMismatch ? "border-red-400" : ""}`}
-                placeholder="Confirm Password"
-                value={form.confirm_password}
-                onChange={(e) => handleChange("confirm_password", e.target.value)}
+                type={showPassword ? "text" : "password"}
+                className="border p-2 rounded w-full pr-16"
+                placeholder="Password"
+                value={form.password}
+                onChange={(e) => handleChange("password", e.target.value)}
                 required
                 minLength={8}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 px-1"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+
+            <div>
+              <div className="relative">
+                <input
+                  type={showConfirm ? "text" : "password"}
+                  className={`border p-2 rounded w-full pr-16 ${passwordMismatch ? "border-red-400" : ""}`}
+                  placeholder="Confirm Password"
+                  value={form.confirm_password}
+                  onChange={(e) => handleChange("confirm_password", e.target.value)}
+                  required
+                  minLength={8}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(!showConfirm)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 px-1"
+                >
+                  {showConfirm ? "Hide" : "Show"}
+                </button>
+              </div>
               {passwordMismatch && (
                 <p className="text-xs text-red-600 mt-1">Passwords do not match</p>
               )}
