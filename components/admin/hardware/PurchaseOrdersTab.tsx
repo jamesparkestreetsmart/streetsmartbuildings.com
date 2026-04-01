@@ -30,6 +30,7 @@ interface POLine {
   notes: string | null;
   payment_method: string | null;
   is_reimbursable: boolean;
+  purchase_url: string | null;
 }
 
 export default function PurchaseOrdersTab() {
@@ -57,7 +58,7 @@ export default function PurchaseOrdersTab() {
           po_id, part_number, item_name, expense_type, tax_category, qty, unit_cost,
           total_cost, sales_tax_amount, shipping_amount, receipt_status,
           is_capital_asset, is_billable_to_client, business_purpose,
-          order_date, received_date, notes, payment_method, is_reimbursable,
+          order_date, received_date, notes, payment_method, is_reimbursable, purchase_url,
           project_id,
           c_projects(project_code, project_name),
           c_vendors(vendor_name),
@@ -115,6 +116,7 @@ export default function PurchaseOrdersTab() {
         notes: po.notes,
         payment_method: po.payment_method,
         is_reimbursable: po.is_reimbursable || false,
+        purchase_url: po.purchase_url || null,
       }));
 
       setLines(result);
@@ -122,6 +124,26 @@ export default function PurchaseOrdersTab() {
     };
     fetchData();
   }, []);
+
+  const handleReceiptUpload = async (poId: string, file: File | undefined) => {
+    if (!file) return;
+    const filePath = `receipts/${poId}/${Date.now()}_${file.name}`;
+    const { error: uploadError } = await supabase.storage.from("po-receipts").upload(filePath, file);
+    if (uploadError) { console.error("Upload failed:", uploadError); alert("Upload failed: " + uploadError.message); return; }
+
+    const { data: doc, error: docError } = await supabase
+      .from("c_po_documents")
+      .insert({ doc_type: "receipt", doc_name: file.name, file_url: filePath, file_uploaded_at: new Date().toISOString() })
+      .select("doc_id")
+      .single();
+    if (docError || !doc) { console.error("Doc insert failed:", docError); return; }
+
+    await supabase.from("c_po_document_lines").insert({ doc_id: doc.doc_id, po_id: poId });
+    await supabase.from("c_project_purchase_orders").update({ receipt_status: "uploaded" }).eq("po_id", poId);
+
+    // Update local state
+    setLines((prev) => prev.map((l) => l.po_id === poId ? { ...l, receipt_status: "uploaded", doc_count: l.doc_count + 1 } : l));
+  };
 
   // Distinct values for filters
   const projects = useMemo(() => [...new Set(lines.map((l) => l.project_code))].sort(), [lines]);
@@ -245,7 +267,9 @@ export default function PurchaseOrdersTab() {
                   <td className="px-3 py-2 font-mono text-xs text-gray-600">{displayProjectCode(l.project_code)}</td>
                   <td className="px-3 py-2 font-mono text-xs text-gray-500">{l.part_number || "—"}</td>
                   <td className={`px-3 py-2 ${isDoNotUse ? "line-through text-red-500" : "text-gray-900"}`}>
-                    {l.item_name}
+                    {l.purchase_url ? (
+                      <a href={l.purchase_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{l.item_name}</a>
+                    ) : l.item_name}
                     {l.is_capital_asset && <span className="ml-1.5 text-[10px] px-1 rounded bg-amber-100 text-amber-700 font-medium">ASSET</span>}
                   </td>
                   <td className="px-3 py-2 text-gray-600">{l.vendor_name || "—"}</td>
@@ -254,13 +278,19 @@ export default function PurchaseOrdersTab() {
                   <td className="px-3 py-2 text-right font-mono">${l.unit_cost.toFixed(2)}</td>
                   <td className="px-3 py-2 text-right font-mono font-medium">${l.total_cost.toFixed(2)}</td>
                   <td className="px-3 py-2 text-center">
-                    {l.doc_count > 0 ? (
-                      <span className="text-green-600" title={`${l.doc_count} document(s)`}>&#10003; {l.doc_count}</span>
-                    ) : l.unit_cost >= 75 ? (
-                      <span className="text-orange-500" title="Receipt recommended (>=$75)">&#9888;</span>
-                    ) : (
-                      <span className="text-gray-300">—</span>
-                    )}
+                    <div className="flex items-center justify-center gap-1.5">
+                      {l.doc_count > 0 ? (
+                        <span className="text-green-600 text-xs" title={`${l.doc_count} document(s)`}>&#10003; {l.doc_count}</span>
+                      ) : l.unit_cost >= 75 ? (
+                        <span className="text-orange-500" title="Receipt recommended (>=$75)">&#9888;</span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                      <label className="cursor-pointer text-[10px] text-blue-500 hover:text-blue-700" title="Upload receipt">
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => handleReceiptUpload(l.po_id, e.target.files?.[0])} />
+                        +
+                      </label>
+                    </div>
                   </td>
                   <td className="px-3 py-2">
                     {l.deployed_device ? (

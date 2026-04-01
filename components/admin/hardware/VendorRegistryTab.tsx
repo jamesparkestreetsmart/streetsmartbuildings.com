@@ -76,6 +76,18 @@ export default function VendorRegistryTab() {
     return warnings;
   }
 
+  const handleW9Upload = async (vendorId: string, file: File | undefined) => {
+    if (!file) return;
+    const filePath = `w9s/${vendorId}/${Date.now()}_${file.name}`;
+    const { error: uploadError } = await supabase.storage.from("vendor-w9s").upload(filePath, file, { upsert: true });
+    if (uploadError) { console.error("W-9 upload failed:", uploadError); alert("Upload failed: " + uploadError.message); return; }
+
+    const today = new Date().toISOString().split("T")[0];
+    await supabase.from("c_vendors").update({ w9_on_file: true, w9_received_date: today, w9_file_url: filePath }).eq("vendor_id", vendorId);
+
+    setVendors((prev) => prev.map((v) => v.vendor_id === vendorId ? { ...v, w9_on_file: true, w9_received_date: today } : v));
+  };
+
   if (loading) {
     return <div className="border rounded-lg bg-white p-8 text-center text-sm text-gray-400">Loading vendors...</div>;
   }
@@ -92,6 +104,7 @@ export default function VendorRegistryTab() {
               <th className="text-center px-3 py-2 text-xs font-medium text-gray-500">1099</th>
               <th className="text-right px-3 py-2 text-xs font-medium text-gray-500">YTD Payments</th>
               <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Warnings</th>
+              <th className="text-center px-3 py-2 text-xs font-medium text-gray-500">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -133,6 +146,12 @@ export default function VendorRegistryTab() {
                         <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${w.color}`}>{w.label}</span>
                       ))}
                     </div>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <label className="cursor-pointer inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                      <input type="file" accept=".pdf" className="hidden" onChange={(e) => handleW9Upload(v.vendor_id, e.target.files?.[0])} />
+                      {v.w9_on_file ? "Replace W-9" : "Upload W-9"}
+                    </label>
                   </td>
                 </tr>
               );

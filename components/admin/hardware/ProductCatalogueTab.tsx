@@ -11,8 +11,7 @@ type Product = {
   name: string;
   vendor: string;
   unitPrice: number | null;
-  pkgA: boolean;
-  pkgB: boolean;
+  purchaseUrl?: string;
   status: "confirmed" | "price_tbd" | "not_sourced" | "obsolete" | "do_not_use";
   category: string;
   categoryCode: string;
@@ -20,34 +19,34 @@ type Product = {
 
 const PRODUCTS: Product[] = [
   // 01 — Hub & Infrastructure
-  { partNumber: "01-01-01", name: "Home Assistant Connect ZWA-2", vendor: "Amazon", unitPrice: 79.00, pkgA: true, pkgB: true, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
-  { partNumber: "01-02-01", name: "Home Assistant Green (SKU 113110024)", vendor: "Cloudflare", unitPrice: 128.95, pkgA: true, pkgB: true, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
-  { partNumber: "01-02-03", name: "Home Assistant Green — Seedstudio", vendor: "Seedstudio", unitPrice: 178.65, pkgA: true, pkgB: true, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
-  { partNumber: "01-04-01", name: "Waveshare USB to RS485 Converter", vendor: "Amazon", unitPrice: 15.99, pkgA: false, pkgB: true, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
-  { partNumber: "01-06-01", name: "Zooz ZSE70 800LR Outdoor Lux Sensor", vendor: "thesmartesthouse.com", unitPrice: 40.45, pkgA: true, pkgB: true, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
-  { partNumber: "01-07-01", name: "HDR 30-24 DIN Rail PSU (30W)", vendor: "TRC Electronics", unitPrice: 28.68, pkgA: false, pkgB: true, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
-  { partNumber: "01-08-01", name: "Meanwell HDR-15-24 PSU (15W)", vendor: "Amazon", unitPrice: 9.95, pkgA: false, pkgB: true, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
-  { partNumber: "01-09-01", name: "Cudy 8-Port Network Switch", vendor: "Amazon", unitPrice: 79.99, pkgA: true, pkgB: true, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
+  { partNumber: "01-01-01", name: "Home Assistant Connect ZWA-2", vendor: "Amazon", unitPrice: 79.00, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
+  { partNumber: "01-02-01", name: "Home Assistant Green (SKU 113110024)", vendor: "Cloudflare", unitPrice: 128.95, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
+  { partNumber: "01-02-03", name: "Home Assistant Green — Seedstudio", vendor: "Seedstudio", unitPrice: 178.65, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
+  { partNumber: "01-04-01", name: "Waveshare USB to RS485 Converter", vendor: "Amazon", unitPrice: 15.99, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
+  { partNumber: "01-06-01", name: "Zooz ZSE70 800LR Outdoor Lux Sensor", vendor: "thesmartesthouse.com", unitPrice: 40.45, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
+  { partNumber: "01-07-01", name: "HDR 30-24 DIN Rail PSU (30W)", vendor: "TRC Electronics", unitPrice: 28.68, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
+  { partNumber: "01-08-01", name: "Meanwell HDR-15-24 PSU (15W)", vendor: "Amazon", unitPrice: 9.95, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
+  { partNumber: "01-09-01", name: "Cudy 8-Port Network Switch", vendor: "Amazon", unitPrice: 79.99, status: "confirmed", category: "Hub & Infrastructure", categoryCode: "01" },
 
   // 02 — Equipment Controls
-  { partNumber: "02-01-01", name: "Honeywell T6 Pro Z-Wave Thermostat", vendor: "Amazon", unitPrice: 124.99, pkgA: true, pkgB: true, status: "confirmed", category: "Equipment Controls", categoryCode: "02" },
-  { partNumber: "02-03-01", name: "Auto Recloser 25A", vendor: "Amazon", unitPrice: 174.28, pkgA: false, pkgB: false, status: "confirmed", category: "Equipment Controls", categoryCode: "02" },
-  { partNumber: "02-06-01", name: "Zooz ZEN78 800LR High Power Relay 40A", vendor: "thesmartesthouse.com", unitPrice: 80.17, pkgA: true, pkgB: true, status: "confirmed", category: "Equipment Controls", categoryCode: "02" },
+  { partNumber: "02-01-01", name: "Honeywell T6 Pro Z-Wave Thermostat", vendor: "Amazon", unitPrice: 124.99, status: "confirmed", category: "Equipment Controls", categoryCode: "02" },
+  { partNumber: "02-03-01", name: "Auto Recloser 25A", vendor: "Amazon", unitPrice: 174.28, status: "confirmed", category: "Equipment Controls", categoryCode: "02" },
+  { partNumber: "02-06-01", name: "Zooz ZEN78 800LR High Power Relay 40A", vendor: "thesmartesthouse.com", unitPrice: 80.17, status: "confirmed", category: "Equipment Controls", categoryCode: "02" },
 
   // 03 — Component Monitoring
-  { partNumber: "03-03-01", name: "Split-Core CT 100A/5A (AccuEnergy)", vendor: "AccuEnergy", unitPrice: 18.11, pkgA: false, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-04-01", name: "Z-Wave LR Temp / Humidity Sensor", vendor: "Amazon", unitPrice: 49.33, pkgA: true, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-05-01", name: "Zooz ZSE11 800LR Q Sensor", vendor: "thesmartesthouse.com", unitPrice: 36.95, pkgA: true, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-17-02", name: "Z-Wave LR Door Sensor + Weatherproof Case", vendor: "Amazon", unitPrice: 42.25, pkgA: true, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-18-01", name: "Z-Wave LR Leak Detection Sensor", vendor: "Amazon", unitPrice: 41.65, pkgA: true, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-19-01", name: "Schneider METSEPM3200", vendor: "wiautomation", unitPrice: 403.09, pkgA: false, pkgB: true, status: "do_not_use", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-20-01", name: "Schneider Electric PM3250 Smart Meter", vendor: "wiautomation", unitPrice: 463.51, pkgA: false, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-21-01", name: "Schneider IEM3255 Smart Meter", vendor: "rs-online.com", unitPrice: 480.00, pkgA: false, pkgB: true, status: "price_tbd", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-22-01", name: "Zooz ZEN04 Z-Wave LR Smart Plug", vendor: "thesmartesthouse.com", unitPrice: 26.95, pkgA: true, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-23-01", name: "Zooz ZEN15 800LR Heavy Duty Power Switch", vendor: "thesmartesthouse.com", unitPrice: 36.95, pkgA: false, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-24-01", name: "Zooz ZEN58 800LR Low Voltage XS Relay", vendor: "thesmartesthouse.com", unitPrice: 24.95, pkgA: false, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-25-01", name: "Zooz ZEN16 800LR Multirelay", vendor: "thesmartesthouse.com", unitPrice: 33.95, pkgA: false, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
-  { partNumber: "03-26-01", name: "Zooz ZEN17 800LR Advanced Multirelay", vendor: "thesmartesthouse.com", unitPrice: 36.95, pkgA: false, pkgB: true, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-03-01", name: "Split-Core CT 100A/5A (AccuEnergy)", vendor: "AccuEnergy", unitPrice: 18.11, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-04-01", name: "Z-Wave LR Temp / Humidity Sensor", vendor: "Amazon", unitPrice: 49.33, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-05-01", name: "Zooz ZSE11 800LR Q Sensor", vendor: "thesmartesthouse.com", unitPrice: 36.95, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-17-02", name: "Z-Wave LR Door Sensor + Weatherproof Case", vendor: "Amazon", unitPrice: 42.25, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-18-01", name: "Z-Wave LR Leak Detection Sensor", vendor: "Amazon", unitPrice: 41.65, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-19-01", name: "Schneider METSEPM3200", vendor: "wiautomation", unitPrice: 403.09, status: "do_not_use", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-20-01", name: "Schneider Electric PM3250 Smart Meter", vendor: "wiautomation", unitPrice: 463.51, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-21-01", name: "Schneider IEM3255 Smart Meter", vendor: "rs-online.com", unitPrice: 480.00, status: "price_tbd", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-22-01", name: "Zooz ZEN04 Z-Wave LR Smart Plug", vendor: "thesmartesthouse.com", unitPrice: 26.95, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-23-01", name: "Zooz ZEN15 800LR Heavy Duty Power Switch", vendor: "thesmartesthouse.com", unitPrice: 36.95, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-24-01", name: "Zooz ZEN58 800LR Low Voltage XS Relay", vendor: "thesmartesthouse.com", unitPrice: 24.95, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-25-01", name: "Zooz ZEN16 800LR Multirelay", vendor: "thesmartesthouse.com", unitPrice: 33.95, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
+  { partNumber: "03-26-01", name: "Zooz ZEN17 800LR Advanced Multirelay", vendor: "thesmartesthouse.com", unitPrice: 36.95, status: "confirmed", category: "Component Monitoring", categoryCode: "03" },
 ];
 
 const STATUS_STYLES: Record<string, { label: string; bg: string; text: string; strike?: boolean }> = {
@@ -66,7 +65,6 @@ const CATEGORIES = [
 
 export default function ProductCatalogueTab() {
   const [search, setSearch] = useState("");
-  const [pkgFilter, setPkgFilter] = useState<"" | "A" | "B">("");
   const [statusFilter, setStatusFilter] = useState("");
 
   const filtered = useMemo(() => {
@@ -75,12 +73,10 @@ export default function ProductCatalogueTab() {
         const q = search.toLowerCase();
         if (!p.name.toLowerCase().includes(q) && !p.partNumber.includes(q)) return false;
       }
-      if (pkgFilter === "A" && !p.pkgA) return false;
-      if (pkgFilter === "B" && !p.pkgB) return false;
       if (statusFilter && p.status !== statusFilter) return false;
       return true;
     });
-  }, [search, pkgFilter, statusFilter]);
+  }, [search, statusFilter]);
 
   return (
     <div className="space-y-4">
@@ -92,11 +88,6 @@ export default function ProductCatalogueTab() {
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[200px] border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
         />
-        <select value={pkgFilter} onChange={(e) => setPkgFilter(e.target.value as any)} className="border rounded-md px-2 py-1.5 text-sm">
-          <option value="">All Packages</option>
-          <option value="A">Pkg A — Equipment Monitoring</option>
-          <option value="B">Pkg B — Component Monitoring</option>
-        </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm">
           <option value="">All Statuses</option>
           {Object.entries(STATUS_STYLES).map(([k, v]) => (
@@ -120,7 +111,6 @@ export default function ProductCatalogueTab() {
                   <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Product Name</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Vendor</th>
                   <th className="text-right px-3 py-2 text-xs font-medium text-gray-500 w-24">Unit Price</th>
-                  <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 w-20">Pkg</th>
                   <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 w-28">Status</th>
                 </tr>
               </thead>
@@ -130,15 +120,13 @@ export default function ProductCatalogueTab() {
                   return (
                     <tr key={p.partNumber + p.vendor} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-mono text-xs text-gray-600">{p.partNumber}</td>
-                      <td className={`px-3 py-2 text-gray-900 ${st.strike ? "line-through text-red-600" : ""}`}>{p.name}</td>
+                      <td className={`px-3 py-2 ${st.strike ? "line-through text-red-600" : "text-gray-900"}`}>
+                        {p.purchaseUrl ? (
+                          <a href={p.purchaseUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{p.name}</a>
+                        ) : p.name}
+                      </td>
                       <td className="px-3 py-2 text-gray-600">{p.vendor}</td>
                       <td className="px-3 py-2 text-right font-mono">{p.unitPrice != null ? `$${p.unitPrice.toFixed(2)}` : "—"}</td>
-                      <td className="px-3 py-2 text-center">
-                        <div className="flex gap-1 justify-center">
-                          {p.pkgA && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">A</span>}
-                          {p.pkgB && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">B</span>}
-                        </div>
-                      </td>
                       <td className="px-3 py-2 text-center">
                         <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${st.bg} ${st.text}`}>{st.label}</span>
                       </td>
