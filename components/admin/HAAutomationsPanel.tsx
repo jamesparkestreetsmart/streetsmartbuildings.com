@@ -67,6 +67,31 @@ interface SiteGroup {
   sites: SiteOption[];
 }
 
+interface DeploymentStatusRecord {
+  id: string;
+  site_id: string;
+  alias: string;
+  deployment_key: string;
+  state: string;
+  retry_count: number;
+  failure_domain: string | null;
+  last_error: string | null;
+  pushed_at: string | null;
+  acknowledged_at: string | null;
+  updated_at: string;
+}
+
+interface DeploymentHealth {
+  global_summary: {
+    total: number;
+    states: { state: string; count: number }[];
+  };
+  per_site_summary: {
+    totals_by_site: Record<string, number>;
+    states: { site_id: string; state: string; count: number }[];
+  };
+}
+
 // ── Helpers ──
 
 const SCOPE_COLORS: Record<string, string> = {
@@ -76,19 +101,43 @@ const SCOPE_COLORS: Record<string, string> = {
 };
 
 const DRIFT_COLORS: Record<string, { bg: string; label: string }> = {
-  in_sync: { bg: "bg-green-100 text-green-800", label: "In Sync" },
-  out_of_sync: { bg: "bg-yellow-100 text-yellow-800", label: "Out of Sync" },
-  pending: { bg: "bg-gray-100 text-gray-600", label: "Pending" },
-  failed: { bg: "bg-red-100 text-red-800", label: "Failed" },
-  unknown: { bg: "bg-gray-100 text-gray-500", label: "Unknown" },
+  in_sync:           { bg: "bg-green-100 text-green-800",  label: "In Sync" },
+  out_of_sync:       { bg: "bg-yellow-100 text-yellow-800", label: "Out of Sync" },
+  pending:           { bg: "bg-gray-100 text-gray-600",    label: "Pending" },
+  failed:            { bg: "bg-red-100 text-red-800",      label: "Failed" },
+  unknown:           { bg: "bg-gray-100 text-gray-500",    label: "Unknown" },
   disabled_mismatch: { bg: "bg-orange-100 text-orange-800", label: "Disabled Mismatch" },
 };
 
 const RESULT_COLORS: Record<string, string> = {
   success: "bg-green-100 text-green-800",
-  failed: "bg-red-100 text-red-800",
+  failed:  "bg-red-100 text-red-800",
   pending: "bg-gray-100 text-gray-600",
   skipped: "bg-gray-100 text-gray-500",
+};
+
+const STATE_BG: Record<string, string> = {
+  in_sync:           "bg-green-100 text-green-800",
+  acknowledged:      "bg-blue-100 text-blue-800",
+  pending:           "bg-gray-100 text-gray-600",
+  pushed:            "bg-purple-100 text-purple-800",
+  push_attempted:    "bg-yellow-100 text-yellow-800",
+  rendered:          "bg-orange-100 text-orange-800",
+  failed:            "bg-red-100 text-red-800",
+  mismatch:          "bg-red-200 text-red-900",
+  permanent_failure: "bg-red-300 text-red-900",
+};
+
+const STATE_TEXT_COLOR: Record<string, string> = {
+  in_sync:           "text-green-700",
+  acknowledged:      "text-blue-700",
+  pending:           "text-gray-600",
+  pushed:            "text-purple-700",
+  push_attempted:    "text-yellow-700",
+  rendered:          "text-orange-700",
+  failed:            "text-red-700",
+  mismatch:          "text-red-900",
+  permanent_failure: "text-red-900",
 };
 
 function relativeTime(dateStr: string | null): string {
@@ -124,7 +173,7 @@ function DriftBadge({ status }: { status: string }) {
 // ── Main Component ──
 
 export default function HAAutomationsPanel() {
-  const [activeTab, setActiveTab] = useState<"library" | "site">("library");
+  const [activeTab, setActiveTab] = useState<"library" | "site" | "deployment_status">("library");
 
   // Library state
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -144,6 +193,13 @@ export default function HAAutomationsPanel() {
   // Actions
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // Deployment status state
+  const [deploymentHealth, setDeploymentHealth] = useState<DeploymentHealth | null>(null);
+  const [deploymentRecords, setDeploymentRecords] = useState<DeploymentStatusRecord[]>([]);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [statusExpandedId, setStatusExpandedId] = useState<string | null>(null);
+  const [statusLastUpdated, setStatusLastUpdated] = useState("");
 
   // ── Data fetching ──
 
@@ -194,6 +250,32 @@ export default function HAAutomationsPanel() {
     setHistoryModal({ key, scope, rows: data.history || [] });
   }, []);
 
+  const fetchDeploymentStatus = useCallback(async () => {
+    setLoadingStatus(true);
+    try {
+      const [healthRes, listRes] = await Promise.all([
+        fetch("/api/deployments/health"),
+        fetch("/api/deployments/list?hours=24"),
+      ]);
+      if (healthRes.ok) setDeploymentHealth(await healthRes.json());
+      if (listRes.ok)   setDeploymentRecords(await listRes.json());
+      setStatusLastUpdated(
+        new Date().toLocaleString("en-US", {
+          timeZone: "America/Chicago",
+          hour12: true,
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      );
+    } catch (err) {
+      console.error("Failed to fetch deployment status", err);
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTemplates();
     fetchSites();
@@ -205,6 +287,14 @@ export default function HAAutomationsPanel() {
       fetchLogs(selectedSiteId);
     }
   }, [selectedSiteId, fetchDeployments, fetchLogs]);
+
+  useEffect(() => {
+    if (activeTab === "deployment_status") {
+      fetchDeploymentStatus();
+      const interval = setInterval(fetchDeploymentStatus, 60_000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, fetchDeploymentStatus]);
 
   // ── Actions ──
 
@@ -270,8 +360,9 @@ export default function HAAutomationsPanel() {
   // ── Render ──
 
   const tabs = [
-    { key: "library" as const, label: "Automation Library" },
-    { key: "site" as const, label: "Site Deployments" },
+    { key: "library" as const,           label: "Automation Library" },
+    { key: "site" as const,              label: "Site Deployments" },
+    { key: "deployment_status" as const, label: "Deployment Status" },
   ];
 
   return (
@@ -500,7 +591,7 @@ export default function HAAutomationsPanel() {
             )}
           </div>
 
-          {/* ═══ VIEW 3: DEPLOYMENT HISTORY ═══ */}
+          {/* Deployment History */}
           {selectedSiteId && (
             <div className="bg-white border rounded-lg shadow-sm">
               <div className="px-6 py-4 border-b bg-gray-50 rounded-t-lg">
@@ -558,9 +649,7 @@ export default function HAAutomationsPanel() {
                                 <div className="space-y-2">
                                   <div>
                                     <span className="font-medium text-gray-600">Completed:</span>{" "}
-                                    {log.completed_at
-                                      ? new Date(log.completed_at).toLocaleString()
-                                      : "—"}
+                                    {log.completed_at ? new Date(log.completed_at).toLocaleString() : "—"}
                                   </div>
                                   <div>
                                     <span className="font-medium text-gray-600">Checksum:</span>{" "}
@@ -589,6 +678,182 @@ export default function HAAutomationsPanel() {
             </div>
           )}
         </>
+      )}
+
+      {/* ═══ VIEW 3: DEPLOYMENT STATUS ═══ */}
+      {activeTab === "deployment_status" && (
+        <div className="space-y-4">
+
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500">
+              Live push/ack status from the deployment engine.
+              {statusLastUpdated && (
+                <span className="ml-2 text-gray-400">Last updated: {statusLastUpdated}</span>
+              )}
+            </p>
+            <button
+              onClick={fetchDeploymentStatus}
+              className="px-3 py-1.5 text-sm font-semibold text-white rounded-lg transition
+                         bg-gradient-to-r from-[#00a859] to-[#d4af37]
+                         hover:from-[#15b864] hover:to-[#e1bf4b]
+                         shadow-sm shadow-green-700/30"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {loadingStatus ? (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              Loading deployment status...
+            </div>
+          ) : !deploymentHealth ? (
+            <div className="text-center py-12 text-red-500 text-sm">
+              Could not reach deployment backend. Is the worker running?
+            </div>
+          ) : (
+            <>
+              {/* Health summary cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                <div className="col-span-2 md:col-span-1 rounded-xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs text-gray-500 uppercase font-semibold tracking-wider">Total</p>
+                  <p className="text-3xl font-bold mt-1">{deploymentHealth.global_summary.total}</p>
+                  <p className="text-xs text-gray-400 mt-1">tracked</p>
+                </div>
+                {deploymentHealth.global_summary.states.map((s) => (
+                  <div key={s.state} className="rounded-xl border bg-white p-4 shadow-sm">
+                    <p className="text-xs text-gray-500 uppercase font-semibold tracking-wider">
+                      {s.state.replace(/_/g, " ")}
+                    </p>
+                    <p className={`text-2xl font-bold mt-1 ${STATE_TEXT_COLOR[s.state] ?? "text-gray-900"}`}>
+                      {s.count}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Records table */}
+              <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b bg-gray-50">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    Recent Deployments
+                    <span className="ml-2 text-xs text-gray-400 font-normal">last 24 hours</span>
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium text-gray-600">Automation</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-600">State</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-600">Retries</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-600">Last Push</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-600">Acknowledged</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-600">Error</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-600"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {deploymentRecords.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="text-center py-8 text-gray-400 text-sm">
+                            No deployments in the last 24 hours
+                          </td>
+                        </tr>
+                      )}
+                      {deploymentRecords.map((r) => (
+                        <>
+                          <tr
+                            key={r.id}
+                            className="hover:bg-gray-50 cursor-pointer"
+                            onClick={() =>
+                              setStatusExpandedId((prev) => prev === r.id ? null : r.id)
+                            }
+                          >
+                            <td className="px-3 py-2">
+                              <p className="font-mono text-xs font-semibold text-gray-900">
+                                {r.deployment_key}
+                              </p>
+                              <p className="text-xs text-gray-400">{r.alias}</p>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATE_BG[r.state] ?? "bg-gray-100 text-gray-600"}`}>
+                                {r.state.replace(/_/g, " ").toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-center text-xs">
+                              {r.retry_count > 0
+                                ? <span className="text-orange-600 font-semibold">{r.retry_count}</span>
+                                : <span className="text-gray-300">0</span>
+                              }
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-500">
+                              {relativeTime(r.pushed_at)}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-500">
+                              {relativeTime(r.acknowledged_at)}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-red-600 max-w-[200px] truncate">
+                              {r.last_error
+                                ? r.last_error.slice(0, 60) + (r.last_error.length > 60 ? "…" : "")
+                                : <span className="text-gray-300">—</span>
+                              }
+                            </td>
+                            <td className="px-3 py-2 text-gray-400 text-xs">
+                              {statusExpandedId === r.id ? "▲" : "▼"}
+                            </td>
+                          </tr>
+                          {statusExpandedId === r.id && (
+                            <tr key={`${r.id}-detail`}>
+                              <td colSpan={7} className="px-6 py-4 bg-gray-50 text-xs">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                  <div>
+                                    <p className="text-gray-400 uppercase font-semibold tracking-wider mb-1">
+                                      Site ID
+                                    </p>
+                                    <p className="font-mono text-gray-600 break-all">{r.site_id}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 uppercase font-semibold tracking-wider mb-1">
+                                      Failure Domain
+                                    </p>
+                                    <p>{r.failure_domain ?? "—"}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 uppercase font-semibold tracking-wider mb-1">
+                                      Last Updated
+                                    </p>
+                                    <p>{relativeTime(r.updated_at)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-gray-400 uppercase font-semibold tracking-wider mb-1">
+                                      Alias
+                                    </p>
+                                    <p className="font-mono">{r.alias}</p>
+                                  </div>
+                                  {r.last_error && (
+                                    <div className="col-span-2 md:col-span-4">
+                                      <p className="text-gray-400 uppercase font-semibold tracking-wider mb-1">
+                                        Full Error
+                                      </p>
+                                      <p className="text-red-600 font-mono whitespace-pre-wrap break-all">
+                                        {r.last_error}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* ═══ YAML MODAL ═══ */}
