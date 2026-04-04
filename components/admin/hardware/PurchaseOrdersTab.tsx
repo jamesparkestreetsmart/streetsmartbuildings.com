@@ -55,13 +55,12 @@ export default function PurchaseOrdersTab() {
       const { data: pos } = await supabase
         .from("c_project_purchase_orders")
         .select(`
-          po_id, part_number, item_name, expense_type, tax_category, qty, unit_cost,
+          po_id, part_number, item_name, vendor, expense_type, tax_category, qty, unit_cost,
           total_cost, sales_tax_amount, shipping_amount, receipt_status,
           is_capital_asset, is_billable_to_client, business_purpose,
-          order_date, received_date, notes, payment_method, is_reimbursable, purchase_url,
+          order_date, received_date, notes, payment_method, is_reimbursable,
           project_id,
           c_projects(project_code, project_name),
-          c_vendors(vendor_name),
           inventory_space_id,
           deployed_device_id
         `)
@@ -96,7 +95,7 @@ export default function PurchaseOrdersTab() {
         project_name: po.c_projects?.project_name || "",
         part_number: po.part_number,
         item_name: po.item_name,
-        vendor_name: po.c_vendors?.vendor_name || null,
+        vendor_name: po.vendor || null,
         expense_type: po.expense_type,
         tax_category: po.tax_category,
         qty: po.qty,
@@ -116,7 +115,7 @@ export default function PurchaseOrdersTab() {
         notes: po.notes,
         payment_method: po.payment_method,
         is_reimbursable: po.is_reimbursable || false,
-        purchase_url: po.purchase_url || null,
+        purchase_url: null,
       }));
 
       setLines(result);
