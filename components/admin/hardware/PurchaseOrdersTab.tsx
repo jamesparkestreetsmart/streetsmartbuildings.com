@@ -414,7 +414,12 @@ export default function PurchaseOrdersTab() {
         <span className="font-semibold text-gray-600">Projects:</span>
         {projects.map((p) => (
           <span key={p.project_id} className="text-gray-600">
-            <span className="font-mono font-semibold text-gray-800">{displayProjectCode(p.project_code)}</span>
+            <a
+              href={`/admin/projects/${p.project_id}`}
+              className="font-mono font-semibold text-green-700 hover:underline"
+            >
+              {displayProjectCode(p.project_code)}
+            </a>
             {" — "}{p.project_name}
           </span>
         ))}
