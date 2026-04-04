@@ -68,6 +68,7 @@ export default function PurchaseOrdersTab() {
   const [editingLine, setEditingLine] = useState<POLine | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<POLine>>({});
   const [saving, setSaving] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -175,6 +176,28 @@ export default function PurchaseOrdersTab() {
   function closeEditor() {
     setEditingLine(null);
     setEditDraft({});
+    setIsCreating(false);
+  }
+
+  function openCreate() {
+    setEditingLine(null);
+    setIsCreating(true);
+    setEditDraft({
+      project_id: projects[0]?.project_id || "",
+      item_name: "",
+      vendor_name: "",
+      part_number: "",
+      qty: 1,
+      unit_cost: 0,
+      total_cost: 0,
+      tax_category: "",
+      receipt_status: "received",
+      is_capital_asset: false,
+      is_billable_to_client: false,
+      notes: "",
+      order_date: "",
+      purchase_url: "",
+    });
   }
 
   function updateDraft(field: keyof POLine, value: any) {
@@ -191,7 +214,6 @@ export default function PurchaseOrdersTab() {
   }
 
   async function saveEdit() {
-    if (!editingLine) return;
     const qty = Number(editDraft.qty);
     const unit = Number(editDraft.unit_cost);
     if (!editDraft.item_name?.trim()) { alert("Item name is required."); return; }
@@ -199,51 +221,78 @@ export default function PurchaseOrdersTab() {
     if (isNaN(unit) || unit < 0) { alert("Unit cost must be a valid number."); return; }
 
     setSaving(true);
+    const projectId = editDraft.project_id || projects[0]?.project_id;
+    const proj = projects.find((p) => p.project_id === projectId);
+    const payload = {
+      project_id: projectId,
+      item_name: editDraft.item_name,
+      vendor: editDraft.vendor_name,
+      part_number: editDraft.part_number || null,
+      qty: qty,
+      unit_cost: unit,
+      total_cost: qty * unit,
+      tax_category: editDraft.tax_category || null,
+      receipt_status: editDraft.receipt_status || null,
+      is_capital_asset: editDraft.is_capital_asset || false,
+      is_billable_to_client: editDraft.is_billable_to_client || false,
+      notes: editDraft.notes || null,
+      order_date: editDraft.order_date || null,
+      purchase_url: editDraft.purchase_url || null,
+      updated_at: new Date().toISOString(),
+    };
 
-    const projectId = editDraft.project_id || editingLine.project_id;
-
-    const { error } = await supabase
-      .from("c_project_purchase_orders")
-      .update({
-        project_id: projectId,
-        item_name: editDraft.item_name,
-        vendor: editDraft.vendor_name,
+    if (isCreating) {
+      const { data: newRow, error } = await supabase
+        .from("c_project_purchase_orders")
+        .insert({ ...payload, expense_type: "hardware" })
+        .select("po_id")
+        .single();
+      if (error || !newRow) { alert("Create failed: " + error?.message); setSaving(false); return; }
+      const newLine: POLine = {
+        po_id: newRow.po_id,
+        project_id: projectId!,
+        project_code: proj?.project_code || "",
+        project_name: proj?.project_name || "",
         part_number: editDraft.part_number || null,
-        qty: qty,
+        item_name: editDraft.item_name!,
+        vendor_name: editDraft.vendor_name || null,
+        expense_type: "hardware",
+        tax_category: editDraft.tax_category || null,
+        qty,
         unit_cost: unit,
         total_cost: qty * unit,
-        tax_category: editDraft.tax_category || null,
+        sales_tax_amount: 0,
+        shipping_amount: 0,
         receipt_status: editDraft.receipt_status || null,
         is_capital_asset: editDraft.is_capital_asset || false,
         is_billable_to_client: editDraft.is_billable_to_client || false,
-        notes: editDraft.notes || null,
+        business_purpose: null,
         order_date: editDraft.order_date || null,
+        received_date: null,
+        inventory_space: null,
+        deployed_device: null,
+        doc_count: 0,
+        notes: editDraft.notes || null,
+        payment_method: null,
+        is_reimbursable: false,
         purchase_url: editDraft.purchase_url || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("po_id", editingLine.po_id);
-
-    if (error) { alert("Save failed: " + error.message); setSaving(false); return; }
-
-    // Update project display fields from projects list
-    const proj = projects.find((p) => p.project_id === projectId);
-
-    setLines((prev) =>
-      prev.map((l) =>
-        l.po_id === editingLine.po_id
-          ? {
-              ...l,
-              ...editDraft,
-              project_id: projectId,
-              project_code: proj?.project_code || l.project_code,
-              project_name: proj?.project_name || l.project_name,
-              qty,
-              unit_cost: unit,
-              total_cost: qty * unit,
-            }
-          : l
-      )
-    );
+      };
+      setLines((prev) => [newLine, ...prev]);
+    } else {
+      if (!editingLine) { setSaving(false); return; }
+      const { error } = await supabase
+        .from("c_project_purchase_orders")
+        .update(payload)
+        .eq("po_id", editingLine.po_id);
+      if (error) { alert("Save failed: " + error.message); setSaving(false); return; }
+      setLines((prev) =>
+        prev.map((l) =>
+          l.po_id === editingLine.po_id
+            ? { ...l, ...editDraft, project_id: projectId!, project_code: proj?.project_code || l.project_code, project_name: proj?.project_name || l.project_name, qty, unit_cost: unit, total_cost: qty * unit }
+            : l
+        )
+      );
+    }
 
     setSaving(false);
     closeEditor();
@@ -285,12 +334,12 @@ export default function PurchaseOrdersTab() {
   const filtered = useMemo(() => {
     let result = lines.filter((l) => {
       if (search) {
-        const q = search.toLowerCase();
-        if (!(
-          l.item_name.toLowerCase().includes(q) ||
-          (l.part_number && l.part_number.toLowerCase().includes(q)) ||
-          (l.vendor_name && l.vendor_name.toLowerCase().includes(q))
-        )) return false;
+        const q = search.toLowerCase().trim();
+        const matchesItem = l.item_name.toLowerCase().includes(q);
+        const matchesPart = l.part_number ? l.part_number.toLowerCase().includes(q) : false;
+        const matchesVendor = l.vendor_name ? l.vendor_name.toLowerCase().includes(q) : false;
+        const matchesProject = displayProjectCode(l.project_code).toLowerCase().includes(q);
+        if (!(matchesItem || matchesPart || matchesVendor || matchesProject)) return false;
       }
       if (projectFilter && l.project_code !== projectFilter) return false;
       if (taxCatFilter && l.tax_category !== taxCatFilter) return false;
@@ -413,6 +462,12 @@ export default function PurchaseOrdersTab() {
           Capital assets only
         </label>
         <span className="text-gray-400 ml-auto">{filtered.length} of {lines.length} lines</span>
+        <button
+          onClick={openCreate}
+          className="ml-3 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-md transition-colors"
+        >
+          + New Line
+        </button>
       </div>
 
       {/* Summary */}
@@ -437,10 +492,9 @@ export default function PurchaseOrdersTab() {
               <ThCell col="qty" label="Qty" className="text-right" />
               <ThCell col="unit_cost" label="Unit" className="text-right" />
               <ThCell col="total_cost" label="Total" className="text-right" />
-              <th className="text-center px-3 py-2 text-xs font-medium text-gray-500">Docs</th>
+              <th className="text-center px-3 py-2 text-xs font-medium text-gray-500" title="Upload receipts: PDF, JPG, PNG accepted">Docs <span className="text-gray-300 font-normal">(PDF/IMG)</span></th>
               <ThCell col="receipt_status" label="Status" className="text-left" />
               <ThCell col="order_date" label="Date" className="text-left" />
-              <th className="text-left px-3 py-2 text-xs font-medium text-gray-500">Location</th>
               <th className="px-3 py-2 text-xs font-medium text-gray-500"></th>
             </tr>
           </thead>
@@ -493,9 +547,6 @@ export default function PurchaseOrdersTab() {
                     )}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500">{l.order_date || "—"}</td>
-                  <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[150px]">
-                    {l.deployed_device || l.inventory_space || "—"}
-                  </td>
                   <td className="px-3 py-2">
                     <button
                       onClick={() => openEditor(l)}
@@ -512,12 +563,12 @@ export default function PurchaseOrdersTab() {
       </div>
 
       {/* Edit Panel */}
-      {editingLine && (
+      {(editingLine || isCreating) && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={closeEditor} />
           <div className="relative w-full max-w-md bg-white shadow-xl flex flex-col h-full overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h2 className="text-base font-semibold text-gray-800">Edit Line</h2>
+              <h2 className="text-base font-semibold text-gray-800">{isCreating ? "New Line" : "Edit Line"}</h2>
               <button onClick={closeEditor} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
 
@@ -692,7 +743,7 @@ export default function PurchaseOrdersTab() {
                 disabled={saving}
                 className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-md transition-colors"
               >
-                {saving ? "Saving…" : "Save Changes"}
+                {saving ? "Saving…" : isCreating ? "Create Line" : "Save Changes"}
               </button>
               <button
                 onClick={closeEditor}
