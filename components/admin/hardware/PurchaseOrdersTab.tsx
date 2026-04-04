@@ -512,7 +512,7 @@ export default function PurchaseOrdersTab() {
                   key={l.po_id}
                   className={`hover:bg-gray-50 ${getRowColor(l)} ${reviewFlag ? "border-l-4 border-l-orange-400" : ""}`}
                 >
-                  <td className="px-3 py-2 font-mono text-xs text-gray-600">{displayProjectCode(l.project_code)}</td>
+                  <td className="px-3 py-2 font-mono text-xs"><a href={`/admin/projects/${l.project_id}`} className="text-green-700 hover:underline font-semibold">{displayProjectCode(l.project_code)}</a></td>
                   <td className="px-3 py-2 font-mono text-xs text-gray-500">{l.part_number || "—"}</td>
                   <td className={`px-3 py-2 ${isDoNotUse ? "line-through text-red-500" : "text-gray-900"}`}>
                     {l.purchase_url ? (
