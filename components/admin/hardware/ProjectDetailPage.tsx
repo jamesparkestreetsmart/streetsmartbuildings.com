@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { displayProjectCode } from "./HardwareCatalogPage";
+function displayProjectCode(code: string): string { if (!code) return code; const parts = code.split("-"); if (parts.length !== 2) return code; return "P-" + parseInt(parts[1]); }
 
 interface Project {
   project_id: string;
