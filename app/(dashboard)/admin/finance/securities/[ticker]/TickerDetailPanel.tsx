@@ -63,11 +63,10 @@ export default function TickerDetailPanel({ security }: { security: Security }) 
     const fetch = async () => {
       setLoading(true);
 
-      // Supabase caps select at 1000 rows by default. We need all rows.
-      // Fetch in pages of 5000.
+      // Supabase returns max 1000 rows per request. Paginate to get all.
       let allRows: PriceRow[] = [];
       let offset = 0;
-      const pageSize = 5000;
+      const pageSize = 1000;
       let done = false;
 
       while (!done) {
