@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 interface Security {
@@ -33,6 +34,7 @@ const INDEX_OPTIONS = [
 ];
 
 export default function SecuritiesListPanel() {
+  const router = useRouter();
   const [securities, setSecurities] = useState<Security[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -221,8 +223,12 @@ export default function SecuritiesListPanel() {
             </thead>
             <tbody className="divide-y">
               {filtered.map((s) => (
-                <tr key={s.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 font-mono font-bold text-gray-900">{s.ticker}</td>
+                <tr
+                  key={s.id}
+                  className="hover:bg-gray-50 cursor-pointer"
+                  onClick={() => router.push(`/admin/finance/securities/${s.ticker}`)}
+                >
+                  <td className="px-3 py-2 font-mono font-bold text-green-700 hover:underline">{s.ticker}</td>
                   <td className="px-3 py-2 text-gray-700">{s.company_name || "—"}</td>
                   <td className="px-3 py-2">
                     <div className="flex gap-1 flex-wrap">
