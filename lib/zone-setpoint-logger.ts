@@ -1247,23 +1247,38 @@ export async function logZoneSetpointSnapshot(
         : 0;
 
       // ── Manager Adjustment ──
-      // Only applies when entity-sync has already flagged manager_override_active.
-      // Computes the delta between HA actual and Eagle Eyes expected to quantify the override.
+      // Only applies when entity-sync has already flagged manager_override_active
+      // AND the override timer has not expired.
       let managerAdj = 0;
       const haActualHeat = tState?.target_temp_low_f ?? tState?.current_setpoint_f ?? null;
       const haActualCool = tState?.target_temp_high_f ?? null;
+      let overrideExpiredHere = false;
 
       if (tState?.manager_override_active && haActualHeat != null) {
-        // Only compute manager adjustment when an override is already flagged.
-        // Without this guard, stale HA readings create false overrides.
-        const expectedHeat = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj;
-        const rawOffset = Math.round((haActualHeat - expectedHeat) * 10) / 10;
-        // Clamp: ±profile limit during occupied, ±15 during unoccupied
-        const clampLimit = phaseInfo.phase === "occupied" ? 4 : 15;
-        managerAdj = Math.max(-clampLimit, Math.min(clampLimit, rawOffset));
-        // Zero out if very small (rounding noise from HA)
-        if (Math.abs(managerAdj) < 0.5) managerAdj = 0;
-        console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id} managerAdj: HA_actual_heat=${haActualHeat} expected=${expectedHeat} rawOffset=${rawOffset} managerAdj=${managerAdj}`);
+        // Check override timer before computing adjustment
+        const baseOverrideMin = zone.manager_override_reset_minutes ?? 120;
+        const effectiveResetMin = phaseInfo.phase === "occupied" ? baseOverrideMin : Math.min(15, baseOverrideMin);
+        const overrideStartedAt = tState.manager_override_started_at
+          ? new Date(tState.manager_override_started_at).getTime() : 0;
+        // If started_at is null/0 (falsy), treat as expired (safe default)
+        const overrideElapsedMin = overrideStartedAt ? (Date.now() - overrideStartedAt) / 60000 : Infinity;
+
+        if (effectiveResetMin > 0 && overrideElapsedMin >= effectiveResetMin) {
+          // Override timer expired — zero out adjustment
+          managerAdj = 0;
+          overrideExpiredHere = true;
+          console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id}: Manager override expired (${Math.round(overrideElapsedMin)}min elapsed >= ${effectiveResetMin}min reset) — managerAdj forced to 0`);
+        } else {
+          // Override still active — compute adjustment
+          const expectedHeat = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj;
+          const rawOffset = Math.round((haActualHeat - expectedHeat) * 10) / 10;
+          // Clamp: ±profile limit during occupied, ±15 during unoccupied
+          const clampLimit = phaseInfo.phase === "occupied" ? 4 : 15;
+          managerAdj = Math.max(-clampLimit, Math.min(clampLimit, rawOffset));
+          // Zero out if very small (rounding noise from HA)
+          if (Math.abs(managerAdj) < 0.5) managerAdj = 0;
+          console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id} managerAdj: HA_actual_heat=${haActualHeat} expected=${expectedHeat} rawOffset=${rawOffset} managerAdj=${managerAdj}`);
+        }
       }
 
       // ── Override state tracking on b_thermostat_state ──
@@ -1273,7 +1288,21 @@ export async function logZoneSetpointSnapshot(
       const overrideResetMinutes = phaseInfo.phase === "occupied" ? baseOverrideMinutes : Math.min(15, baseOverrideMinutes);
 
       if (climateEntityId) {
-        if (managerAdj !== 0 && !tState?.manager_override_active) {
+        if (overrideExpiredHere) {
+          // Override timer expired — clear override flags (belt-and-suspenders with ha-push)
+          await supabase
+            .from("b_thermostat_state")
+            .update({
+              manager_override_active: false,
+              manager_override_heat_f: null,
+              manager_override_cool_f: null,
+              manager_override_started_at: null,
+              manager_override_remaining_min: 0,
+            })
+            .eq("entity_id", climateEntityId)
+            .eq("site_id", siteId);
+          console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id}: Cleared expired override flags`);
+        } else if (managerAdj !== 0 && !tState?.manager_override_active) {
           // New override detected — record start
           await supabase
             .from("b_thermostat_state")
@@ -1304,7 +1333,7 @@ export async function logZoneSetpointSnapshot(
 
       // ── Compute final active setpoints ──
       // Priority order:
-      // 1. If manager_override_active → use override temps from b_thermostat_state
+      // 1. If manager_override_active AND not expired → use override temps from b_thermostat_state
       // 2. Else → use calculated (profile + all adjustments)
       // We intentionally do NOT fall back to haActualHeat because HA values
       // can be stale between enforce cycles (e.g. unoccupied temps lingering
@@ -1313,7 +1342,7 @@ export async function logZoneSetpointSnapshot(
       const expectedCoolTotal = profileCool + feelsLikeAdj + smartStartAdj + occupancyAdj + managerAdj;
       let activeHeat: number;
       let activeCool: number;
-      if (tState?.manager_override_active && tState?.manager_override_heat_f != null) {
+      if (tState?.manager_override_active && !overrideExpiredHere && tState?.manager_override_heat_f != null) {
         activeHeat = tState.manager_override_heat_f;
         activeCool = tState.manager_override_cool_f ?? expectedCoolTotal;
       } else {
