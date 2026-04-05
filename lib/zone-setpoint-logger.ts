@@ -9,6 +9,7 @@ import { processDeliveryQueue } from "@/lib/alert-delivery";
 import { normalizeHaDeviceId } from "@/lib/thermostat/normalize-device-id";
 import { resolveEffectiveState, EffectiveState } from "@/lib/store-hours/resolveEffectiveState";
 import { siteLocalDate } from "@/lib/utils/site-date";
+import { checkOverrideExpiry } from "@/lib/override-expiry";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1258,16 +1259,17 @@ export async function logZoneSetpointSnapshot(
         // Check override timer before computing adjustment
         const baseOverrideMin = zone.manager_override_reset_minutes ?? 120;
         const effectiveResetMin = phaseInfo.phase === "occupied" ? baseOverrideMin : Math.min(15, baseOverrideMin);
-        const overrideStartedAt = tState.manager_override_started_at
-          ? new Date(tState.manager_override_started_at).getTime() : 0;
-        // If started_at is null/0 (falsy), treat as expired (safe default)
-        const overrideElapsedMin = overrideStartedAt ? (Date.now() - overrideStartedAt) / 60000 : Infinity;
+        const expiry = checkOverrideExpiry(
+          true,
+          tState.manager_override_started_at ?? null,
+          effectiveResetMin
+        );
 
-        if (effectiveResetMin > 0 && overrideElapsedMin >= effectiveResetMin) {
+        if (expiry.isExpired) {
           // Override timer expired — zero out adjustment
           managerAdj = 0;
           overrideExpiredHere = true;
-          console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id}: Manager override expired (${Math.round(overrideElapsedMin)}min elapsed >= ${effectiveResetMin}min reset) — managerAdj forced to 0`);
+          console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id}: Manager override expired (${Math.round(expiry.elapsedMinutes)}min elapsed >= ${effectiveResetMin}min reset) — managerAdj forced to 0`);
         } else {
           // Override still active — compute adjustment
           const expectedHeat = profileHeat + feelsLikeAdj + smartStartAdj + occupancyAdj;
@@ -1318,10 +1320,12 @@ export async function logZoneSetpointSnapshot(
           console.log(`[zone-setpoint-logger] zone=${zone.hvac_zone_id}: Manager override detected (adj=${managerAdj}°F), timer=${overrideResetMinutes}m`);
         } else if (tState?.manager_override_active) {
           // Override in progress — update remaining time
-          const startedAt = tState.manager_override_started_at
-            ? new Date(tState.manager_override_started_at).getTime() : Date.now();
-          const elapsedMin = (Date.now() - startedAt) / 60000;
-          const remaining = Math.max(0, Math.round(overrideResetMinutes - elapsedMin));
+          const progressExpiry = checkOverrideExpiry(
+            true,
+            tState.manager_override_started_at ?? null,
+            overrideResetMinutes
+          );
+          const remaining = Math.max(0, Math.round(overrideResetMinutes - progressExpiry.elapsedMinutes));
 
           await supabase
             .from("b_thermostat_state")

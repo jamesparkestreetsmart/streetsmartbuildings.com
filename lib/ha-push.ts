@@ -5,6 +5,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { resolveZoneSetpointsSync } from "@/lib/setpoint-resolver";
 import { siteLocalDate } from "@/lib/utils/site-date";
 import { getZoneSensorReading, getOccupancyReading } from "@/lib/zone-setpoint-logger";
+import { checkOverrideExpiry } from "@/lib/override-expiry";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -848,14 +849,16 @@ export async function executePushForSite(
     const isOverrideActive = thermoState?.manager_override_active === true;
 
     if (isOverrideActive) {
-      const startedAt = thermoState?.manager_override_started_at
-        ? new Date(thermoState.manager_override_started_at).getTime() : 0;
-      const elapsedMin = startedAt ? (Date.now() - startedAt) / 60000 : Infinity;
-      const remaining = Math.max(0, Math.round(overrideResetMinutes - elapsedMin));
+      const expiry = checkOverrideExpiry(
+        true,
+        thermoState?.manager_override_started_at ?? null,
+        overrideResetMinutes
+      );
+      const remaining = Math.max(0, Math.round(overrideResetMinutes - expiry.elapsedMinutes));
 
-      if (overrideResetMinutes > 0 && elapsedMin >= overrideResetMinutes) {
+      if (expiry.isExpired) {
         // Override expired — clear it and push profile setpoint
-        console.log(`[ha-push] Zone "${zone.name}": Manager override expired (${Math.round(elapsedMin)}min elapsed) — resetting to profile`);
+        console.log(`[ha-push] Zone "${zone.name}": Manager override expired (${Math.round(expiry.elapsedMinutes)}min elapsed) — resetting to profile`);
         await supabase
           .from("b_thermostat_state")
           .update({
