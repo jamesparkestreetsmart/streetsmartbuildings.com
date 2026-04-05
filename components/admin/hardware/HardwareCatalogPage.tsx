@@ -6,17 +6,19 @@ import ProductCatalogueTab from "./ProductCatalogueTab";
 import PurchaseOrdersTab from "./PurchaseOrdersTab";
 import VendorRegistryTab from "./VendorRegistryTab";
 import DocumentsTab from "./DocumentsTab";
+import BOMEstimatorTab from "./BOMEstimatorTab";
 
 const TABS = [
   { key: "catalogue", label: "Product Catalogue" },
   { key: "purchase-orders", label: "Purchase Orders" },
   { key: "vendors", label: "Vendor Registry" },
   { key: "documents", label: "Documents" },
+  { key: "bom", label: "BOM Estimator" },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
 
-/** Strip leading zeros for display: P-00001 → P-1 */
+/** Strip leading zeros for display: P-00001 -> P-1 */
 export function displayProjectCode(code: string): string {
   if (!code) return code;
   const parts = code.split("-");
@@ -27,21 +29,18 @@ export function displayProjectCode(code: string): string {
 export default function HardwareCatalogPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("purchase-orders");
 
-  // Attention banner data
   const [reviewCount, setReviewCount] = useState(0);
   const [w9Vendors, setW9Vendors] = useState<string[]>([]);
   const [receiptStats, setReceiptStats] = useState({ total: 0, covered: 0 });
 
   useEffect(() => {
     const fetchBannerData = async () => {
-      // Review items
       const { count: rc } = await supabase
         .from("c_project_purchase_orders")
         .select("po_id", { count: "exact", head: true })
         .ilike("notes", "Review:%");
       setReviewCount(rc || 0);
 
-      // W-9 needed vendors
       const { data: vendors } = await supabase
         .from("c_vendors")
         .select("vendor_name")
@@ -49,7 +48,6 @@ export default function HardwareCatalogPage() {
         .eq("w9_on_file", false);
       setW9Vendors((vendors || []).map((v: any) => v.vendor_name));
 
-      // Receipt coverage
       const { data: pos } = await supabase
         .from("c_project_purchase_orders")
         .select("po_id, unit_cost");
@@ -67,7 +65,6 @@ export default function HardwareCatalogPage() {
 
   return (
     <div className="space-y-4">
-      {/* Attention banners */}
       {reviewCount > 0 && (
         <div
           className="border-l-4 border-l-orange-400 bg-orange-50 px-4 py-3 rounded-r-lg cursor-pointer hover:bg-orange-100"
@@ -91,12 +88,11 @@ export default function HardwareCatalogPage() {
       {receiptStats.total > 0 && receiptStats.covered === 0 && (
         <div className="border-l-4 border-l-amber-400 bg-amber-50 px-4 py-3 rounded-r-lg">
           <p className="text-sm text-amber-800 font-medium">
-            0 of {receiptStats.total} purchase orders have receipts uploaded — add receipts to complete your accounting records
+            0 of {receiptStats.total} purchase orders have receipts uploaded -- add receipts to complete your accounting records
           </p>
         </div>
       )}
 
-      {/* Tabs */}
       <div className="flex border-b">
         {TABS.map((tab) => (
           <button
@@ -117,6 +113,7 @@ export default function HardwareCatalogPage() {
       {activeTab === "purchase-orders" && <PurchaseOrdersTab />}
       {activeTab === "vendors" && <VendorRegistryTab />}
       {activeTab === "documents" && <DocumentsTab />}
+      {activeTab === "bom" && <BOMEstimatorTab />}
     </div>
   );
 }
