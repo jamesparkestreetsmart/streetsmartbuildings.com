@@ -23,11 +23,12 @@ async function getServiceProviderInfo(email: string): Promise<{ isSSB: boolean }
 export default async function ProjectDetailRoute({
   params,
 }: {
-  params: { project_id: string };
+  params: Promise<{ project_id: string }>;
 }) {
+  const { project_id } = await params;
   const email = await getCurrentUserEmail();
   if (!email) redirect("/live");
   const { isSSB } = await getServiceProviderInfo(email);
   if (!isSSB) redirect("/live");
-  return <ProjectDetailPage projectId={params.project_id} />;
+  return <ProjectDetailPage projectId={project_id} />;
 }
