@@ -43,6 +43,18 @@ function fmtDate(dateStr: string, totalDays: number) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// Downsample to ~targetPoints by keeping every Nth point, always including first and last
+function downsample(rows: PriceRow[], targetPoints: number): PriceRow[] {
+  if (rows.length <= targetPoints) return rows;
+  const step = (rows.length - 1) / (targetPoints - 1);
+  const result: PriceRow[] = [];
+  for (let i = 0; i < targetPoints - 1; i++) {
+    result.push(rows[Math.round(i * step)]);
+  }
+  result.push(rows[rows.length - 1]); // always include last point
+  return result;
+}
+
 export default function PriceChart({
   data,
   mode,
@@ -50,8 +62,14 @@ export default function PriceChart({
   data: PriceRow[];
   mode: ChartMode;
 }) {
+  // Downsample large datasets for chart performance
+  const displayData = useMemo(() => {
+    if (data.length > 2000) return downsample(data, 1500);
+    return data;
+  }, [data]);
+
   const chartData = useMemo(() => {
-    return data.map((d) => ({
+    return displayData.map((d) => ({
       ...d,
       // For candlestick rendering with recharts, we use a bar with [low, high] and color by direction
       candleBody: [Math.min(d.open, d.close), Math.max(d.open, d.close)] as [number, number],
@@ -59,15 +77,15 @@ export default function PriceChart({
       bullish: d.close >= d.open,
       volColor: d.close >= d.open ? "#22c55e" : "#ef4444",
     }));
-  }, [data]);
+  }, [displayData]);
 
-  const totalDays = data.length;
+  const totalDays = displayData.length;
 
   // Compute Y domain with padding
   const [yMin, yMax] = useMemo(() => {
-    if (data.length === 0) return [0, 100];
+    if (displayData.length === 0) return [0, 100];
     let lo = Infinity, hi = -Infinity;
-    for (const d of data) {
+    for (const d of displayData) {
       if (mode === "candlestick") {
         if (d.low < lo) lo = d.low;
         if (d.high > hi) hi = d.high;
@@ -86,7 +104,7 @@ export default function PriceChart({
     return Math.floor(totalDays / 12);
   }, [totalDays]);
 
-  if (data.length === 0) {
+  if (displayData.length === 0) {
     return (
       <div className="h-[400px] border rounded-lg bg-white flex items-center justify-center text-sm text-gray-400">
         No price data available for this range.
@@ -108,6 +126,7 @@ export default function PriceChart({
               tick={{ fontSize: 10, fill: "#9ca3af" }}
               axisLine={{ stroke: "#e5e7eb" }}
               tickLine={false}
+              domain={[displayData[0]?.trade_date, displayData[displayData.length - 1]?.trade_date]}
             />
             <YAxis
               domain={[yMin, yMax]}

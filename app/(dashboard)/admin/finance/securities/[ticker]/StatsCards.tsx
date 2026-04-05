@@ -30,13 +30,13 @@ export default function StatsCards({
 }) {
   if (data.length === 0) return null;
 
-  // Period stats (selected range)
+  // Period stats (selected range) — all based on adj_close
   let periodHigh = -Infinity;
   let periodLow = Infinity;
   let totalVol = 0;
   for (const d of data) {
-    if (d.high > periodHigh) periodHigh = d.high;
-    if (d.low < periodLow) periodLow = d.low;
+    if (d.adj_close > periodHigh) periodHigh = d.adj_close;
+    if (d.adj_close < periodLow) periodLow = d.adj_close;
     totalVol += d.volume;
   }
   const avgVol = totalVol / data.length;
@@ -44,12 +44,12 @@ export default function StatsCards({
   const lastClose = data[data.length - 1].adj_close;
   const periodReturn = firstClose > 0 ? ((lastClose - firstClose) / firstClose) * 100 : 0;
 
-  // All-time stats
+  // All-time stats — based on adj_close
   let athPrice = -Infinity, athDate = "";
   let atlPrice = Infinity, atlDate = "";
   for (const d of allData) {
-    if (d.high > athPrice) { athPrice = d.high; athDate = d.trade_date; }
-    if (d.low < atlPrice) { atlPrice = d.low; atlDate = d.trade_date; }
+    if (d.adj_close > athPrice) { athPrice = d.adj_close; athDate = d.trade_date; }
+    if (d.adj_close < atlPrice) { atlPrice = d.adj_close; atlDate = d.trade_date; }
   }
 
   const cards = [
