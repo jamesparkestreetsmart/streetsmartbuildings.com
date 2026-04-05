@@ -25,6 +25,13 @@ interface PriceRow {
   volume: number;
 }
 
+interface ChartRow extends PriceRow {
+  ts: number;
+  candleBody: [number, number];
+  candleWick: [number, number];
+  bullish: boolean;
+}
+
 function fmtPrice(n: number) {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -36,23 +43,14 @@ function fmtVol(n: number) {
   return String(n);
 }
 
-function fmtDate(dateStr: string, totalDays: number) {
-  const d = new Date(dateStr + "T00:00:00");
-  if (totalDays > 365 * 5) return d.getFullYear().toString();
-  if (totalDays > 365) return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-// Downsample to ~targetPoints by keeping every Nth point, always including first and last
-function downsample(rows: PriceRow[], targetPoints: number): PriceRow[] {
-  if (rows.length <= targetPoints) return rows;
-  const step = (rows.length - 1) / (targetPoints - 1);
-  const result: PriceRow[] = [];
-  for (let i = 0; i < targetPoints - 1; i++) {
-    result.push(rows[Math.round(i * step)]);
+function downsample<T>(data: T[], maxPoints: number): T[] {
+  if (data.length <= maxPoints) return data;
+  const step = Math.ceil(data.length / maxPoints);
+  const sampled = data.filter((_, i) => i % step === 0);
+  if (sampled[sampled.length - 1] !== data[data.length - 1]) {
+    sampled.push(data[data.length - 1]);
   }
-  result.push(rows[rows.length - 1]); // always include last point
-  return result;
+  return sampled;
 }
 
 export default function PriceChart({
@@ -62,30 +60,30 @@ export default function PriceChart({
   data: PriceRow[];
   mode: ChartMode;
 }) {
-  // Downsample large datasets for chart performance
-  const displayData = useMemo(() => {
-    if (data.length > 2000) return downsample(data, 1500);
-    return data;
-  }, [data]);
-
   const chartData = useMemo(() => {
-    return displayData.map((d) => ({
+    const withTs = data.map((d) => ({
       ...d,
-      // For candlestick rendering with recharts, we use a bar with [low, high] and color by direction
+      ts: new Date(d.trade_date + "T00:00:00").getTime(),
       candleBody: [Math.min(d.open, d.close), Math.max(d.open, d.close)] as [number, number],
       candleWick: [d.low, d.high] as [number, number],
       bullish: d.close >= d.open,
-      volColor: d.close >= d.open ? "#22c55e" : "#ef4444",
     }));
-  }, [displayData]);
+    return downsample(withTs, 2000);
+  }, [data]);
 
-  const totalDays = displayData.length;
+  const totalPoints = chartData.length;
+
+  // Compute span in years for tick formatting
+  const spanYears = useMemo(() => {
+    if (chartData.length < 2) return 0;
+    return (chartData[chartData.length - 1].ts - chartData[0].ts) / (1000 * 60 * 60 * 24 * 365);
+  }, [chartData]);
 
   // Compute Y domain with padding
   const [yMin, yMax] = useMemo(() => {
-    if (displayData.length === 0) return [0, 100];
+    if (chartData.length === 0) return [0, 100];
     let lo = Infinity, hi = -Infinity;
-    for (const d of displayData) {
+    for (const d of chartData) {
       if (mode === "candlestick") {
         if (d.low < lo) lo = d.low;
         if (d.high > hi) hi = d.high;
@@ -96,21 +94,25 @@ export default function PriceChart({
     }
     const pad = (hi - lo) * 0.05;
     return [Math.max(0, lo - pad), hi + pad];
-  }, [data, mode]);
+  }, [chartData, mode]);
 
-  // Downsample tick labels to avoid overlap
-  const tickInterval = useMemo(() => {
-    if (totalDays <= 60) return 0; // show all
-    return Math.floor(totalDays / 12);
-  }, [totalDays]);
-
-  if (displayData.length === 0) {
+  if (chartData.length === 0) {
     return (
       <div className="h-[400px] border rounded-lg bg-white flex items-center justify-center text-sm text-gray-400">
         No price data available for this range.
       </div>
     );
   }
+
+  const tickFormatter = (ts: number) => {
+    const d = new Date(ts);
+    if (spanYears > 10) return d.getFullYear().toString();
+    if (spanYears > 1) return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const tooltipLabelFormatter = (ts: number) =>
+    new Date(ts).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
   return (
     <div className="space-y-0">
@@ -120,13 +122,15 @@ export default function PriceChart({
           <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis
-              dataKey="trade_date"
-              tickFormatter={(v) => fmtDate(v, totalDays)}
-              interval={tickInterval}
-              tick={{ fontSize: 10, fill: "#9ca3af" }}
+              dataKey="ts"
+              type="number"
+              scale="time"
+              domain={["dataMin", "dataMax"]}
+              tickFormatter={tickFormatter}
+              tickCount={8}
+              tick={{ fontSize: 11, fill: "#9ca3af" }}
               axisLine={{ stroke: "#e5e7eb" }}
               tickLine={false}
-              domain={[displayData[0]?.trade_date, displayData[displayData.length - 1]?.trade_date]}
             />
             <YAxis
               domain={[yMin, yMax]}
@@ -137,12 +141,13 @@ export default function PriceChart({
               width={70}
             />
             <Tooltip
+              labelFormatter={tooltipLabelFormatter}
               content={({ active, payload }) => {
                 if (!active || !payload?.[0]) return null;
-                const d = payload[0].payload as PriceRow;
+                const d = payload[0].payload as ChartRow;
                 return (
                   <div className="bg-white border rounded-lg shadow-lg p-3 text-xs space-y-1">
-                    <p className="font-semibold text-gray-800">{d.trade_date}</p>
+                    <p className="font-semibold text-gray-800">{tooltipLabelFormatter(d.ts)}</p>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-gray-600">
                       <span>Open:</span><span className="text-right font-mono">{fmtPrice(d.open)}</span>
                       <span>High:</span><span className="text-right font-mono">{fmtPrice(d.high)}</span>
@@ -178,7 +183,6 @@ export default function PriceChart({
             )}
             {mode === "candlestick" && (
               <>
-                {/* Wick (high-low range) as thin bar */}
                 <Bar
                   dataKey="candleWick"
                   barSize={1}
@@ -189,10 +193,9 @@ export default function PriceChart({
                     return <rect x={x + width / 2 - 0.5} y={y} width={1} height={height} fill={color} />;
                   }}
                 />
-                {/* Body (open-close range) */}
                 <Bar
                   dataKey="candleBody"
-                  barSize={Math.max(1, Math.min(8, Math.floor(800 / totalDays)))}
+                  barSize={Math.max(1, Math.min(8, Math.floor(800 / totalPoints)))}
                   isAnimationActive={false}
                   shape={(props: any) => {
                     const { x, y, width, height, payload } = props;
@@ -210,7 +213,7 @@ export default function PriceChart({
       <div className="border border-t-0 rounded-b-lg bg-white p-2">
         <ResponsiveContainer width="100%" height={100}>
           <ComposedChart data={chartData} margin={{ top: 0, right: 10, left: 10, bottom: 0 }}>
-            <XAxis dataKey="trade_date" hide />
+            <XAxis dataKey="ts" type="number" scale="time" domain={["dataMin", "dataMax"]} hide />
             <YAxis
               tickFormatter={fmtVol}
               tick={{ fontSize: 10, fill: "#9ca3af" }}
@@ -221,7 +224,7 @@ export default function PriceChart({
             <Bar
               dataKey="volume"
               isAnimationActive={false}
-              barSize={Math.max(1, Math.min(4, Math.floor(800 / totalDays)))}
+              barSize={Math.max(1, Math.min(4, Math.floor(800 / totalPoints)))}
               shape={(props: any) => {
                 const { x, y, width, height, payload } = props;
                 const color = payload.bullish ? "#22c55e" : "#ef4444";
